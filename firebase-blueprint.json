@@ -1,0 +1,171 @@
+{
+  "entities": {
+    "FoilRoll": {
+      "title": "FoilRoll",
+      "description": "Foil roll inventory record for PU Foam production",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the roll"
+        },
+        "lotNumber": {
+          "type": "string",
+          "description": "Lot number e.g. LOT-6909-A"
+        },
+        "rollNumber": {
+          "type": "string",
+          "description": "Roll identifier number e.g. 01, R-05"
+        },
+        "width": {
+          "type": "number",
+          "description": "Width in mm (830, 850, 880, 900)"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Foil pattern e.g. ท้องขาว, ดำ, ไม้อ่อน"
+        },
+        "totalMeters": {
+          "type": "number",
+          "description": "Original full length in meters"
+        },
+        "remainingMeters": {
+          "type": "number",
+          "description": "Current remaining length in meters"
+        },
+        "usedMeters": {
+          "type": "number",
+          "description": "Cumulative used length in meters"
+        },
+        "ngMeters": {
+          "type": "number",
+          "description": "Cumulative NG waste in meters"
+        },
+        "dateReceived": {
+          "type": "string",
+          "description": "Date received YYYY-MM-DD"
+        },
+        "status": {
+          "type": "string",
+          "description": "Status: active or depleted",
+          "enum": ["active", "depleted"]
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes"
+        },
+        "isZeroedOut": {
+          "type": "boolean",
+          "description": "Whether remaining stock was zeroed out"
+        },
+        "manualZeroedOriginalMeters": {
+          "type": "number",
+          "description": "Original remaining meters before zeroing out"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["id", "lotNumber", "rollNumber", "width", "pattern", "totalMeters", "remainingMeters", "status"]
+    },
+    "StockCutRecord": {
+      "title": "StockCutRecord",
+      "description": "Stock cutting log entry",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the cut record"
+        },
+        "foilId": {
+          "type": "string",
+          "description": "Foil roll ID"
+        },
+        "lotNumber": {
+          "type": "string",
+          "description": "Lot number of the roll"
+        },
+        "rollNumber": {
+          "type": "string",
+          "description": "Roll number of the roll"
+        },
+        "width": {
+          "type": "number",
+          "description": "Foil width in mm"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Foil pattern"
+        },
+        "soNumber": {
+          "type": "string",
+          "description": "Sales Order (SO) number or reason"
+        },
+        "cutType": {
+          "type": "string",
+          "description": "Cut type: so or non_so"
+        },
+        "nonSoReason": {
+          "type": "string",
+          "description": "Reason if not using SO"
+        },
+        "usedMeters": {
+          "type": "number",
+          "description": "Length used in meters"
+        },
+        "ngMeters": {
+          "type": "number",
+          "description": "NG waste in meters"
+        },
+        "totalDeducted": {
+          "type": "number",
+          "description": "Total deducted (used + ng)"
+        },
+        "remainingBefore": {
+          "type": "number",
+          "description": "Remaining meters before cut"
+        },
+        "remainingAfter": {
+          "type": "number",
+          "description": "Remaining meters after cut"
+        },
+        "usageDate": {
+          "type": "string",
+          "description": "Date of usage YYYY-MM-DD"
+        },
+        "recordedDate": {
+          "type": "string",
+          "description": "Date recorded YYYY-MM-DD"
+        },
+        "recordedBy": {
+          "type": "string",
+          "description": "Operator name who recorded the cut"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["id", "foilId", "soNumber", "usedMeters", "totalDeducted", "remainingAfter", "recordedBy"]
+    }
+  },
+  "firestore": {
+    "/foil_rolls/{rollId}": {
+      "schema": {
+        "$ref": "#/entities/FoilRoll"
+      },
+      "description": "Collection of all PU Foam foil rolls in factory inventory"
+    },
+    "/stock_cut_records/{recordId}": {
+      "schema": {
+        "$ref": "#/entities/StockCutRecord"
+      },
+      "description": "Collection of all stock cut history records"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "projectId": "stock-foil",
+  "appId": "1:490056674486:web:e57afa91e5579d821e8a17",
+  "apiKey": "AIzaSyCMtSWsr2HnVDAupSZMjZKrQ6o8ve_YxH4",
+  "authDomain": "stock-foil.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "stock-foil.firebasestorage.app",
+  "messagingSenderId": "490056674486",
+  "measurementId": "G-WHSENRKJPW",
+  "oAuthClientId": "",
+  "recaptchaSiteKey": ""
+}

@@ -1,0 +1,996 @@
+import React, { useState, useMemo } from 'react';
+import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
+import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
+import { formatMeters } from '../utils/formatters';
+import { 
+  Search, 
+  Filter, 
+  Scissors, 
+  History, 
+  Trash2, 
+  Plus, 
+  Download, 
+  AlertCircle,
+  CheckCircle2,
+  Layers,
+  LayoutGrid,
+  List,
+  FolderTree,
+  ChevronDown,
+  ChevronRight,
+  RotateCcw,
+  CheckSquare,
+  Square,
+  X,
+  Tag,
+  Hash
+} from 'lucide-react';
+
+interface FoilRollTableProps {
+  rolls: FoilRoll[];
+  onOpenCutModal: (rollId: string) => void;
+  onOpenAddModal: () => void;
+  onViewRollHistory: (roll: FoilRoll) => void;
+  onDeleteRoll: (rollId: string) => void;
+  onExportRolls: () => void;
+  onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
+}
+
+type GroupByCategory = 'none' | 'width' | 'pattern';
+
+export const FoilRollTable: React.FC<FoilRollTableProps> = ({
+  rolls,
+  onOpenCutModal,
+  onOpenAddModal,
+  onViewRollHistory,
+  onDeleteRoll,
+  onExportRolls,
+  onToggleZeroOut,
+}) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
+  const [selectedWidth, setSelectedWidth] = useState<string>('all');
+  const [selectedPattern, setSelectedPattern] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'depleted'>('all');
+  const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  // Unique lots for quick 1-click filter chips
+  const uniqueLots = useMemo(() => {
+    const set = new Set<string>();
+    rolls.forEach((r) => {
+      if (r.lotNumber && r.lotNumber.trim()) {
+        set.add(r.lotNumber.trim());
+      }
+    });
+    return Array.from(set).slice(0, 8);
+  }, [rolls]);
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const filteredRolls = useMemo(() => {
+    return rolls.filter((r) => {
+      // Search filter by Lot Number, Roll Number, or All
+      const q = searchQuery.toLowerCase().trim();
+      let matchQuery = true;
+      if (q) {
+        if (searchTarget === 'lot') {
+          matchQuery = r.lotNumber.toLowerCase().includes(q);
+        } else if (searchTarget === 'roll') {
+          matchQuery = r.rollNumber.toLowerCase().includes(q);
+        } else {
+          matchQuery =
+            r.lotNumber.toLowerCase().includes(q) || 
+            r.rollNumber.toLowerCase().includes(q) ||
+            r.pattern.toLowerCase().includes(q) ||
+            (r.notes ? r.notes.toLowerCase().includes(q) : false);
+        }
+      }
+
+      // Width
+      const matchWidth = selectedWidth === 'all' || String(r.width) === selectedWidth;
+
+      // Pattern
+      const matchPattern = selectedPattern === 'all' || r.pattern === selectedPattern;
+
+      // Status
+      const matchStatus = 
+        statusFilter === 'all' ||
+        (statusFilter === 'active' && r.remainingMeters > 0) ||
+        (statusFilter === 'depleted' && r.remainingMeters <= 0);
+
+      return matchQuery && matchWidth && matchPattern && matchStatus;
+    });
+  }, [rolls, searchQuery, searchTarget, selectedWidth, selectedPattern, statusFilter]);
+
+  const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
+
+  // Grouped Rolls computation
+  interface RollGroup {
+    key: string;
+    title: string;
+    subTitle?: string;
+    badge: string;
+    rolls: FoilRoll[];
+    totalRemaining: number;
+    totalFull: number;
+    activeCount: number;
+    depletedCount: number;
+    pattern?: string;
+    width?: number;
+  }
+
+  const groupedData = useMemo(() => {
+    if (groupBy === 'none') {
+      return null;
+    }
+
+    if (groupBy === 'width') {
+      // Group by Width (830, 850, 880, 900, etc.)
+      const groupsMap = new Map<number, FoilRoll[]>();
+      
+      // Keep standard widths in order first
+      STANDARD_WIDTHS.forEach(w => groupsMap.set(w, []));
+
+      filteredRolls.forEach(roll => {
+        const list = groupsMap.get(roll.width) || [];
+        list.push(roll);
+        groupsMap.set(roll.width, list);
+      });
+
+      const result: RollGroup[] = [];
+      groupsMap.forEach((gRolls, w) => {
+        if (gRolls.length === 0 && selectedWidth !== 'all') return;
+        if (gRolls.length === 0 && rolls.filter(r => r.width === w).length === 0) return;
+
+        const totalRemaining = gRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
+        const totalFull = gRolls.reduce((sum, r) => sum + r.totalMeters, 0);
+        const activeCount = gRolls.filter(r => r.remainingMeters > 0).length;
+        const depletedCount = gRolls.filter(r => r.remainingMeters <= 0).length;
+
+        result.push({
+          key: `width-${w}`,
+          title: `หน้ากว้าง ${w} มม.`,
+          subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้)`,
+          badge: `${w} mm`,
+          rolls: gRolls,
+          totalRemaining,
+          totalFull,
+          activeCount,
+          depletedCount,
+          width: w
+        });
+      });
+
+      return result;
+    }
+
+    if (groupBy === 'pattern') {
+      // Group by Pattern (ท้องขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว)
+      const groupsMap = new Map<string, FoilRoll[]>();
+      
+      // Standard patterns first
+      STANDARD_PATTERNS.forEach(p => groupsMap.set(p.value, []));
+
+      filteredRolls.forEach(roll => {
+        const list = groupsMap.get(roll.pattern) || [];
+        list.push(roll);
+        groupsMap.set(roll.pattern, list);
+      });
+
+      const result: RollGroup[] = [];
+      groupsMap.forEach((gRolls, pName) => {
+        if (gRolls.length === 0 && selectedPattern !== 'all') return;
+        if (gRolls.length === 0 && rolls.filter(r => r.pattern === pName).length === 0) return;
+
+        const totalRemaining = gRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
+        const totalFull = gRolls.reduce((sum, r) => sum + r.totalMeters, 0);
+        const activeCount = gRolls.filter(r => r.remainingMeters > 0).length;
+        const depletedCount = gRolls.filter(r => r.remainingMeters <= 0).length;
+
+        result.push({
+          key: `pattern-${pName}`,
+          title: `ลาย${pName}`,
+          subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้)`,
+          badge: pName,
+          rolls: gRolls,
+          totalRemaining,
+          totalFull,
+          activeCount,
+          depletedCount,
+          pattern: pName
+        });
+      });
+
+      return result;
+    }
+
+    return null;
+  }, [groupBy, filteredRolls, selectedWidth, selectedPattern, rolls]);
+
+  // Highlight matched search term in text
+  const highlightMatch = (text: string, query: string) => {
+    if (!query || !query.trim()) return text;
+    const q = query.trim();
+    const index = text.toLowerCase().indexOf(q.toLowerCase());
+    if (index === -1) return text;
+    const before = text.substring(0, index);
+    const match = text.substring(index, index + q.length);
+    const after = text.substring(index + q.length);
+    return (
+      <>
+        {before}
+        <mark className="bg-amber-200 text-amber-950 font-bold px-0.5 rounded shadow-2xs">
+          {match}
+        </mark>
+        {after}
+      </>
+    );
+  };
+
+  // Render roll row helper
+  const renderRollRow = (roll: FoilRoll) => {
+    const isZeroed = Boolean(roll.isZeroedOut);
+    const rem = roll.remainingMeters;
+    const isDepleted = rem <= 0 && !isZeroed;
+
+    const percentLeft = roll.totalMeters > 0 
+      ? Math.round((rem / roll.totalMeters) * 100) 
+      : 0;
+
+    // Color highlights requested:
+    // <= 1000m -> Yellow (1000 สีเหลือง)
+    // <= 500m  -> Orange (500 สีส้ม)
+    // <= 200m  -> Red (200 สีแดง, with zero-out toggle checkbox)
+    let highlightLevel: 'red' | 'orange' | 'yellow' | 'normal' | 'depleted' = 'normal';
+    if (isZeroed || (rem > 0 && rem <= 200)) {
+      highlightLevel = 'red';
+    } else if (rem > 200 && rem <= 500) {
+      highlightLevel = 'orange';
+    } else if (rem > 500 && rem <= 1000) {
+      highlightLevel = 'yellow';
+    } else if (isDepleted) {
+      highlightLevel = 'depleted';
+    }
+
+    let rowClass = 'hover:bg-slate-50/80 transition-colors';
+    if (highlightLevel === 'red') {
+      rowClass = 'bg-rose-50/90 hover:bg-rose-100/80 border-l-4 border-l-rose-500 transition-colors';
+    } else if (highlightLevel === 'orange') {
+      rowClass = 'bg-orange-50/90 hover:bg-orange-100/80 border-l-4 border-l-orange-500 transition-colors';
+    } else if (highlightLevel === 'yellow') {
+      rowClass = 'bg-yellow-50/90 hover:bg-yellow-100/80 border-l-4 border-l-yellow-400 transition-colors';
+    } else if (highlightLevel === 'depleted') {
+      rowClass = 'bg-slate-50/50 opacity-75 transition-colors';
+    }
+
+    return (
+      <tr 
+        key={roll.id} 
+        className={rowClass}
+      >
+        {/* Lot & Roll */}
+        <td className="px-4 py-3.5">
+          <div className="font-mono font-bold text-slate-900 text-sm flex items-center gap-1.5">
+            <span>{highlightMatch(roll.lotNumber, searchQuery)}</span>
+            {highlightLevel === 'red' && (
+              <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" title="สต๊อกเหลือน้อยวิกฤต (<= 200 ม.)" />
+            )}
+            {highlightLevel === 'orange' && (
+              <span className="w-2 h-2 rounded-full bg-orange-500" title="สต๊อกเหลือน้อยมาก (<= 500 ม.)" />
+            )}
+            {highlightLevel === 'yellow' && (
+              <span className="w-2 h-2 rounded-full bg-yellow-500" title="สต๊อกเหลือน้อย (<= 1000 ม.)" />
+            )}
+          </div>
+          <div className="text-xs text-slate-600 font-mono">
+            เบอร์ม้วน: <span className="font-semibold text-slate-800">{highlightMatch(roll.rollNumber, searchQuery)}</span>
+          </div>
+          {roll.notes && (
+            <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={roll.notes}>
+              {roll.notes}
+            </div>
+          )}
+        </td>
+
+        {/* Width with description */}
+        <td className="px-4 py-3.5">
+          <div className="inline-flex flex-col">
+            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-white/90 text-slate-900 border border-slate-200 shadow-2xs">
+              {roll.width} มม.
+            </span>
+            {WIDTH_SPECIFICATIONS[roll.width] && (
+              <span className="text-[11px] text-slate-600 font-medium mt-0.5 whitespace-nowrap">
+                {WIDTH_SPECIFICATIONS[roll.width]}
+              </span>
+            )}
+          </div>
+        </td>
+
+        {/* Pattern (ท้องฟอยล์) */}
+        <td className="px-4 py-3.5">
+          <div className="flex items-center gap-1.5">
+            <span className={`w-3 h-3 rounded-full border border-slate-300 shrink-0 ${
+              roll.pattern === 'ท้องขาว' ? 'bg-white' :
+              roll.pattern === 'ดำ' ? 'bg-slate-900' :
+              roll.pattern === 'ไม้อ่อน' || (roll.pattern as string) === 'ลายไม่อ่อน' ? 'bg-amber-200' :
+              roll.pattern === 'ไม้เข้ม' || (roll.pattern as string) === 'ลายไม้เข้ม' ? 'bg-amber-800' :
+              roll.pattern === 'เทา' ? 'bg-slate-400' :
+              'bg-rose-300'
+            }`} />
+            <span className="font-medium text-slate-900 text-xs">
+              {roll.pattern}
+            </span>
+          </div>
+        </td>
+
+        {/* Total full meters */}
+        <td className="px-4 py-3.5 text-right font-mono text-xs text-slate-600">
+          {formatMeters(roll.totalMeters)} ม.
+        </td>
+
+        {/* Remaining with progress bar & zero-out checkbox */}
+        <td className="px-4 py-3.5 text-right">
+          <div className="flex items-center justify-end gap-1.5">
+            <span className={`font-mono font-bold text-sm ${
+              isZeroed ? 'text-rose-700 line-through' :
+              highlightLevel === 'red' ? 'text-rose-700' :
+              highlightLevel === 'orange' ? 'text-orange-700' :
+              highlightLevel === 'yellow' ? 'text-amber-700' :
+              isDepleted ? 'text-slate-400' :
+              'text-emerald-700'
+            }`}>
+              {formatMeters(rem)}
+            </span>
+            <span className="text-[11px] text-slate-500">ม.</span>
+          </div>
+
+          {isZeroed && roll.manualZeroedOriginalMeters !== undefined && (
+            <div className="text-[10px] text-rose-700 font-bold font-mono">
+              ตัดเป็น 0 แล้ว (เดิม {formatMeters(roll.manualZeroedOriginalMeters)} ม.)
+            </div>
+          )}
+
+          {/* Visual Progress Bar */}
+          <div className="w-full bg-slate-200/80 rounded-full h-1.5 mt-1 overflow-hidden">
+            <div 
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                isZeroed ? 'bg-rose-500' :
+                highlightLevel === 'red' ? 'bg-rose-600' :
+                highlightLevel === 'orange' ? 'bg-orange-500' :
+                highlightLevel === 'yellow' ? 'bg-amber-400' :
+                isDepleted ? 'bg-slate-300' :
+                'bg-emerald-500'
+              }`}
+              style={{ width: `${percentLeft}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono mt-0.5 block text-right">
+            คงเหลือ {percentLeft}%
+          </span>
+
+          {/* Checkbox to zero-out roll (for rolls highlighted in red <= 200m, or currently zeroed) */}
+          {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (
+            <div className="mt-1.5 flex items-center justify-end">
+              <label 
+                htmlFor={`zero-toggle-${roll.id}`}
+                title={isZeroed ? "คลิกเพื่อติ๊กออกและคืนค่ายอดเดิม" : "ติ๊กเพื่อตัดยอดคงเหลือสล็อตนี้เป็น 0 เมตร"}
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all border shadow-2xs select-none ${
+                  isZeroed 
+                    ? 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700' 
+                    : 'bg-white text-rose-700 border-rose-400 hover:bg-rose-50'
+                }`}
+              >
+                <input
+                  id={`zero-toggle-${roll.id}`}
+                  type="checkbox"
+                  checked={isZeroed}
+                  onChange={(e) => onToggleZeroOut(roll.id, e.target.checked)}
+                  className="w-3.5 h-3.5 accent-rose-600 rounded cursor-pointer"
+                />
+                <span>{isZeroed ? 'ตัดสล็อตเป็น 0 (คืนค่า)' : 'ตัดสล็อตเป็น 0'}</span>
+              </label>
+            </div>
+          )}
+        </td>
+
+        {/* Used Meters */}
+        <td className="px-4 py-3.5 text-right font-mono text-xs font-semibold text-slate-700">
+          {roll.usedMeters > 0 ? `${formatMeters(roll.usedMeters)} ม.` : '-'}
+        </td>
+
+        {/* NG Scrap */}
+        <td className="px-4 py-3.5 text-right font-mono text-xs text-rose-600">
+          {roll.ngMeters > 0 ? `${formatMeters(roll.ngMeters)} ม.` : '-'}
+        </td>
+
+        {/* Status */}
+        <td className="px-4 py-3.5 text-center">
+          {isZeroed ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+              ตัดเป็น 0 แล้ว
+            </span>
+          ) : isDepleted ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+              หมดแล้ว
+            </span>
+          ) : highlightLevel === 'red' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-300 animate-pulse">
+              ต่ำกว่า 200 ม.
+            </span>
+          ) : highlightLevel === 'orange' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
+              ต่ำกว่า 500 ม.
+            </span>
+          ) : highlightLevel === 'yellow' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
+              ต่ำกว่า 1000 ม.
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              พร้อมใช้งาน
+            </span>
+          )}
+        </td>
+
+        {/* Actions */}
+        <td className="px-4 py-3.5 text-center">
+          <div className="flex items-center justify-center gap-1">
+            <button
+              onClick={() => onOpenCutModal(roll.id)}
+              disabled={isDepleted || isZeroed}
+              title={isZeroed ? "ม้วนนี้ถูกตัดเป็น 0 แล้ว (ติ๊กออกเพื่อคืนค่าก่อนตัด)" : "ตัดสต๊อกม้วนนี้"}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                isDepleted || isZeroed
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-slate-950 border border-amber-300'
+              }`}
+            >
+              <Scissors className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">ตัดสต๊อก</span>
+            </button>
+
+            <button
+              onClick={() => onViewRollHistory(roll)}
+              title="ดูประวัติการตัดของม้วนนี้"
+              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            >
+              <History className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                if (confirm(`คุณต้องการลบม้วน ${roll.lotNumber} เบอร์ ${roll.rollNumber} ใช่หรือไม่?`)) {
+                  onDeleteRoll(roll.id);
+                }
+              }}
+              title="ลบม้วนนี้ออกจากสต๊อก"
+              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Top Controls: Search Bar & Filters */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
+        {/* Row 1: Search Bar & Target Mode & Actions */}
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+          {/* Main Search Input */}
+          <div className="relative flex-1">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-amber-500 absolute left-3.5 pointer-events-none" />
+              <input
+                id="foil-roll-search-bar"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setSearchQuery('');
+                }}
+                placeholder={
+                  searchTarget === 'lot'
+                    ? 'ค้นหาเฉพาะเลขล็อต (Lot Number) เช่น LOT2609-01...'
+                    : searchTarget === 'roll'
+                    ? 'ค้นหาเฉพาะเบอร์ม้วน (Roll Number) เช่น R01, R02...'
+                    : 'ค้นหาด่วนตามเลขล็อต (Lot No.) หรือ เบอร์ม้วน (Roll No.)...'
+                }
+                className="w-full pl-10 pr-24 py-2.5 text-sm bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-400"
+              />
+              <div className="absolute right-2.5 flex items-center gap-1.5">
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    title="ล้างคำค้นหา (Clear)"
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : null}
+                <span className="text-[11px] font-mono text-slate-500 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200 hidden sm:inline">
+                  {filteredRolls.length}/{rolls.length} ม้วน
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Search Scope Filter Buttons */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs shrink-0">
+            <button
+              type="button"
+              onClick={() => setSearchTarget('all')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                searchTarget === 'all'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>ทั้งหมด</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchTarget('lot')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                searchTarget === 'lot'
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Tag className="w-3 h-3 text-amber-950" />
+              <span>เลขล็อต (Lot No.)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchTarget('roll')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                searchTarget === 'roll'
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Hash className="w-3 h-3 text-amber-950" />
+              <span>เบอร์ม้วน (Roll No.)</span>
+            </button>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onExportRolls}
+              className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>ส่งออก CSV</span>
+            </button>
+            <button
+              onClick={onOpenAddModal}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-amber-400" />
+              <span>เพิ่มฟอยล์ใหม่</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 1.5: Quick Lot Number Chips for Faster Access */}
+        {uniqueLots.length > 0 && (
+          <div className="flex items-center flex-wrap gap-1.5 pt-1 text-xs">
+            <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1 mr-1">
+              <Tag className="w-3 h-3 text-slate-400" />
+              <span>คลิกเลือกล็อตด่วน:</span>
+            </span>
+            {uniqueLots.map((lot) => {
+              const isSelected = searchQuery.trim().toLowerCase() === lot.toLowerCase();
+              return (
+                <button
+                  key={lot}
+                  type="button"
+                  onClick={() => {
+                    if (isSelected) {
+                      setSearchQuery('');
+                    } else {
+                      setSearchQuery(lot);
+                      setSearchTarget('lot');
+                    }
+                  }}
+                  className={`px-2 py-0.5 rounded-md font-mono text-[11px] transition-all cursor-pointer border ${
+                    isSelected
+                      ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold shadow-2xs ring-1 ring-amber-400'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  {lot}
+                </button>
+              );
+            })}
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="text-[11px] text-rose-600 hover:underline ml-1 font-medium cursor-pointer"
+              >
+                ล้างคำค้น
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Active Search Summary Notification Banner */}
+        {searchQuery.trim() && (
+          <div className="flex items-center justify-between bg-amber-50/90 border border-amber-200 px-3.5 py-2 rounded-xl text-xs text-amber-950">
+            <div className="flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-amber-600" />
+              <span>
+                กำลังกรองด้วยคำค้นหา: <strong className="font-mono font-bold text-slate-900">"{searchQuery}"</strong>{' '}
+                <span className="text-slate-600">
+                  ({searchTarget === 'lot' ? 'เฉพาะเลขล็อต' : searchTarget === 'roll' ? 'เฉพาะเบอร์ม้วน' : 'ทุกล็อต/เบอร์ม้วน/ลาย'})
+                </span>
+                {' • '}
+                พบ <strong className="text-amber-800 font-bold">{filteredRolls.length}</strong> ม้วน
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="text-xs font-semibold text-amber-900 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>ล้างคำค้น</span>
+            </button>
+          </div>
+        )}
+
+        {/* Row 2: Group By Categorization & Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+          {/* Group By Categorization Selector */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs mr-1">
+            <span className="px-2 py-1 text-slate-500 font-semibold flex items-center gap-1">
+              <FolderTree className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">จัดหมวดหมู่:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setGroupBy('width')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                groupBy === 'width'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ตามหน้ากว้าง
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupBy('pattern')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                groupBy === 'pattern'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ตามท้องฟอยล์
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupBy('none')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                groupBy === 'none'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ไม่แยกกลุ่ม
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 text-slate-500 mr-1 font-medium">
+            <Filter className="w-3.5 h-3.5" />
+            <span>กรองตาม:</span>
+          </div>
+
+          {/* Width Filter */}
+          <select
+            value={selectedWidth}
+            onChange={(e) => setSelectedWidth(e.target.value)}
+            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:border-amber-500 cursor-pointer"
+          >
+            <option value="all">หน้ากว้าง: ทั้งหมด</option>
+            {STANDARD_WIDTHS.map(w => (
+              <option key={w} value={String(w)}>{w} มม. ({WIDTH_SPECIFICATIONS[w] || ''})</option>
+            ))}
+          </select>
+
+          {/* Pattern Filter */}
+          <select
+            value={selectedPattern}
+            onChange={(e) => setSelectedPattern(e.target.value)}
+            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-xs focus:border-amber-500 cursor-pointer"
+          >
+            <option value="all">ท้องฟอยล์: ทั้งหมด</option>
+            {STANDARD_PATTERNS.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+
+          {/* Status Filter */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                statusFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ทั้งหมด ({rolls.length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('active')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                statusFilter === 'active' ? 'bg-white text-emerald-700 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              มีของ ({rolls.filter(r => r.remainingMeters > 0).length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('depleted')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                statusFilter === 'depleted' ? 'bg-white text-rose-700 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              หมดแล้ว ({rolls.filter(r => r.remainingMeters <= 0).length})
+            </button>
+          </div>
+
+          {(searchQuery || selectedWidth !== 'all' || selectedPattern !== 'all' || statusFilter !== 'all') && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setSearchTarget('all');
+                setSelectedWidth('all');
+                setSelectedPattern('all');
+                setStatusFilter('all');
+              }}
+              className="text-xs text-rose-600 hover:underline ml-auto cursor-pointer font-medium"
+            >
+              ล้างตัวกรองทั้งหมด
+            </button>
+          )}
+        </div>
+
+        {/* Stock Level Warning Legend */}
+        <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-slate-100 text-[11px] font-medium text-slate-600">
+          <span className="text-slate-400 font-semibold">ไฮไลท์เตือนสต๊อก:</span>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-100/80 text-yellow-900 border border-yellow-300 font-mono">
+            <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+            &le; 1000 ม. (สีเหลือง)
+          </span>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-100/80 text-orange-900 border border-orange-300 font-mono">
+            <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+            &le; 500 ม. (สีส้ม)
+          </span>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-100/80 text-rose-900 border border-rose-300 font-mono">
+            <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
+            &le; 200 ม. (สีแดง - มีช่องติ๊กตัดสล็อตเป็น 0)
+          </span>
+        </div>
+      </div>
+
+      {/* Main Content: Grouped View or Flat View */}
+      {filteredRolls.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-12 text-center text-slate-500 space-y-3">
+          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+            <Search className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="font-bold text-slate-800 text-base">
+              {searchQuery ? `ไม่พบม้วนฟอยล์ที่ตรงกับ "${searchQuery}"` : 'ไม่พบม้วนฟอยล์ที่ตรงกับเงื่อนไข'}
+            </p>
+            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+              {searchQuery 
+                ? `ลองตรวจสอบตัวสะกดของเลขล็อต หรือเบอร์ม้วน หรือคลิกเปลี่ยนโหมดค้นหาเป็น "ทั้งหมด"`
+                : 'ลองเปลี่ยนตัวกรอง หรือกดปุ่ม "เพิ่มฟอยล์ใหม่"'}
+            </p>
+          </div>
+          {(searchQuery || selectedWidth !== 'all' || selectedPattern !== 'all' || statusFilter !== 'all') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setSearchTarget('all');
+                setSelectedWidth('all');
+                setSelectedPattern('all');
+                setStatusFilter('all');
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer mx-auto"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>ล้างตัวกรองและคำค้นหา</span>
+            </button>
+          )}
+        </div>
+      ) : groupedData && groupedData.length > 0 ? (
+        /* Categorized / Grouped View */
+        <div className="space-y-4">
+          {groupedData.map((group) => {
+            const isCollapsed = searchQuery.trim() ? false : !!collapsedGroups[group.key];
+            const percentRemaining = group.totalFull > 0 
+              ? Math.round((group.totalRemaining / group.totalFull) * 100) 
+              : 0;
+
+            return (
+              <div 
+                key={group.key}
+                className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition-all"
+              >
+                {/* Group Header Card */}
+                <div 
+                  onClick={() => toggleGroup(group.key)}
+                  className="px-4 sm:px-5 py-3.5 bg-slate-50 hover:bg-slate-100/80 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 cursor-pointer transition-colors select-none"
+                >
+                  <div className="flex items-center gap-3">
+                    <button 
+                      type="button" 
+                      className="p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-white transition-colors"
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight className="w-4 h-4" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}
+                    </button>
+
+                    {/* Group Icon / Dot */}
+                    {group.pattern ? (
+                      <span className={`w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 ${
+                        group.pattern === 'ท้องขาว' ? 'bg-white' :
+                        group.pattern === 'ดำ' ? 'bg-slate-900' :
+                        group.pattern === 'ไม้อ่อน' || (group.pattern as string) === 'ลายไม่อ่อน' ? 'bg-amber-200' :
+                        group.pattern === 'ลายไม้เข้ม' ? 'bg-amber-800' :
+                        group.pattern === 'เทา' ? 'bg-slate-400' :
+                        'bg-rose-300'
+                      }`} />
+                    ) : (
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400">
+                        {group.badge}
+                      </span>
+                    )}
+
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                          {group.title}
+                        </h3>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 font-mono font-medium">
+                          {group.rolls.length} ม้วน
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono">
+                        {group.activeCount} ม้วนพร้อมใช้ • {group.depletedCount} ม้วนหมดแล้ว
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Group Summary Metrics */}
+                  <div className="flex items-center gap-4 sm:gap-6 self-end sm:self-auto font-mono text-xs">
+                    <div className="text-right">
+                      <span className="text-slate-400 block text-[11px]">คงเหลือรวม</span>
+                      <span className="text-sm font-bold text-emerald-700">
+                        {formatMeters(group.totalRemaining)}{' '}
+                        <span className="text-xs font-normal text-slate-500">ม.</span>
+                      </span>
+                    </div>
+
+                    <div className="w-24 hidden md:block">
+                      <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                        <span>คงเหลือ</span>
+                        <span className="font-bold">{percentRemaining}%</span>
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className="bg-emerald-500 h-1.5 rounded-full transition-all"
+                          style={{ width: `${percentRemaining}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Group Content (Roll Table) */}
+                {!isCollapsed && (
+                  group.rolls.length === 0 ? (
+                    <div className="p-6 text-center text-slate-400 text-xs font-mono">
+                      ไม่มีรายการม้วนฟอยล์ในหมวดนี้ที่ตรงกับเงื่อนไขการกรอง
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50/70 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
+                          <tr>
+                            <th className="px-4 py-3">ล็อต & เบอร์</th>
+                            <th className="px-4 py-3">หน้ากว้าง</th>
+                            <th className="px-4 py-3">ท้องฟอยล์</th>
+                            <th className="px-4 py-3 text-right">ลูกเต็ม</th>
+                            <th className="px-4 py-3 text-right w-48">คงเหลือปัจจุบัน</th>
+                            <th className="px-4 py-3 text-right">ตัดใช้</th>
+                            <th className="px-4 py-3 text-right">NG เสีย</th>
+                            <th className="px-4 py-3 text-center">สถานะ</th>
+                            <th className="px-4 py-3 text-center">จัดการ</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {group.rolls.map(renderRollRow)}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
+              </div>
+            );
+          })}
+
+          {/* Footer info bar */}
+          <div className="px-5 py-3.5 bg-white rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-600 gap-2 font-mono">
+            <div>
+              จัดกลุ่มตาม: <span className="font-bold text-slate-900">{groupBy === 'width' ? 'หน้ากว้าง (มม.)' : 'ท้องฟอยล์'}</span> ({groupedData.length} หมวดหมู่)
+            </div>
+            <div>
+              ยอดคงเหลือรวมทั้งหมด:{' '}
+              <span className="font-bold text-emerald-700 text-sm">
+                {formatMeters(filteredTotalRemaining)}
+              </span>{' '}
+              เมตร
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Flat View (No Grouping) */
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
+                <tr>
+                  <th className="px-4 py-3.5">ล็อต & เบอร์</th>
+                  <th className="px-4 py-3.5">หน้ากว้าง</th>
+                  <th className="px-4 py-3.5">ท้องฟอยล์</th>
+                  <th className="px-4 py-3.5 text-right">ลูกเต็ม</th>
+                  <th className="px-4 py-3.5 text-right w-48">คงเหลือปัจจุบัน</th>
+                  <th className="px-4 py-3.5 text-right">ตัดใช้</th>
+                  <th className="px-4 py-3.5 text-right">NG เสีย</th>
+                  <th className="px-4 py-3.5 text-center">สถานะ</th>
+                  <th className="px-4 py-3.5 text-center">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredRolls.map(renderRollRow)}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer info bar */}
+          <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-600 gap-2 font-mono">
+            <div>
+              แสดงผล <span className="font-bold text-slate-900">{filteredRolls.length}</span> จากทั้งหมด <span className="font-bold text-slate-900">{rolls.length}</span> ม้วน
+            </div>
+            <div>
+              ยอดคงเหลือรวมในรายการที่เลือก:{' '}
+              <span className="font-bold text-emerald-700 text-sm">
+                {formatMeters(filteredTotalRemaining)}
+              </span>{' '}
+              เมตร
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
