@@ -18,29 +18,36 @@ import {
   revertCutRecordInFirestore, 
   uploadAllToFirestore,
   testFirestoreConnection,
-  firebaseConfig
+  firebaseConfig,
+  activeTarget,
+  setActiveTarget
 } from './lib/firebase';
 import { Navbar } from './components/Navbar';
 import { FirebaseSyncBar } from './components/FirebaseSyncBar';
+import { FirebaseRulesModal } from './components/FirebaseRulesModal';
 import { DashboardOverview } from './components/DashboardOverview';
 import { FoilRollTable } from './components/FoilRollTable';
 import { CuttingHistoryTable } from './components/CuttingHistoryTable';
 import { AddFoilModal } from './components/AddFoilModal';
 import { CutStockModal } from './components/CutStockModal';
 import { RollDetailModal } from './components/RollDetailModal';
+import { SettingsBackupView } from './components/SettingsBackupView';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { createBackupSnapshot, getAutoBackupConfig } from './utils/autoBackup';
 import { formatMeters, round2 } from './utils/formatters';
 import { CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history' | 'settings'>('dashboard');
 
   // Firebase Realtime Sync State
-  const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'offline'>('syncing');
+  const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'offline' | 'permission-denied'>('syncing');
   const [lastSyncedTime, setLastSyncedTime] = useState<string | null>(null);
   const [isSavingToCloud, setIsSavingToCloud] = useState(false);
   const [isFetchingFromCloud, setIsFetchingFromCloud] = useState(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -84,9 +91,13 @@ export default function App() {
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       },
-      (err) => {
-        console.warn('Foil rolls sync note:', err);
-        setSyncStatus('offline');
+      (err: any) => {
+        console.warn('Foil rolls sync note:', err?.message || err);
+        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+          setSyncStatus('permission-denied');
+        } else {
+          setSyncStatus('offline');
+        }
       }
     );
 
@@ -98,8 +109,11 @@ export default function App() {
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       },
-      (err) => {
-        console.warn('Stock cut records sync note:', err);
+      (err: any) => {
+        console.warn('Stock cut records sync note:', err?.message || err);
+        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+          setSyncStatus('permission-denied');
+        }
       }
     );
 
@@ -108,6 +122,40 @@ export default function App() {
       unsubRecords();
     };
   }, []);
+
+  // Automatic Background Backup (Local Snapshots & Cloud Sync)
+  useEffect(() => {
+    if (rolls.length === 0) return;
+
+    const runAutoBackup = () => {
+      const config = getAutoBackupConfig();
+      if (!config.enabled) return;
+
+      if (config.saveLocalSnapshots) {
+        createBackupSnapshot(rolls, records, 'scheduled');
+      }
+
+      // Also sync to cloud if enabled and online
+      if (config.autoSyncCloud && syncStatus === 'connected') {
+        uploadAllToFirestore(rolls, records).catch((err) => {
+          console.warn('Background auto cloud backup notice:', err);
+        });
+      }
+    };
+
+    const config = getAutoBackupConfig();
+    const intervalMs = Math.max(1, config.intervalMinutes || 10) * 60 * 1000;
+    const intervalId = setInterval(runAutoBackup, intervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [rolls, records, syncStatus]);
+
+  // Switch between user custom project and auto-provisioned cloud
+  const handleSwitchCloud = () => {
+    const nextTarget = activeTarget === 'managed' ? 'user' : 'managed';
+    setActiveTarget(nextTarget);
+    window.location.reload();
+  };
 
   // Sync to local storage
   const updateRollsState = (newRolls: FoilRoll[]) => {
@@ -129,10 +177,16 @@ export default function App() {
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       showToast(`บันทึกข้อมูลสำเร็จ! ซิงค์ม้วนฟอยล์ ${result.rollsUploaded} ม้วน และประวัติ ${result.recordsUploaded} รายการ ลงฐานข้อมูลกลาง Firebase เรียบร้อย ทุกเครื่องเห็นข้อมูลตรงกันทันที`);
-    } catch (err) {
-      console.error('Failed to upload to Firestore:', err);
-      setSyncStatus('error');
-      showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลขึ้น Firebase', 'info');
+    } catch (err: any) {
+      console.warn('Notice: Could not upload to Firestore:', err?.message || err);
+      if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+        setSyncStatus('permission-denied');
+        setIsRulesModalOpen(true);
+        showToast('ยังไม่ได้เปิดสิทธิ์ Rules ใน Firebase Console กรุณาตั้งค่า Rules', 'info');
+      } else {
+        setSyncStatus('error');
+        showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลขึ้น Firebase', 'info');
+      }
     } finally {
       setIsSavingToCloud(false);
     }
@@ -143,13 +197,24 @@ export default function App() {
     try {
       setIsFetchingFromCloud(true);
       setSyncStatus('syncing');
-      await testFirestoreConnection();
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-      showToast(`ดึงข้อมูลเรียลไทม์ล่าสุดจาก Firebase สำเร็จ (${rolls.length} ม้วน, ${records.length} รายการ)`);
-    } catch (err) {
-      console.error('Failed to fetch from Firestore:', err);
-      setSyncStatus('error');
+      const test = await testFirestoreConnection();
+      if (test.error === 'permission-denied') {
+        setSyncStatus('permission-denied');
+        setIsRulesModalOpen(true);
+        showToast('ยังไม่ได้เปิดสิทธิ์ Rules ใน Firebase Console', 'info');
+      } else {
+        setSyncStatus('connected');
+        setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+        showToast(`ดึงข้อมูลเรียลไทม์ล่าสุดจาก Firebase สำเร็จ (${rolls.length} ม้วน, ${records.length} รายการ)`);
+      }
+    } catch (err: any) {
+      console.warn('Notice: Could not fetch from Firestore:', err?.message || err);
+      if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+        setSyncStatus('permission-denied');
+        setIsRulesModalOpen(true);
+      } else {
+        setSyncStatus('error');
+      }
     } finally {
       setIsFetchingFromCloud(false);
     }
@@ -174,7 +239,10 @@ export default function App() {
     
     // Save to Firestore Realtime
     saveFoilRollToFirestore(newRoll).catch((err) => {
-      console.error('Error saving new roll to Firestore:', err);
+      console.warn('Notice: Save new roll to Firestore pending/offline:', err?.message || err);
+      if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+        setSyncStatus('permission-denied');
+      }
     });
 
     showToast(`เพิ่มฟอยล์รับเข้าสำเร็จ: ล็อต ${newRoll.lotNumber} #${newRoll.rollNumber} (${newRoll.totalMeters.toLocaleString()} ม.) [บันทึกลง Cloud]`);
@@ -183,6 +251,9 @@ export default function App() {
   // Cut stock handler (supports single or multi-order batch)
   const handleConfirmCutBatch = (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => {
     if (!batchData || batchData.length === 0) return;
+
+    // Automatic safety snapshot before cutting
+    createBackupSnapshot(rolls, records, 'before_cut');
 
     const foilId = batchData[0].foilId;
     const targetRoll = rolls.find(r => r.id === foilId);
@@ -225,7 +296,10 @@ export default function App() {
     // Save batch to Firestore atomically
     if (updatedTargetRoll) {
       executeCutBatchInFirestore(createdRecords, updatedTargetRoll).catch((err) => {
-        console.error('Error executing cut batch in Firestore:', err);
+        console.warn('Notice: Execute cut batch in Firestore pending/offline:', err?.message || err);
+        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+          setSyncStatus('permission-denied');
+        }
       });
     }
 
@@ -279,7 +353,7 @@ export default function App() {
     updateRollsState(updatedRolls);
     if (updatedTargetRoll) {
       saveFoilRollToFirestore(updatedTargetRoll).catch((err) => {
-        console.error('Error updating zero-out in Firestore:', err);
+        console.warn('Notice: Update zero-out in Firestore pending/offline:', err?.message || err);
       });
     }
 
@@ -322,7 +396,7 @@ export default function App() {
     // Revert in Firestore
     if (updatedTargetRoll) {
       revertCutRecordInFirestore(recordId, updatedTargetRoll).catch((err) => {
-        console.error('Error reverting cut in Firestore:', err);
+        console.warn('Notice: Revert cut in Firestore pending/offline:', err?.message || err);
       });
     }
 
@@ -336,7 +410,7 @@ export default function App() {
     
     // Delete in Firestore
     deleteFoilRollFromFirestore(rollId).catch((err) => {
-      console.error('Error deleting roll in Firestore:', err);
+      console.warn('Notice: Delete roll in Firestore pending/offline:', err?.message || err);
     });
 
     showToast('ลบม้วนฟอยล์ออกจากรายการและ Cloud แล้ว', 'info');
@@ -344,11 +418,12 @@ export default function App() {
 
   // Reset to default sample
   const handleResetData = () => {
-    if (confirm('คุณต้องการรีเซ็ตข้อมูลเป็นตัวอย่างเริ่มต้นของโรงงานหรือไม่? (ข้อมูลที่บันทึกไว้จะถูกรีเซ็ต)')) {
+    if (confirm('คุณต้องการรีเซ็ตข้อมูลเป็นตัวอย่างเริ่มต้นของโรงงานหรือไม่? (ระบบจะสร้างจุดสำรองข้อมูลปัจจุบันไว้ให้ก่อนรีเซ็ต)')) {
+      createBackupSnapshot(rolls, records, 'before_reset');
       const { rolls: initR, records: initC } = resetAllDataToDefault();
       setRolls(initR);
       setRecords(initC);
-      showToast('รีเซ็ตข้อมูลตัวอย่างเรียบร้อย', 'info');
+      showToast('รีเซ็ตข้อมูลตัวอย่างเรียบร้อย (บันทึกจุดสำรองก่อนรีเซ็ตไว้แล้ว)', 'info');
     }
   };
 
@@ -390,6 +465,10 @@ export default function App() {
         rollsCount={rolls.length}
         recordsCount={records.length}
         projectId={firebaseConfig.projectId}
+        isManagedTarget={activeTarget === 'managed'}
+        onOpenRulesModal={() => setIsRulesModalOpen(true)}
+        onSwitchCloud={handleSwitchCloud}
+        onNavigateToSettings={() => setActiveTab('settings')}
       />
 
       {/* Navigation Header */}
@@ -407,10 +486,11 @@ export default function App() {
         onResetData={handleResetData}
         onExportRolls={() => exportRollsToCSV(rolls)}
         onExportHistory={() => exportCutRecordsToCSV(records)}
+        hasPermissionNotice={syncStatus === 'permission-denied'}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
         {activeTab === 'dashboard' && (
           <DashboardOverview
             rolls={rolls}
@@ -447,6 +527,25 @@ export default function App() {
               setCutModalInitialMode('so');
               setIsCutModalOpen(true);
             }}
+          />
+        )}
+
+        {activeTab === 'settings' && (
+          <SettingsBackupView
+            rolls={rolls}
+            records={records}
+            syncStatus={syncStatus}
+            lastSyncedTime={lastSyncedTime}
+            projectId={firebaseConfig.projectId}
+            isManagedTarget={activeTarget === 'managed'}
+            onSwitchCloud={handleSwitchCloud}
+            onManualSaveToCloud={handleManualSaveToCloud}
+            onManualFetchFromCloud={handleManualFetchFromCloud}
+            onRestoreData={(newRolls, newRecords) => {
+              updateRollsState(newRolls);
+              updateRecordsState(newRecords);
+            }}
+            showToast={showToast}
           />
         )}
       </main>
@@ -490,6 +589,31 @@ export default function App() {
         records={records}
         onClose={() => setDetailRoll(null)}
         onOpenCutForThisRoll={handleOpenCutForRoll}
+      />
+
+      {/* Firebase Rules Configuration Guide Modal */}
+      <FirebaseRulesModal
+        isOpen={isRulesModalOpen}
+        onClose={() => setIsRulesModalOpen(false)}
+        projectId={firebaseConfig.projectId}
+        onRetry={() => {
+          setIsRulesModalOpen(false);
+          handleManualFetchFromCloud();
+        }}
+        onSwitchToManagedCloud={handleSwitchCloud}
+        currentIsManaged={activeTarget === 'managed'}
+      />
+
+      {/* Mobile Bottom Navigation for Android & iOS Phones */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenCutModal={(mode = 'so') => {
+          setPreselectedRollId(null);
+          setCutModalInitialMode(mode);
+          setIsCutModalOpen(true);
+        }}
+        hasPermissionNotice={syncStatus === 'permission-denied'}
       />
     </div>
   );

@@ -1,0 +1,19 @@
+{
+  "name": "ระบบตัดสต๊อกฟอยล์ PU Foam เมทัลชีท",
+  "short_name": "ตัดสต๊อกฟอยล์",
+  "description": "ระบบจัดการสต๊อกและตัดยอดฟอยล์สำหรับหลังคา PU Foam เมทัลชีท พร้อม Realtime Cloud Sync",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

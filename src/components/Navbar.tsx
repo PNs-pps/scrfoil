@@ -1,9 +1,9 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, RefreshCw, Download, Wrench } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, RefreshCw, Download, Wrench, Settings } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'rolls' | 'history';
-  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history') => void;
+  activeTab: 'dashboard' | 'rolls' | 'history' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'settings') => void;
   onOpenAddModal: () => void;
   onOpenCutModal: (mode?: 'so' | 'non_so') => void;
   totalRemainingMeters: number;
@@ -11,6 +11,7 @@ interface NavbarProps {
   onResetData: () => void;
   onExportRolls: () => void;
   onExportHistory: () => void;
+  hasPermissionNotice?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -23,6 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onResetData,
   onExportRolls,
   onExportHistory,
+  hasPermissionNotice = false,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
@@ -116,6 +118,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
+              <button
+                id="btn-nav-settings"
+                onClick={() => setActiveTab('settings')}
+                title="การตั้งค่า & สำรองข้อมูล"
+                className={`p-2 rounded-lg transition-colors cursor-pointer relative ${
+                  activeTab === 'settings'
+                    ? 'bg-amber-100 text-amber-900'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                {hasPermissionNotice && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -162,6 +179,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <History className="w-4 h-4" />
             <span>ประวัติการตัดสต๊อก (SO)</span>
+          </button>
+
+          <button
+            id="tab-settings"
+            onClick={() => setActiveTab('settings')}
+            className={`inline-flex items-center gap-2 py-2.5 px-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap cursor-pointer relative ${
+              activeTab === 'settings'
+                ? 'border-amber-500 text-slate-950 font-semibold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>ตั้งค่า & สำรองข้อมูล</span>
+            {hasPermissionNotice && (
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            )}
           </button>
         </div>
       </div>

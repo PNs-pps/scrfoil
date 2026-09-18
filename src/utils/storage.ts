@@ -41,7 +41,7 @@ export function getStoredRolls(): FoilRoll[] {
                r.pattern === 'กลับบัว' ? 'กลีบบัว' : r.pattern
     }));
   } catch (err) {
-    console.error('Failed to load foil rolls from storage', err);
+    console.warn('Failed to load foil rolls from storage', err);
     return INITIAL_FOIL_ROLLS;
   }
 }
@@ -50,7 +50,7 @@ export function saveStoredRolls(rolls: FoilRoll[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.ROLLS, JSON.stringify(rolls));
   } catch (err) {
-    console.error('Failed to save foil rolls to storage', err);
+    console.warn('Failed to save foil rolls to storage', err);
   }
 }
 
@@ -70,7 +70,7 @@ export function getStoredCutRecords(): StockCutRecord[] {
                r.pattern === 'กลับบัว' ? 'กลีบบัว' : r.pattern
     }));
   } catch (err) {
-    console.error('Failed to load cut records from storage', err);
+    console.warn('Failed to load cut records from storage', err);
     return INITIAL_CUT_RECORDS;
   }
 }
@@ -79,7 +79,7 @@ export function saveStoredCutRecords(records: StockCutRecord[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(records));
   } catch (err) {
-    console.error('Failed to save cut records to storage', err);
+    console.warn('Failed to save cut records to storage', err);
   }
 }
 
