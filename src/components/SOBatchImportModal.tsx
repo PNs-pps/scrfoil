@@ -6,6 +6,7 @@ import {
   FileSpreadsheet, 
   CheckCircle2, 
   AlertTriangle, 
+  AlertCircle,
   Download, 
   Trash2, 
   FileText,
@@ -34,7 +35,7 @@ interface SOBatchImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   rolls: FoilRoll[];
-  onConfirmBatchCut: (batch: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => void;
+  onConfirmBatchCut: (batch: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => Promise<void> | void;
 }
 
 export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
@@ -49,6 +50,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
   const [inputMode, setInputMode] = useState<'file' | 'text'>('file');
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -100,8 +102,9 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
       const soNumber = cols[0] || `SO-${Date.now().toString().slice(-4)}`;
       const lotNumber = cols[1] || '';
       const rollNumber = cols[2] || '';
-      const usedMeters = parseFloat(cols[3]) || 0;
-      const ngMeters = parseFloat(cols[4]) || 0;
+      // Ensure positive values mathematically
+      const usedMeters = round2(Math.abs(parseFloat(cols[3]) || 0));
+      const ngMeters = round2(Math.abs(parseFloat(cols[4]) || 0));
       const usageDate = cols[5] && /^\d{4}-\d{2}-\d{2}$/.test(cols[5]) ? cols[5] : todayStr;
       const recordedBy = cols[6] || 'นำเข้าไฟล์ SO';
       const notes = cols[7] || '';
@@ -196,9 +199,10 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
   const uniqueRollsCount = new Set(validRows.map(r => r.matchedRoll?.id).filter(Boolean)).size;
 
   // Confirm import and execute batch cut
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (validRows.length === 0) return;
     setIsProcessing(true);
+    setImportError(null);
 
     const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -233,10 +237,10 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
         soNumber: row.soNumber,
         cutType: isNonSo ? 'non_so' : 'so',
         nonSoReason: isNonSo ? row.soNumber : undefined,
-        usedMeters: row.usedMeters,
-        ngMeters: row.ngMeters,
-        totalDeducted: row.totalDeducted,
-        remainingBefore: currentRem,
+        usedMeters: Math.abs(row.usedMeters),
+        ngMeters: Math.abs(row.ngMeters),
+        totalDeducted: Math.abs(row.totalDeducted),
+        remainingBefore: Math.max(0, currentRem),
         remainingAfter,
         usageDate: row.usageDate || todayStr,
         recordedDate: todayStr,
@@ -245,9 +249,15 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
       });
     });
 
-    onConfirmBatchCut(cutsToExecute);
-    setIsProcessing(false);
-    onClose();
+    try {
+      await onConfirmBatchCut(cutsToExecute);
+      setIsProcessing(false);
+      onClose();
+    } catch (err: any) {
+      console.error('Batch SO cut failed:', err);
+      setImportError(err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ');
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -324,6 +334,18 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
         {/* Content Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-5">
+          {importError && (
+            <div className="p-3.5 bg-rose-50 border border-rose-300 text-rose-900 rounded-xl text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
+              <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-rose-950 text-sm">{importError}</p>
+                <p className="text-rose-800 text-[11px] leading-relaxed">
+                  ระบบได้ระงับการบันทึกและไม่ได้ตัดสต๊อก ม้วนฟอยล์ทุกม้วนยังคงมียอดคงเหลือเท่าเดิม กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตหรือสถานะ Firebase แล้วลองใหม่อีกครั้ง
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* File Upload Zone */}
           {inputMode === 'file' ? (
             <div
@@ -506,8 +528,17 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
             disabled={validRows.length === 0 || isProcessing}
             className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Scissors className="w-4 h-4 stroke-[2.5]" />
-            <span>ยืนยันตัดสต๊อก {validRows.length} รายการ (บันทึกขึ้นคลาวด์)</span>
+            {isProcessing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                <span>กำลังบันทึกลง Firebase...</span>
+              </>
+            ) : (
+              <>
+                <Scissors className="w-4 h-4 stroke-[2.5]" />
+                <span>ยืนยันตัดสต๊อก {validRows.length} รายการ (บันทึกขึ้นคลาวด์)</span>
+              </>
+            )}
           </button>
         </div>
       </div>

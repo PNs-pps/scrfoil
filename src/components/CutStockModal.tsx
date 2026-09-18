@@ -7,6 +7,7 @@ import {
   X, 
   Scissors, 
   AlertTriangle, 
+  AlertCircle,
   User, 
   Calendar, 
   Layers, 
@@ -35,8 +36,8 @@ interface CutStockModalProps {
   availableRolls: FoilRoll[];
   preselectedRollId?: string | null;
   initialCutMode?: 'so' | 'non_so';
-  onConfirmCut?: (record: Omit<StockCutRecord, 'id' | 'createdAt'>) => void;
-  onConfirmCutBatch: (records: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => void;
+  onConfirmCut?: (record: Omit<StockCutRecord, 'id' | 'createdAt'>) => Promise<void> | void;
+  onConfirmCutBatch: (records: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => Promise<void> | void;
 }
 
 export const CutStockModal: React.FC<CutStockModalProps> = ({
@@ -59,6 +60,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const [recordedDate, setRecordedDate] = useState<string>(today);
   const [recordedBy, setRecordedBy] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // References to input elements for focus navigation
   const usedMetersInputRefs = useRef<{ [orderId: string]: HTMLInputElement | null }>({});
@@ -199,8 +201,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const remainingBefore = currentRoll ? currentRoll.remainingMeters : 0;
 
   const orderCalculations = orders.map((order) => {
-    const numUsed = round2(parseFloat(order.usedMeters) || 0);
-    const numNg = round2(parseFloat(order.ngMeters) || 0);
+    const rawUsed = parseFloat(order.usedMeters);
+    const rawNg = parseFloat(order.ngMeters);
+    // Convert to absolute positive numbers and round to 2 decimals
+    const numUsed = round2(Math.abs(isNaN(rawUsed) ? 0 : rawUsed));
+    const numNg = round2(Math.abs(isNaN(rawNg) ? 0 : rawNg));
     const total = round2(numUsed + numNg);
 
     let identifier = '';
@@ -229,10 +234,10 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   // Formula: remainingMeters สุทธิ = remainingMeters เดิม - (cutMeters + ngMeters)
   const totalDeductedAll = round2(orderCalculations.reduce((sum, item) => sum + item.total, 0));
-  const remainingAfter = round2(remainingBefore - totalDeductedAll);
+  const remainingAfter = Math.max(0, round2(remainingBefore - totalDeductedAll));
   const isOverCut = totalDeductedAll > remainingBefore;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -284,7 +289,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       const ord = orders[i];
       const calc = orderCalculations[i];
       const remBeforeThis = currentBalance;
-      const remAfterThis = round2(remBeforeThis - calc.total);
+      const remAfterThis = Math.max(0, round2(remBeforeThis - calc.total));
       currentBalance = remAfterThis;
 
       batchRecords.push({
@@ -296,11 +301,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         soNumber: calc.identifier,
         cutType: ord.cutType,
         nonSoReason: ord.cutType === 'non_so' ? (ord.notes.trim() || calc.identifier) : undefined,
-        usedMeters: calc.numUsed,
-        ngMeters: calc.numNg,
-        totalDeducted: calc.total,
-        remainingBefore: remBeforeThis,
-        remainingAfter: remAfterThis,
+        usedMeters: Math.abs(calc.numUsed),
+        ngMeters: Math.abs(calc.numNg),
+        totalDeducted: Math.abs(calc.total),
+        remainingBefore: Math.max(0, remBeforeThis),
+        remainingAfter: Math.max(0, remAfterThis),
         usageDate: usageDate || today,
         recordedDate: recordedDate || today,
         recordedBy: recordedBy.trim(),
@@ -308,13 +313,23 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       });
     }
 
-    if (onConfirmCutBatch) {
-      onConfirmCutBatch(batchRecords);
-    } else if (onConfirmCut && batchRecords.length > 0) {
-      batchRecords.forEach(r => onConfirmCut(r));
+    setIsSubmitting(true);
+    try {
+      if (onConfirmCutBatch) {
+        await onConfirmCutBatch(batchRecords);
+      } else if (onConfirmCut && batchRecords.length > 0) {
+        for (const r of batchRecords) {
+          await onConfirmCut(r);
+        }
+      }
+      onClose();
+    } catch (err: any) {
+      console.error('Cut stock batch submission failed:', err);
+      // Alert/Error message as requested: "บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ"
+      setError(err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    onClose();
   };
 
   return (
@@ -350,9 +365,16 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-sm">
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2 font-medium">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
-              <span>{error}</span>
+            <div className="p-3.5 bg-rose-50 border border-rose-300 text-rose-900 rounded-xl text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
+              <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-rose-950 text-sm">{error}</p>
+                {error.includes('กรุณาตรวจสอบการเชื่อมต่อ') && (
+                  <p className="text-rose-800 text-[11px] leading-relaxed">
+                    ระบบได้ระงับการบันทึกและไม่ได้หักสต๊อก ยอดคงเหลือเดิมยังไม่เปลี่ยนแปลง กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตหรือสถานะ Firebase แล้วลองใหม่อีกครั้ง
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -792,15 +814,24 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
             <button
               type="submit"
-              disabled={isOverCut || totalDeductedAll <= 0}
+              disabled={isSubmitting || isOverCut || totalDeductedAll <= 0}
               className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
-                isOverCut || totalDeductedAll <= 0
+                isSubmitting || isOverCut || totalDeductedAll <= 0
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
                   : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
               }`}
             >
-              <Scissors className="w-4 h-4 stroke-[2.5]" />
-              <span>ยืนยันตัดสต๊อก ({formatMeters(totalDeductedAll)} ม.)</span>
+              {isSubmitting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                  <span>กำลังบันทึกลง Firebase...</span>
+                </>
+              ) : (
+                <>
+                  <Scissors className="w-4 h-4 stroke-[2.5]" />
+                  <span>ยืนยันตัดสต๊อก ({formatMeters(totalDeductedAll)} ม.)</span>
+                </>
+              )}
             </button>
           </div>
         </form>

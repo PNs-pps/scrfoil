@@ -38,7 +38,7 @@ import { SettingsBackupView } from './components/SettingsBackupView';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { createBackupSnapshot, getAutoBackupConfig } from './utils/autoBackup';
 import { formatMeters, round2 } from './utils/formatters';
-import { CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Sparkles, X } from 'lucide-react';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
@@ -60,6 +60,19 @@ export default function App() {
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
+
+  // Error Alert Modal State
+  const [errorAlert, setErrorAlert] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    detail?: string;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    detail: '',
+  });
 
   // Feedback Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
@@ -254,37 +267,48 @@ export default function App() {
   };
 
   // Cut stock handler (supports single roll batch and multi-roll import batch)
-  const handleConfirmCutBatch = (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => {
+  const handleConfirmCutBatch = async (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]): Promise<void> => {
     if (!batchData || batchData.length === 0) return;
 
-    // Automatic safety snapshot before cutting
-    createBackupSnapshot(rolls, records, 'before_cut');
-
+    // Strict math sanitization: Ensure all inputs are positive and rounded
     const now = new Date().toISOString();
-    const createdRecords: StockCutRecord[] = batchData.map((item, idx) => ({
-      ...item,
-      id: `cut-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-      createdAt: now,
-    }));
+    const createdRecords: StockCutRecord[] = batchData.map((item, idx) => {
+      const safeUsed = round2(Math.abs(Number(item.usedMeters || 0)));
+      const safeNg = round2(Math.abs(Number(item.ngMeters || 0)));
+      const safeTotal = round2(Math.abs(Number(item.totalDeducted || (safeUsed + safeNg))));
+      const safeRemBefore = Math.max(0, round2(Number(item.remainingBefore ?? 0)));
+      const safeRemAfter = Math.max(0, round2(Number(item.remainingAfter ?? (safeRemBefore - safeTotal))));
+
+      return {
+        ...item,
+        usedMeters: safeUsed,
+        ngMeters: safeNg,
+        totalDeducted: safeTotal,
+        remainingBefore: safeRemBefore,
+        remainingAfter: safeRemAfter,
+        id: `cut-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        createdAt: now,
+      };
+    });
 
     // Group deductions by rollId
     const deductionsByRoll = new Map<string, { used: number; ng: number; total: number }>();
     createdRecords.forEach((rec) => {
       const existing = deductionsByRoll.get(rec.foilId) || { used: 0, ng: 0, total: 0 };
-      existing.used += rec.usedMeters;
-      existing.ng += rec.ngMeters;
-      existing.total += rec.totalDeducted;
+      existing.used = round2(existing.used + rec.usedMeters);
+      existing.ng = round2(existing.ng + rec.ngMeters);
+      existing.total = round2(existing.total + rec.totalDeducted);
       deductionsByRoll.set(rec.foilId, existing);
     });
 
-    // Update the corresponding foil rolls
+    // Calculate updated foil rolls without negative values
     const updatedRollsList: FoilRoll[] = [];
     const updatedRolls = rolls.map((r) => {
       const deduction = deductionsByRoll.get(r.id);
       if (deduction) {
         const newRemaining = Math.max(0, round2(r.remainingMeters - deduction.total));
-        const newUsed = round2(r.usedMeters + deduction.used);
-        const newNg = round2(r.ngMeters + deduction.ng);
+        const newUsed = Math.max(0, round2(r.usedMeters + deduction.used));
+        const newNg = Math.max(0, round2(r.ngMeters + deduction.ng));
         const rollObj: FoilRoll = {
           ...r,
           remainingMeters: newRemaining,
@@ -299,41 +323,59 @@ export default function App() {
     });
 
     const updatedRecords = [...records, ...createdRecords];
-    updateRollsState(updatedRolls);
-    updateRecordsState(updatedRecords);
 
-    // Save batch to Firestore atomically
-    if (updatedRollsList.length === 1) {
-      executeCutBatchInFirestore(createdRecords, updatedRollsList[0]).catch((err) => {
-        console.warn('Notice: Execute cut batch in Firestore pending/offline:', err?.message || err);
-        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
-          setSyncStatus('permission-denied');
-        }
-      });
-    } else if (updatedRollsList.length > 1) {
-      executeMultiRollCutBatchInFirestore(createdRecords, updatedRollsList).catch((err) => {
-        console.warn('Notice: Multi-roll batch cut in Firestore pending/offline:', err?.message || err);
-        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
-          setSyncStatus('permission-denied');
-        }
-      });
-    }
+    // STRICT DIRECTIVE: DO NOT update UI state until batch.commit() has finished completely!
+    try {
+      if (updatedRollsList.length === 1) {
+        await executeCutBatchInFirestore(createdRecords, updatedRollsList[0]);
+      } else if (updatedRollsList.length > 1) {
+        await executeMultiRollCutBatchInFirestore(createdRecords, updatedRollsList);
+      }
 
-    const totalDeductedAll = round2(batchData.reduce((sum, r) => sum + r.totalDeducted, 0));
-    if (batchData.length === 1) {
-      const single = batchData[0];
-      const cutDesc = single.cutType === 'non_so' 
-        ? `รายการไม่ใช้ SO (${single.nonSoReason || 'สาขายืม/ซ่อม'})`
-        : `รหัส SO ${single.soNumber}`;
-      showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม. | คงเหลือ ${formatMeters(single.remainingAfter)} ม.) [Realtime Sync]`);
-    } else {
-      showToast(`ตัดสต๊อกสำเร็จ ${batchData.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. (อัปเดต ${updatedRollsList.length} ม้วน) [Realtime Sync]`);
+      // ✅ batch.commit() has finished successfully! Now update UI state:
+      updateRollsState(updatedRolls);
+      updateRecordsState(updatedRecords);
+
+      // Automatic safety snapshot after successful cutting
+      createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
+
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+
+      const totalDeductedAll = round2(createdRecords.reduce((sum, r) => sum + r.totalDeducted, 0));
+      if (createdRecords.length === 1) {
+        const single = createdRecords[0];
+        const cutDesc = single.cutType === 'non_so' 
+          ? `รายการไม่ใช้ SO (${single.nonSoReason || 'สาขายืม/ซ่อม'})`
+          : `รหัส SO ${single.soNumber}`;
+        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม. | คงเหลือ ${formatMeters(single.remainingAfter)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
+      } else {
+        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. (อัปเดต ${updatedRollsList.length} ม้วน) [บันทึกลง Firebase เรียบร้อย]`);
+      }
+    } catch (err: any) {
+      console.error('Firebase batch commit error during stock cut:', err);
+      if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+        setSyncStatus('permission-denied');
+      } else {
+        setSyncStatus('error');
+      }
+
+      const alertMsg = 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ';
+      setErrorAlert({
+        isOpen: true,
+        title: 'แจ้งเตือนการบันทึกข้อมูล',
+        message: alertMsg,
+        detail: 'ไม่สามารถบันทึกข้อมูลประวัติการตัดสต๊อกลง Firebase ได้ ข้อมูลคงเหลือเดิมยังไม่ถูกเปลี่ยนแปลง กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตหรือสถานะ Cloud แล้วลองใหม่อีกครั้ง',
+      });
+
+      // Reject so modal knows not to close
+      throw new Error(alertMsg);
     }
   };
 
   // Backward compatible single cut handler
-  const handleConfirmCut = (cutData: Omit<StockCutRecord, 'id' | 'createdAt'>) => {
-    handleConfirmCutBatch([cutData]);
+  const handleConfirmCut = async (cutData: Omit<StockCutRecord, 'id' | 'createdAt'>) => {
+    await handleConfirmCutBatch([cutData]);
   };
 
   // Toggle zero out for low stock rolls (<= 50m)
@@ -634,11 +676,47 @@ export default function App() {
         isOpen={isBatchImportOpen}
         onClose={() => setIsBatchImportOpen(false)}
         rolls={rolls}
-        onConfirmBatchCut={(batch) => {
-          handleConfirmCutBatch(batch);
-          setIsBatchImportOpen(false);
-        }}
+        onConfirmBatchCut={handleConfirmCutBatch}
       />
+
+      {/* Global Error Alert Modal */}
+      {errorAlert.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
+          <div 
+            id="modal-global-error"
+            className="bg-white rounded-2xl shadow-2xl border border-rose-200 max-w-md w-full overflow-hidden p-6 space-y-4 animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="w-12 h-12 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  {errorAlert.title}
+                </h3>
+                <p className="text-sm font-semibold text-rose-600 mt-1">
+                  {errorAlert.message}
+                </p>
+                {errorAlert.detail && (
+                  <p className="text-xs text-slate-600 mt-2 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                    {errorAlert.detail}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setErrorAlert({ isOpen: false, title: '', message: '', detail: '' })}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+              >
+                รับทราบ / ตกลง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Firebase Rules Configuration Guide Modal */}
       <FirebaseRulesModal

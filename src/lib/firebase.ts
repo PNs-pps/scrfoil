@@ -23,8 +23,8 @@ export const USER_FIREBASE_CONFIG = {
   projectId: "stock-foil",
   storageBucket: "stock-foil.firebasestorage.app",
   messagingSenderId: "490056674486",
-  appId: "1:490056674486:web:e57afa91e5579d821e8a17",
-  measurementId: "G-WHSENRKJPW",
+  appId: "1:490056674486:web:7821ae1a9bef881c1e8a17",
+  measurementId: "G-5JNSJETRJP",
   firestoreDatabaseId: "(default)",
   name: "User Firebase (stock-foil)"
 };
@@ -218,10 +218,10 @@ export async function executeCutBatchInFirestore(
         id: r.id,
         soNumber: r.soNumber,
         cutType: r.cutType,
-        usedMeters: r.usedMeters,
-        ngMeters: r.ngMeters,
-        totalDeducted: r.totalDeducted,
-        remainingAfter: r.remainingAfter,
+        usedMeters: Math.abs(Number(r.usedMeters || 0)),
+        ngMeters: Math.abs(Number(r.ngMeters || 0)),
+        totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
+        remainingAfter: Math.max(0, Number(r.remainingAfter ?? 0)),
         usageDate: r.usageDate,
         recordedDate: r.recordedDate,
         recordedBy: r.recordedBy,
@@ -232,6 +232,9 @@ export async function executeCutBatchInFirestore(
 
     const finalRoll: FoilRoll = {
       ...updatedRoll,
+      remainingMeters: Math.max(0, Number(updatedRoll.remainingMeters || 0)),
+      usedMeters: Math.max(0, Number(updatedRoll.usedMeters || 0)),
+      ngMeters: Math.max(0, Number(updatedRoll.ngMeters || 0)),
       recentCuts: rollCuts,
     };
 
@@ -241,19 +244,36 @@ export async function executeCutBatchInFirestore(
 
     // 2. Insert all new Cut Records in root collection and subcollection `cut_history`
     batchRecords.forEach((record) => {
+      // Ensure positive values mathematically
+      const safeCutMeters = Math.abs(Number(record.usedMeters || 0));
+      const safeNgMeters = Math.abs(Number(record.ngMeters || 0));
+      const safeTotalDeducted = Math.abs(Number(record.totalDeducted || (safeCutMeters + safeNgMeters)));
+      const safeRemainingBefore = Math.max(0, Number(record.remainingBefore ?? 0));
+      const safeRemainingAfter = Math.max(0, Number(record.remainingAfter ?? 0));
+
+      const safeRecord: StockCutRecord = {
+        ...record,
+        usedMeters: safeCutMeters,
+        ngMeters: safeNgMeters,
+        totalDeducted: safeTotalDeducted,
+        remainingBefore: safeRemainingBefore,
+        remainingAfter: safeRemainingAfter,
+      };
+
       // Root collection for global search & yearly summaries
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
-      batch.set(recordRef, record);
+      batch.set(recordRef, safeRecord);
 
       // Subcollection `cut_history` per requirement: foil_rolls/{rollId}/cut_history
       const historyItem: CutHistoryItem = {
         id: record.id,
         soNumber: record.soNumber,
-        cutMeters: Number(record.usedMeters || 0),
-        ngMeters: Number(record.ngMeters || 0),
-        totalDeducted: Number(record.totalDeducted || 0),
-        remainingBefore: Number(record.remainingBefore ?? 0),
-        remainingAfter: Number(record.remainingAfter ?? 0),
+        cutMeters: safeCutMeters,
+        usedMeters: safeCutMeters,
+        ngMeters: safeNgMeters,
+        totalDeducted: safeTotalDeducted,
+        remainingBefore: safeRemainingBefore,
+        remainingAfter: safeRemainingAfter,
         cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
@@ -300,17 +320,33 @@ export async function executeMultiRollCutBatchInFirestore(
 
       // Add records
       recordsChunk.forEach((rec) => {
+        const safeCutMeters = Math.abs(Number(rec.usedMeters || 0));
+        const safeNgMeters = Math.abs(Number(rec.ngMeters || 0));
+        const safeTotalDeducted = Math.abs(Number(rec.totalDeducted || (safeCutMeters + safeNgMeters)));
+        const safeRemainingBefore = Math.max(0, Number(rec.remainingBefore ?? 0));
+        const safeRemainingAfter = Math.max(0, Number(rec.remainingAfter ?? 0));
+
+        const safeRecord: StockCutRecord = {
+          ...rec,
+          usedMeters: safeCutMeters,
+          ngMeters: safeNgMeters,
+          totalDeducted: safeTotalDeducted,
+          remainingBefore: safeRemainingBefore,
+          remainingAfter: safeRemainingAfter,
+        };
+
         const recordRef = doc(db, RECORDS_COLLECTION, rec.id);
-        batch.set(recordRef, rec);
+        batch.set(recordRef, safeRecord);
 
         const historyItem: CutHistoryItem = {
           id: rec.id,
           soNumber: rec.soNumber,
-          cutMeters: Number(rec.usedMeters || 0),
-          ngMeters: Number(rec.ngMeters || 0),
-          totalDeducted: Number(rec.totalDeducted || 0),
-          remainingBefore: Number(rec.remainingBefore ?? 0),
-          remainingAfter: Number(rec.remainingAfter ?? 0),
+          cutMeters: safeCutMeters,
+          usedMeters: safeCutMeters,
+          ngMeters: safeNgMeters,
+          totalDeducted: safeTotalDeducted,
+          remainingBefore: safeRemainingBefore,
+          remainingAfter: safeRemainingAfter,
           cutDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
           usageDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
           recordedDate: rec.recordedDate || new Date().toISOString().split('T')[0],
@@ -337,8 +373,14 @@ export async function executeMultiRollCutBatchInFirestore(
       const rollIdsInChunk = new Set(recordsChunk.map((r) => r.foilId));
       const rollsInChunk = updatedRolls.filter((r) => rollIdsInChunk.has(r.id));
       rollsInChunk.forEach((r) => {
+        const safeRoll: FoilRoll = {
+          ...r,
+          remainingMeters: Math.max(0, Number(r.remainingMeters || 0)),
+          usedMeters: Math.max(0, Number(r.usedMeters || 0)),
+          ngMeters: Math.max(0, Number(r.ngMeters || 0)),
+        };
         const rollRef = doc(db, ROLLS_COLLECTION, r.id);
-        batch.set(rollRef, r, { merge: true });
+        batch.set(rollRef, safeRoll, { merge: true });
       });
 
       await batch.commit();
@@ -401,9 +443,9 @@ export function subscribeToRollCutHistory(
   const mapDocs = (snapshot: any): CutHistoryItem[] => {
     return snapshot.docs.map((docSnap: any) => {
       const data = docSnap.data();
-      const cutMeters = Number(data.cutMeters ?? data.usedMeters ?? 0);
-      const ngMeters = Number(data.ngMeters ?? 0);
-      const totalDeducted = Number(data.totalDeducted ?? (cutMeters + ngMeters));
+      const cutMeters = Math.abs(Number(data.cutMeters ?? data.usedMeters ?? 0));
+      const ngMeters = Math.abs(Number(data.ngMeters ?? 0));
+      const totalDeducted = Math.abs(Number(data.totalDeducted ?? (cutMeters + ngMeters)));
 
       return {
         id: docSnap.id,
@@ -412,8 +454,8 @@ export function subscribeToRollCutHistory(
         usedMeters: cutMeters,
         ngMeters: ngMeters,
         totalDeducted: totalDeducted,
-        remainingBefore: Number(data.remainingBefore ?? 0),
-        remainingAfter: Number(data.remainingAfter ?? 0),
+        remainingBefore: Math.max(0, Number(data.remainingBefore ?? 0)),
+        remainingAfter: Math.max(0, Number(data.remainingAfter ?? 0)),
         cutDate: data.cutDate || data.usageDate || data.recordedDate || '',
         usageDate: data.usageDate || data.cutDate || data.recordedDate || '',
         recordedDate: data.recordedDate || data.cutDate || '',
