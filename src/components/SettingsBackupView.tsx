@@ -45,6 +45,7 @@ interface SettingsBackupViewProps {
   onManualSaveToCloud: () => Promise<void>;
   onManualFetchFromCloud: () => Promise<void>;
   onRestoreData: (newRolls: FoilRoll[], newRecords: StockCutRecord[]) => void;
+  onResetData?: () => void;
   showToast: (text: string, type?: 'success' | 'info') => void;
 }
 
@@ -59,6 +60,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   onManualSaveToCloud,
   onManualFetchFromCloud,
   onRestoreData,
+  onResetData,
   showToast,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'backup' | 'permissions' | 'github' | 'mobile'>('backup');
@@ -376,6 +378,33 @@ git push -u origin main`;
                   />
                 </label>
               </div>
+
+              {/* Danger Zone: Reset Data */}
+              {onResetData && (
+                <div className="pt-3 border-t border-rose-100">
+                  <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 space-y-2">
+                    <div className="flex items-center gap-2 text-rose-900">
+                      <RotateCcw className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span className="font-bold text-xs">รีเซ็ตข้อมูลเริ่มต้น (Reset Data)</span>
+                    </div>
+                    <p className="text-[11px] text-rose-700 leading-relaxed">
+                      โหลดข้อมูลม้วนฟอยล์และประวัติตัวอย่างมาตรฐานใหม่ (ระบบจะสร้างจุดสำรองข้อมูลก่อนหน้าไว้ให้อัตโนมัติ)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('คุณต้องการรีเซ็ตข้อมูลสต๊อกทั้งหมดกลับเป็นชุดตัวอย่างเริ่มต้นใช่หรือไม่?\n\n(ระบบจะสร้างจุดสำรองข้อมูลปัจจุบันไว้ให้ก่อน)')) {
+                          onResetData();
+                          showToast('รีเซ็ตข้อมูลตัวอย่างเรียบร้อย');
+                        }
+                      }}
+                      className="w-full py-2 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shadow-2xs cursor-pointer"
+                    >
+                      รีเซ็ตข้อมูลกลับสู่ค่าเริ่มต้น
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

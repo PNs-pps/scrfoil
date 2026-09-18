@@ -37,6 +37,19 @@ export interface FoilRoll {
   notes?: string;
   isZeroedOut?: boolean;     // ติ๊กตัดสต๊อกเป็น 0 (กรณีเหลือสีแดง <= 50 เมตร)
   manualZeroedOriginalMeters?: number; // เก็บค่าเมตรก่อนติ๊กเป็น 0 เพื่อนำกลับมาใช้ใหม่ได้
+  recentCuts?: Array<{
+    id: string;
+    soNumber: string;
+    cutType?: 'so' | 'non_so';
+    usedMeters: number;
+    ngMeters: number;
+    totalDeducted: number;
+    remainingAfter: number;
+    usageDate: string;
+    recordedDate: string;
+    recordedBy: string;
+    notes?: string;
+  }>;
   createdAt: string;
 }
 

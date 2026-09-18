@@ -15,6 +15,7 @@ import {
   saveFoilRollToFirestore, 
   deleteFoilRollFromFirestore, 
   executeCutBatchInFirestore, 
+  executeMultiRollCutBatchInFirestore,
   revertCutRecordInFirestore, 
   uploadAllToFirestore,
   testFirestoreConnection,
@@ -30,7 +31,9 @@ import { FoilRollTable } from './components/FoilRollTable';
 import { CuttingHistoryTable } from './components/CuttingHistoryTable';
 import { AddFoilModal } from './components/AddFoilModal';
 import { CutStockModal } from './components/CutStockModal';
-import { RollDetailModal } from './components/RollDetailModal';
+import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
+import { MonthlySummaryModal } from './components/MonthlySummaryModal';
+import { SOBatchImportModal } from './components/SOBatchImportModal';
 import { SettingsBackupView } from './components/SettingsBackupView';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { createBackupSnapshot, getAutoBackupConfig } from './utils/autoBackup';
@@ -55,6 +58,8 @@ export default function App() {
   const [cutModalInitialMode, setCutModalInitialMode] = useState<'so' | 'non_so'>('so');
   const [preselectedRollId, setPreselectedRollId] = useState<string | null>(null);
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
+  const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
+  const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
 
   // Feedback Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
@@ -248,34 +253,38 @@ export default function App() {
     showToast(`เพิ่มฟอยล์รับเข้าสำเร็จ: ล็อต ${newRoll.lotNumber} #${newRoll.rollNumber} (${newRoll.totalMeters.toLocaleString()} ม.) [บันทึกลง Cloud]`);
   };
 
-  // Cut stock handler (supports single or multi-order batch)
+  // Cut stock handler (supports single roll batch and multi-roll import batch)
   const handleConfirmCutBatch = (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => {
     if (!batchData || batchData.length === 0) return;
 
     // Automatic safety snapshot before cutting
     createBackupSnapshot(rolls, records, 'before_cut');
 
-    const foilId = batchData[0].foilId;
-    const targetRoll = rolls.find(r => r.id === foilId);
     const now = new Date().toISOString();
-
     const createdRecords: StockCutRecord[] = batchData.map((item, idx) => ({
       ...item,
       id: `cut-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
       createdAt: now,
     }));
 
-    const totalDeductedAll = round2(batchData.reduce((sum, r) => sum + r.totalDeducted, 0));
-    const totalUsedAll = round2(batchData.reduce((sum, r) => sum + r.usedMeters, 0));
-    const totalNgAll = round2(batchData.reduce((sum, r) => sum + r.ngMeters, 0));
+    // Group deductions by rollId
+    const deductionsByRoll = new Map<string, { used: number; ng: number; total: number }>();
+    createdRecords.forEach((rec) => {
+      const existing = deductionsByRoll.get(rec.foilId) || { used: 0, ng: 0, total: 0 };
+      existing.used += rec.usedMeters;
+      existing.ng += rec.ngMeters;
+      existing.total += rec.totalDeducted;
+      deductionsByRoll.set(rec.foilId, existing);
+    });
 
-    // Update the corresponding foil roll
-    let updatedTargetRoll: FoilRoll | null = null;
+    // Update the corresponding foil rolls
+    const updatedRollsList: FoilRoll[] = [];
     const updatedRolls = rolls.map((r) => {
-      if (r.id === foilId) {
-        const newRemaining = Math.max(0, round2(r.remainingMeters - totalDeductedAll));
-        const newUsed = round2(r.usedMeters + totalUsedAll);
-        const newNg = round2(r.ngMeters + totalNgAll);
+      const deduction = deductionsByRoll.get(r.id);
+      if (deduction) {
+        const newRemaining = Math.max(0, round2(r.remainingMeters - deduction.total));
+        const newUsed = round2(r.usedMeters + deduction.used);
+        const newNg = round2(r.ngMeters + deduction.ng);
         const rollObj: FoilRoll = {
           ...r,
           remainingMeters: newRemaining,
@@ -283,7 +292,7 @@ export default function App() {
           ngMeters: newNg,
           status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
         };
-        updatedTargetRoll = rollObj;
+        updatedRollsList.push(rollObj);
         return rollObj;
       }
       return r;
@@ -294,15 +303,23 @@ export default function App() {
     updateRecordsState(updatedRecords);
 
     // Save batch to Firestore atomically
-    if (updatedTargetRoll) {
-      executeCutBatchInFirestore(createdRecords, updatedTargetRoll).catch((err) => {
+    if (updatedRollsList.length === 1) {
+      executeCutBatchInFirestore(createdRecords, updatedRollsList[0]).catch((err) => {
         console.warn('Notice: Execute cut batch in Firestore pending/offline:', err?.message || err);
+        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+          setSyncStatus('permission-denied');
+        }
+      });
+    } else if (updatedRollsList.length > 1) {
+      executeMultiRollCutBatchInFirestore(createdRecords, updatedRollsList).catch((err) => {
+        console.warn('Notice: Multi-roll batch cut in Firestore pending/offline:', err?.message || err);
         if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
           setSyncStatus('permission-denied');
         }
       });
     }
 
+    const totalDeductedAll = round2(batchData.reduce((sum, r) => sum + r.totalDeducted, 0));
     if (batchData.length === 1) {
       const single = batchData[0];
       const cutDesc = single.cutType === 'non_so' 
@@ -310,7 +327,7 @@ export default function App() {
         : `รหัส SO ${single.soNumber}`;
       showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม. | คงเหลือ ${formatMeters(single.remainingAfter)} ม.) [Realtime Sync]`);
     } else {
-      showToast(`ตัดสต๊อกสำเร็จ ${batchData.length} ใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. (ล็อต ${targetRoll?.lotNumber || ''} #${targetRoll?.rollNumber || ''} คงเหลือ ${formatMeters(batchData[batchData.length - 1].remainingAfter)} ม.) [Realtime Sync]`);
+      showToast(`ตัดสต๊อกสำเร็จ ${batchData.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. (อัปเดต ${updatedRollsList.length} ม้วน) [Realtime Sync]`);
     }
   };
 
@@ -503,6 +520,8 @@ export default function App() {
             onOpenAddModal={() => setIsAddModalOpen(true)}
             onViewAllRolls={() => setActiveTab('rolls')}
             onViewAllHistory={() => setActiveTab('history')}
+            onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
+            onOpenBatchImport={() => setIsBatchImportOpen(true)}
           />
         )}
 
@@ -515,6 +534,8 @@ export default function App() {
             onDeleteRoll={handleDeleteRoll}
             onExportRolls={() => exportRollsToCSV(rolls)}
             onToggleZeroOut={handleToggleZeroOut}
+            onOpenBatchImport={() => setIsBatchImportOpen(true)}
+            onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
           />
         )}
 
@@ -545,6 +566,7 @@ export default function App() {
               updateRollsState(newRolls);
               updateRecordsState(newRecords);
             }}
+            onResetData={handleResetData}
             showToast={showToast}
           />
         )}
@@ -554,12 +576,12 @@ export default function App() {
       <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono">
           <div>
-            ระบบตัดสต๊อกฟอยล์สำหรับหลังคา PU Foam เมทัลชีท • หน้ากว้าง 830 (5 ลอน 1 นิ้ว), 850 (3 ลอน 1 นิ้ว), 880 (5 ลอน 2 นิ้ว), 900 (3 ลอน 2 นิ้ว)
+            หลังคาเย็นสยาม (ร่มเกล้า) • ระบบตัดสต๊อกฟอยล์หลังคา PU Foam เมทัลชีท หน้ากว้าง 830, 850, 880, 900 มม.
           </div>
           <div className="flex items-center gap-2">
             <span>รองรับคำสั่งซื้อรูปแบบ <strong className="text-amber-700">soxxyyzzz</strong> และตัดไม่ใช้ SO</span>
             <span className="text-slate-300">•</span>
-            <span>คำนวณคงเหลืออัตโนมัติ</span>
+            <span>Realtime Cloud Sync</span>
           </div>
         </div>
       </footer>
@@ -584,11 +606,38 @@ export default function App() {
         onConfirmCutBatch={handleConfirmCutBatch}
       />
 
-      <RollDetailModal
+      {/* Comprehensive Roll Usage History Modal */}
+      <RollUsageHistoryModal
         roll={detailRoll}
         records={records}
         onClose={() => setDetailRoll(null)}
         onOpenCutForThisRoll={handleOpenCutForRoll}
+      />
+
+      {/* Monthly Summary Report Modal */}
+      <MonthlySummaryModal
+        isOpen={isMonthlySummaryOpen}
+        onClose={() => setIsMonthlySummaryOpen(false)}
+        rolls={rolls}
+        records={records}
+        onOpenRollHistory={(rollId) => {
+          const target = rolls.find((r) => r.id === rollId);
+          if (target) {
+            setIsMonthlySummaryOpen(false);
+            setDetailRoll(target);
+          }
+        }}
+      />
+
+      {/* Batch Import SO Modal */}
+      <SOBatchImportModal
+        isOpen={isBatchImportOpen}
+        onClose={() => setIsBatchImportOpen(false)}
+        rolls={rolls}
+        onConfirmBatchCut={(batch) => {
+          handleConfirmCutBatch(batch);
+          setIsBatchImportOpen(false);
+        }}
       />
 
       {/* Firebase Rules Configuration Guide Modal */}

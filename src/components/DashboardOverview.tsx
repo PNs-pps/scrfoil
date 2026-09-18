@@ -22,6 +22,8 @@ interface DashboardOverviewProps {
   onOpenAddModal: () => void;
   onViewAllRolls: () => void;
   onViewAllHistory: () => void;
+  onOpenMonthlySummary?: () => void;
+  onOpenBatchImport?: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -31,6 +33,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenAddModal,
   onViewAllRolls,
   onViewAllHistory,
+  onOpenMonthlySummary,
+  onOpenBatchImport,
 }) => {
   // Aggregate KPIs
   const totalRemainingMeters = rolls.reduce((acc, r) => acc + r.remainingMeters, 0);
@@ -44,7 +48,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   const activeRolls = rolls.filter(r => r.remainingMeters > 0);
   const depletedRolls = rolls.filter(r => r.remainingMeters <= 0);
-  const lowStockRolls = rolls.filter(r => r.remainingMeters > 0 && (r.remainingMeters / r.totalMeters) <= 0.3);
+  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 200);
+  const orangeAlertRolls = rolls.filter(r => r.remainingMeters > 200 && r.remainingMeters <= 500);
 
   // Group by Pattern
   const patternStats = STANDARD_PATTERNS.map(p => {
@@ -105,11 +110,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-5 sm:p-6 text-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-400/20 text-amber-300 border border-amber-400/30">
-              สถานะภาพรวมสต๊อก
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-amber-400 text-slate-950">
+              หลังคาเย็นสยาม (ร่มเกล้า)
             </span>
             <span className="text-xs text-slate-400">
-              อัปเดตอัตโนมัติทุกครั้งที่มีการตัดหรือเพิ่มฟอยล์
+              ระบบสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
             </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
@@ -120,19 +125,44 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 sm:self-center shrink-0">
+        <div className="flex items-center flex-wrap gap-2 sm:self-center shrink-0">
+          {onOpenMonthlySummary && (
+            <button
+              type="button"
+              onClick={onOpenMonthlySummary}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              title="เปิดหน้าต่างสรุปการใช้ฟอยล์รายเดือนและส่งออกรายงาน"
+            >
+              <BarChart2 className="w-4 h-4 text-emerald-400" />
+              <span>สรุปรายเดือน</span>
+            </button>
+          )}
+
+          {onOpenBatchImport && (
+            <button
+              type="button"
+              onClick={onOpenBatchImport}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              title="อัปโหลด SO ตัดฟอยล์เป็นชุด"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>อัปโหลด SO ตัดฟอยล์</span>
+            </button>
+          )}
+
           <button
             onClick={() => onOpenCutModal()}
-            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-2 cursor-pointer"
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <Scissors className="w-4 h-4 stroke-[2.5]" />
-            <span>ตัดสต๊อกเลย</span>
+            <span>ตัดสต๊อก</span>
           </button>
+
           <button
             onClick={onOpenAddModal}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-2 cursor-pointer"
+            className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
           >
-            <Package className="w-4 h-4 text-amber-400" />
+            <Package className="w-4 h-4 text-amber-600" />
             <span>+ รับเข้าม้วนใหม่</span>
           </button>
         </div>
@@ -188,10 +218,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <span className="text-slate-500">ม้วนตัดหมดแล้ว:</span>
               <span className="font-semibold text-slate-700 font-mono">{depletedRolls.length} ม้วน</span>
             </div>
-            {lowStockRolls.length > 0 && (
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-700 font-medium">
-                <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
-                <span>มี {lowStockRolls.length} ม้วนที่เหลือน้อยกว่า 30%</span>
+            {redAlertRolls.length > 0 && (
+              <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
+                <span>วิกฤต (&le;200ม.): {redAlertRolls.length} ม้วน</span>
+              </div>
+            )}
+            {orangeAlertRolls.length > 0 && (
+              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-orange-800 font-semibold bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                <span className="w-2 h-2 rounded-full bg-orange-500" />
+                <span>ใกล้หมด (&le;500ม.): {orangeAlertRolls.length} ม้วน</span>
               </div>
             )}
           </div>

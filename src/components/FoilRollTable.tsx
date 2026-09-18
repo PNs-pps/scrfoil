@@ -23,7 +23,9 @@ import {
   Square,
   X,
   Tag,
-  Hash
+  Hash,
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface FoilRollTableProps {
@@ -34,6 +36,8 @@ interface FoilRollTableProps {
   onDeleteRoll: (rollId: string) => void;
   onExportRolls: () => void;
   onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
+  onOpenBatchImport?: () => void;
+  onOpenMonthlySummary?: () => void;
 }
 
 type GroupByCategory = 'none' | 'width' | 'pattern';
@@ -46,6 +50,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   onDeleteRoll,
   onExportRolls,
   onToggleZeroOut,
+  onOpenBatchImport,
+  onOpenMonthlySummary,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
@@ -244,16 +250,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       : 0;
 
     // Color highlights requested:
-    // <= 1000m -> Yellow (1000 สีเหลือง)
-    // <= 500m  -> Orange (500 สีส้ม)
-    // <= 200m  -> Red (200 สีแดง, with zero-out toggle checkbox)
-    let highlightLevel: 'red' | 'orange' | 'yellow' | 'normal' | 'depleted' = 'normal';
+    // <= 200m  -> Red (200 สีแดง - วิกฤต / ติ๊กเป็น 0 ได้)
+    // <= 500m  -> Orange (500 สีส้ม - ใกล้หมด / เตรียมสั่ง)
+    // > 500m   -> Normal (เขียว/ปกติ)
+    let highlightLevel: 'red' | 'orange' | 'normal' | 'depleted' = 'normal';
     if (isZeroed || (rem > 0 && rem <= 200)) {
       highlightLevel = 'red';
     } else if (rem > 200 && rem <= 500) {
       highlightLevel = 'orange';
-    } else if (rem > 500 && rem <= 1000) {
-      highlightLevel = 'yellow';
     } else if (isDepleted) {
       highlightLevel = 'depleted';
     }
@@ -263,8 +267,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       rowClass = 'bg-rose-50/90 hover:bg-rose-100/80 border-l-4 border-l-rose-500 transition-colors';
     } else if (highlightLevel === 'orange') {
       rowClass = 'bg-orange-50/90 hover:bg-orange-100/80 border-l-4 border-l-orange-500 transition-colors';
-    } else if (highlightLevel === 'yellow') {
-      rowClass = 'bg-yellow-50/90 hover:bg-yellow-100/80 border-l-4 border-l-yellow-400 transition-colors';
     } else if (highlightLevel === 'depleted') {
       rowClass = 'bg-slate-50/50 opacity-75 transition-colors';
     }
@@ -279,13 +281,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           <div className="font-mono font-bold text-slate-900 text-sm flex items-center gap-1.5">
             <span>{highlightMatch(roll.lotNumber, searchQuery)}</span>
             {highlightLevel === 'red' && (
-              <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" title="สต๊อกเหลือน้อยวิกฤต (<= 200 ม.)" />
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" title="สต๊อกเหลือน้อยวิกฤต (<= 200 ม.)" />
             )}
             {highlightLevel === 'orange' && (
-              <span className="w-2 h-2 rounded-full bg-orange-500" title="สต๊อกเหลือน้อยมาก (<= 500 ม.)" />
-            )}
-            {highlightLevel === 'yellow' && (
-              <span className="w-2 h-2 rounded-full bg-yellow-500" title="สต๊อกเหลือน้อย (<= 1000 ม.)" />
+              <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" title="สต๊อกใกล้หมด (<= 500 ม.)" />
             )}
           </div>
           <div className="text-xs text-slate-600 font-mono">
@@ -341,7 +340,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               isZeroed ? 'text-rose-700 line-through' :
               highlightLevel === 'red' ? 'text-rose-700' :
               highlightLevel === 'orange' ? 'text-orange-700' :
-              highlightLevel === 'yellow' ? 'text-amber-700' :
               isDepleted ? 'text-slate-400' :
               'text-emerald-700'
             }`}>
@@ -363,7 +361,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 isZeroed ? 'bg-rose-500' :
                 highlightLevel === 'red' ? 'bg-rose-600' :
                 highlightLevel === 'orange' ? 'bg-orange-500' :
-                highlightLevel === 'yellow' ? 'bg-amber-400' :
                 isDepleted ? 'bg-slate-300' :
                 'bg-emerald-500'
               }`}
@@ -421,15 +418,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </span>
           ) : highlightLevel === 'red' ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-300 animate-pulse">
-              ต่ำกว่า 200 ม.
+              &le; 200 ม. (แดง)
             </span>
           ) : highlightLevel === 'orange' ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
-              ต่ำกว่า 500 ม.
-            </span>
-          ) : highlightLevel === 'yellow' ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
-              ต่ำกว่า 1000 ม.
+              &le; 500 ม. (ส้ม)
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -457,10 +450,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
             <button
               onClick={() => onViewRollHistory(roll)}
-              title="ดูประวัติการตัดของม้วนนี้"
-              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              title="ดูประวัติการใช้งานและใบงาน SO ที่ใช้ตัดม้วนนี้"
+              className="px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors cursor-pointer"
             >
-              <History className="w-4 h-4" />
+              <History className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden xl:inline">ประวัติใบงาน</span>
             </button>
 
             <button
@@ -565,7 +559,31 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center flex-wrap gap-2 shrink-0">
+            {onOpenBatchImport && (
+              <button
+                type="button"
+                onClick={onOpenBatchImport}
+                className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                title="อัปโหลดข้อมูลใบงาน SO ที่ใช้ตัดฟอยล์แบบเป็นชุด"
+              >
+                <Upload className="w-3.5 h-3.5 stroke-[2.2]" />
+                <span>อัปโหลด SO ตัดฟอยล์</span>
+              </button>
+            )}
+
+            {onOpenMonthlySummary && (
+              <button
+                type="button"
+                onClick={onOpenMonthlySummary}
+                className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                title="เปิดหน้าต่างสรุปการใช้ฟอยล์รายเดือน"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>สรุปรายเดือน</span>
+              </button>
+            )}
+
             <button
               onClick={onExportRolls}
               className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -573,6 +591,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               <Download className="w-3.5 h-3.5 text-slate-500" />
               <span>ส่งออก CSV</span>
             </button>
+
             <button
               onClick={onOpenAddModal}
               className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
@@ -769,18 +788,18 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
         {/* Stock Level Warning Legend */}
         <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-slate-100 text-[11px] font-medium text-slate-600">
-          <span className="text-slate-400 font-semibold">ไฮไลท์เตือนสต๊อก:</span>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-100/80 text-yellow-900 border border-yellow-300 font-mono">
-            <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
-            &le; 1000 ม. (สีเหลือง)
+          <span className="text-slate-400 font-semibold">ไฮไลท์ระดับสต๊อก:</span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-orange-100/90 text-orange-900 border border-orange-300 font-mono">
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
+            &le; 500 ม. (สีส้ม - สต๊อกใกล้หมด / เตรียมสั่ง)
           </span>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-orange-100/80 text-orange-900 border border-orange-300 font-mono">
-            <span className="w-2 h-2 rounded-full bg-orange-500"></span>
-            &le; 500 ม. (สีส้ม)
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-100/90 text-rose-900 border border-rose-300 font-mono">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></span>
+            &le; 200 ม. (สีแดง - สต๊อกวิกฤต / มีช่องติ๊กตัดสล็อตเป็น 0)
           </span>
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-100/80 text-rose-900 border border-rose-300 font-mono">
-            <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
-            &le; 200 ม. (สีแดง - มีช่องติ๊กตัดสล็อตเป็น 0)
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            &gt; 500 ม. (ปกติ / พร้อมใช้งาน)
           </span>
         </div>
       </div>

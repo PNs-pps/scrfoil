@@ -33,21 +33,24 @@ export const Navbar: React.FC<NavbarProps> = ({
           
           {/* Logo & Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
               <Layers className="w-6 h-6 stroke-[2.2]" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-900 text-amber-400 tracking-wider uppercase">
-                  PU FOAM METALSHEET
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400 tracking-wider">
+                  หลังคาเย็นสยาม (ร่มเกล้า)
                 </span>
                 <span className="text-xs text-slate-500 hidden sm:inline font-mono">
-                  VER 2.5
+                  คลังฟอยล์ PU FOAM
                 </span>
               </div>
-              <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-tight">
-                ระบบจัดการสต๊อกและตัดฟอยล์
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
+                หลังคาเย็นสยาม (ร่มเกล้า)
               </h1>
+              <p className="text-xs text-slate-500 hidden md:block">
+                ระบบจัดการสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
+              </p>
             </div>
           </div>
 
@@ -105,23 +108,15 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 id="btn-export-options"
                 onClick={activeTab === 'history' ? onExportHistory : onExportRolls}
-                title="ส่งออก CSV"
+                title="ส่งออกข้อมูล CSV"
                 className="p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <Download className="w-4 h-4" />
               </button>
               <button
-                id="btn-reset-data"
-                onClick={onResetData}
-                title="โหลดข้อมูลตัวอย่างใหม่"
-                className="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-              <button
                 id="btn-nav-settings"
                 onClick={() => setActiveTab('settings')}
-                title="การตั้งค่า & สำรองข้อมูล"
+                title="ตั้งค่าระบบ & สำรองข้อมูล"
                 className={`p-2 rounded-lg transition-colors cursor-pointer relative ${
                   activeTab === 'settings'
                     ? 'bg-amber-100 text-amber-900'

@@ -46,6 +46,14 @@ service cloud.firestore {
       allow create: if isValidId(rollId) && isValidFoilRoll(request.resource.data);
       allow update: if isValidId(rollId) && isValidFoilRoll(request.resource.data);
       allow delete: if isValidId(rollId);
+
+      // Cuts subcollection per roll
+      match /cuts/{cutId} {
+        allow read: if true;
+        allow create: if isValidId(cutId) && isValidStockCutRecord(request.resource.data);
+        allow update: if isValidId(cutId) && isValidStockCutRecord(request.resource.data);
+        allow delete: if isValidId(cutId);
+      }
     }
 
     // Stock cut records collection

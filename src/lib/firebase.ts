@@ -211,19 +211,86 @@ export async function executeCutBatchInFirestore(
   try {
     const batch = writeBatch(db);
 
-    // 1. Update the Foil Roll
-    const rollRef = doc(db, ROLLS_COLLECTION, updatedRoll.id);
-    batch.set(rollRef, updatedRoll, { merge: true });
+    // Prepare updated recent cuts for roll document
+    const rollCuts = [
+      ...batchRecords.map((r) => ({
+        id: r.id,
+        soNumber: r.soNumber,
+        cutType: r.cutType,
+        usedMeters: r.usedMeters,
+        ngMeters: r.ngMeters,
+        totalDeducted: r.totalDeducted,
+        remainingAfter: r.remainingAfter,
+        usageDate: r.usageDate,
+        recordedDate: r.recordedDate,
+        recordedBy: r.recordedBy,
+        notes: r.notes,
+      })),
+      ...(updatedRoll.recentCuts || []),
+    ].slice(0, 50); // keep up to 50 most recent SOs embedded in roll
 
-    // 2. Insert all new Cut Records
+    const finalRoll: FoilRoll = {
+      ...updatedRoll,
+      recentCuts: rollCuts,
+    };
+
+    // 1. Update the Foil Roll in foil_rolls
+    const rollRef = doc(db, ROLLS_COLLECTION, finalRoll.id);
+    batch.set(rollRef, finalRoll, { merge: true });
+
+    // 2. Insert all new Cut Records in root collection and subcollection
     batchRecords.forEach((record) => {
+      // Root collection for global search & yearly summaries
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
       batch.set(recordRef, record);
+
+      // Subcollection inside the roll document for roll-specific tracking
+      const subRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cuts', record.id);
+      batch.set(subRef, record);
     });
 
     await batch.commit();
   } catch (err: any) {
     console.warn('Notice: Could not execute cut batch in Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+/**
+ * Multi-roll batch cut: for batch imports touching multiple foil rolls
+ */
+export async function executeMultiRollCutBatchInFirestore(
+  batchRecords: StockCutRecord[],
+  updatedRolls: FoilRoll[]
+): Promise<void> {
+  try {
+    const CHUNK_SIZE = 250;
+    // Process in chunks to respect Firestore 500 ops limit
+    for (let i = 0; i < batchRecords.length; i += CHUNK_SIZE) {
+      const recordsChunk = batchRecords.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+
+      // Add records
+      recordsChunk.forEach((rec) => {
+        const recordRef = doc(db, RECORDS_COLLECTION, rec.id);
+        batch.set(recordRef, rec);
+
+        const subRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cuts', rec.id);
+        batch.set(subRef, rec);
+      });
+
+      // Add affected rolls in this chunk
+      const rollIdsInChunk = new Set(recordsChunk.map((r) => r.foilId));
+      const rollsInChunk = updatedRolls.filter((r) => rollIdsInChunk.has(r.id));
+      rollsInChunk.forEach((r) => {
+        const rollRef = doc(db, ROLLS_COLLECTION, r.id);
+        batch.set(rollRef, r, { merge: true });
+      });
+
+      await batch.commit();
+    }
+  } catch (err: any) {
+    console.warn('Notice: Multi-roll cut batch in Firestore incomplete:', err?.message || err);
     throw err;
   }
 }

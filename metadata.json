@@ -1,6 +1,6 @@
 {
   "name": "ระบบตัดสต๊อกฟอยล์ PU Foam เมทัลชีท",
-  "description": "ระบบจัดการสต๊อกและตัดยอดฟอยล์สำหรับหลังคา PU Foam เมทัลชีท เชื่อมต่อ Firebase Firestore กลาง ซิงค์ข้อมูล Realtime ทุกเครื่องและอุปกรณ์ รองรับรหัส SO และแดชบอร์ดสรุปยอด",
+  "description": "หลังคาเย็นสยาม (ร่มเกล้า) ระบบจัดการสต๊อกและตัดยอดฟอยล์สำหรับหลังคา PU Foam เมทัลชีท เชื่อมต่อ Firebase Firestore กลาง ซิงค์ข้อมูล Realtime ทุกเครื่องและอุปกรณ์ รองรับรหัส SO และแดชบอร์ดสรุปยอด",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
