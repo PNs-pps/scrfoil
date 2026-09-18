@@ -300,7 +300,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         pattern: currentRoll.pattern,
         soNumber: calc.identifier,
         cutType: ord.cutType,
-        nonSoReason: ord.cutType === 'non_so' ? (ord.notes.trim() || calc.identifier) : undefined,
+        nonSoReason: ord.cutType === 'non_so' ? (ord.notes.trim() || calc.identifier) : '',
         usedMeters: Math.abs(calc.numUsed),
         ngMeters: Math.abs(calc.numNg),
         totalDeducted: Math.abs(calc.total),
