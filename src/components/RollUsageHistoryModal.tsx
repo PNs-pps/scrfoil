@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { FoilRoll, StockCutRecord } from '../types';
+import React, { useState, useEffect } from 'react';
+import { FoilRoll, StockCutRecord, CutHistoryItem } from '../types';
 import { 
   X, 
   Layers, 
@@ -12,9 +12,12 @@ import {
   AlertCircle,
   Tag,
   ArrowRight,
-  Printer
+  Printer,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
+import { subscribeToRollCutHistory } from '../lib/firebase';
 
 interface RollUsageHistoryModalProps {
   roll: FoilRoll | null;
@@ -31,14 +34,117 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
 }) => {
   if (!roll) return null;
 
-  // Filter all cut records belonging to this specific roll
-  const rollRecords = records
-    .filter((r) => r.foilId === roll.id)
-    .sort((a, b) => new Date(b.createdAt || b.recordedDate).getTime() - new Date(a.createdAt || a.recordedDate).getTime());
+  // Initialize with in-memory or embedded data first for instant render
+  const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
+    if (roll.recentCuts && roll.recentCuts.length > 0) {
+      return roll.recentCuts.map((c) => ({
+        id: c.id,
+        soNumber: c.soNumber,
+        cutMeters: c.usedMeters,
+        usedMeters: c.usedMeters,
+        ngMeters: c.ngMeters,
+        totalDeducted: c.totalDeducted,
+        remainingBefore: (c as any).remainingBefore ?? 0,
+        remainingAfter: c.remainingAfter,
+        cutDate: c.usageDate || c.recordedDate,
+        usageDate: c.usageDate,
+        recordedDate: c.recordedDate,
+        recordedBy: c.recordedBy,
+        notes: c.notes,
+        createdAt: (c as any).createdAt || c.recordedDate,
+        cutType: c.cutType || 'so',
+        rollId: roll.id,
+        lotNumber: roll.lotNumber,
+        rollNumber: roll.rollNumber,
+      }));
+    }
+    return records
+      .filter((r) => r.foilId === roll.id)
+      .map((r) => ({
+        id: r.id,
+        soNumber: r.soNumber,
+        cutMeters: r.usedMeters,
+        usedMeters: r.usedMeters,
+        ngMeters: r.ngMeters,
+        totalDeducted: r.totalDeducted,
+        remainingBefore: r.remainingBefore,
+        remainingAfter: r.remainingAfter,
+        cutDate: r.usageDate || r.recordedDate,
+        usageDate: r.usageDate,
+        recordedDate: r.recordedDate,
+        recordedBy: r.recordedBy,
+        notes: r.notes,
+        createdAt: r.createdAt || r.recordedDate,
+        cutType: r.cutType || 'so',
+        nonSoReason: r.nonSoReason,
+        rollId: roll.id,
+        lotNumber: roll.lotNumber,
+        rollNumber: roll.rollNumber,
+      }));
+  });
 
-  const totalUsed = rollRecords.reduce((sum, r) => sum + r.usedMeters, 0);
-  const totalNg = rollRecords.reduce((sum, r) => sum + r.ngMeters, 0);
-  const totalDeducted = totalUsed + totalNg;
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [indexWarning, setIndexWarning] = useState<string | null>(null);
+
+  // Realtime subscription to Firestore sub-collection: foil_rolls/{rollId}/cut_history
+  useEffect(() => {
+    if (!roll.id) return;
+    setIsLoading(true);
+
+    const unsubscribe = subscribeToRollCutHistory(
+      roll.id,
+      (items) => {
+        setIsLoading(false);
+        if (items && items.length > 0) {
+          setHistoryItems(items);
+        } else {
+          // Fallback to records prop if sub-collection is currently empty
+          const fallback = records
+            .filter((r) => r.foilId === roll.id)
+            .map((r) => ({
+              id: r.id,
+              soNumber: r.soNumber,
+              cutMeters: r.usedMeters,
+              usedMeters: r.usedMeters,
+              ngMeters: r.ngMeters,
+              totalDeducted: r.totalDeducted,
+              remainingBefore: r.remainingBefore,
+              remainingAfter: r.remainingAfter,
+              cutDate: r.usageDate || r.recordedDate,
+              usageDate: r.usageDate,
+              recordedDate: r.recordedDate,
+              recordedBy: r.recordedBy,
+              notes: r.notes,
+              createdAt: r.createdAt || r.recordedDate,
+              cutType: r.cutType || 'so',
+              nonSoReason: r.nonSoReason,
+              rollId: roll.id,
+              lotNumber: roll.lotNumber,
+              rollNumber: roll.rollNumber,
+            }));
+          if (fallback.length > 0) {
+            setHistoryItems(fallback);
+          } else {
+            setHistoryItems([]);
+          }
+        }
+      },
+      (err: any) => {
+        setIsLoading(false);
+        if (err?.message && err.message.includes('https://console.firebase.google.com')) {
+          setIndexWarning(err.message);
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [roll.id, records]);
+
+  const totalUsed = historyItems.reduce((sum, r) => sum + Number(r.cutMeters ?? r.usedMeters ?? 0), 0);
+  const totalNg = historyItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
+  const totalDeducted = historyItems.reduce((sum, r) => sum + Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0))), 0);
   const percentLeft = roll.totalMeters > 0 
     ? Math.max(0, Math.round((roll.remainingMeters / roll.totalMeters) * 100)) 
     : 0;
@@ -64,22 +170,22 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
       'หมายเหตุ'
     ];
 
-    const rows = rollRecords.map((r, idx) => [
+    const rows = historyItems.map((r, idx) => [
       idx + 1,
       r.soNumber,
       r.cutType === 'non_so' ? `ไม่ใช้ SO (${r.nonSoReason || 'สาขายืม/ซ่อม'})` : 'มี SO',
-      r.lotNumber,
-      r.rollNumber,
-      r.width,
-      r.pattern,
-      r.usedMeters,
-      r.ngMeters,
-      r.totalDeducted,
-      r.remainingBefore,
-      r.remainingAfter,
-      r.usageDate,
-      r.recordedDate,
-      `"${(r.recordedBy || '').replace(/"/g, '""')}"`,
+      r.lotNumber || roll.lotNumber,
+      r.rollNumber || roll.rollNumber,
+      r.width || roll.width,
+      r.pattern || roll.pattern,
+      r.cutMeters ?? r.usedMeters ?? 0,
+      r.ngMeters || 0,
+      r.totalDeducted || ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0)),
+      r.remainingBefore ?? '-',
+      r.remainingAfter ?? '-',
+      r.cutDate || r.usageDate || r.recordedDate || '-',
+      r.recordedDate || r.createdAt || '-',
+      `"${(r.recordedBy || 'ช่างคุมเครื่อง').replace(/"/g, '""')}"`,
       `"${(r.notes || '').replace(/"/g, '""')}"`
     ]);
 
@@ -182,7 +288,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 <button
                   type="button"
                   onClick={handleExportThisRoll}
-                  disabled={rollRecords.length === 0}
+                  disabled={historyItems.length === 0}
                   className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                   title="ดาวน์โหลดรายการตัดของม้วนนี้เป็น CSV"
                 >
@@ -217,13 +323,13 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                 <span className="text-[11px] text-slate-500 block">ลงแผ่นจริงสะสม</span>
                 <span className="font-mono font-bold text-blue-700 text-base">
-                  {formatMeters(roll.usedMeters)} <span className="text-xs font-normal text-slate-400">ม.</span>
+                  {formatMeters(totalUsed)} <span className="text-xs font-normal text-slate-400">ม.</span>
                 </span>
               </div>
               <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                 <span className="text-[11px] text-slate-500 block">NG เสียสะสม</span>
                 <span className="font-mono font-bold text-rose-600 text-base">
-                  {formatMeters(roll.ngMeters)} <span className="text-xs font-normal text-slate-400">ม.</span>
+                  {formatMeters(totalNg)} <span className="text-xs font-normal text-slate-400">ม.</span>
                 </span>
               </div>
               <div className={`p-2.5 rounded-lg border ${
@@ -244,7 +350,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             <div className="mt-3">
               <div className="flex justify-between text-xs text-slate-500 mb-1 font-mono">
                 <span>คงเหลือ: {percentLeft}%</span>
-                <span>ตัดออกแล้ว: {formatMeters(roll.usedMeters + roll.ngMeters)} ม.</span>
+                <span>ตัดออกแล้ว: {formatMeters(totalDeducted)} ม.</span>
               </div>
               <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                 <div 
@@ -259,19 +365,37 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             </div>
           </div>
 
+          {/* Index Creation Notice if orderBy failed */}
+          {indexWarning && (
+            <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1 overflow-hidden">
+                <p className="font-semibold text-amber-950">
+                  กำลังแสดงผลแบบเรียงลำดับในเครื่อง (In-Memory Sort Fallback)
+                </p>
+                <p className="text-slate-600 text-[11px]">
+                  หากต้องการให้ Firestore เรียงลำดับจากเซิร์ฟเวอร์โดยตรง สามารถกดดูลิงก์สร้าง Index ที่แจ้งไว้ใน Browser Console ได้ครับ
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Cuts History Table */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-amber-600" />
-                <span>รายการใบงาน/SO ที่ตัดจากลูกนี้ทั้งหมด ({rollRecords.length} รายการ)</span>
+                <span>รายการใบงาน/SO ที่ตัดจากลูกนี้ทั้งหมด ({historyItems.length} รายการ)</span>
+                {isLoading && (
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+                )}
               </h3>
               <span className="text-xs text-slate-500 font-mono">
                 ตัดรวมทั้งหมด: {formatMeters(totalDeducted)} เมตร
               </span>
             </div>
 
-            {rollRecords.length === 0 ? (
+            {historyItems.length === 0 ? (
               <div className="p-8 text-center text-slate-500 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                 <Scissors className="w-8 h-8 text-slate-300 mx-auto" />
                 <p className="font-semibold text-slate-700">ม้วนนี้ยังไม่มีประวัติการตัดสต๊อก</p>
@@ -297,8 +421,21 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {rollRecords.map((item, idx) => {
+                      {historyItems.map((item, idx) => {
                         const isNonSo = item.cutType === 'non_so';
+                        const cutMetersVal = item.cutMeters ?? item.usedMeters ?? 0;
+                        const ngMetersVal = item.ngMeters ?? 0;
+                        const totalDeductedVal = item.totalDeducted ?? (cutMetersVal + ngMetersVal);
+
+                        // Format created time / date
+                        let createdTimeStr = '';
+                        if (item.createdAt) {
+                          const cd = new Date(item.createdAt);
+                          if (!isNaN(cd.getTime())) {
+                            createdTimeStr = `${cd.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
+                          }
+                        }
+
                         return (
                           <tr key={item.id} className="hover:bg-amber-50/40 transition-colors">
                             <td className="p-3 text-slate-400 font-mono font-medium">
@@ -325,32 +462,32 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                               )}
                             </td>
                             <td className="p-3 text-right font-mono font-bold text-slate-900">
-                              {formatMeters(item.usedMeters)} <span className="text-slate-400 font-normal">ม.</span>
+                              {formatMeters(cutMetersVal)} <span className="text-slate-400 font-normal">ม.</span>
                             </td>
                             <td className="p-3 text-right font-mono text-rose-600">
-                              {item.ngMeters > 0 ? `${formatMeters(item.ngMeters)} ม.` : '-'}
+                              {ngMetersVal > 0 ? `${formatMeters(ngMetersVal)} ม.` : '-'}
                             </td>
                             <td className="p-3 text-right font-mono font-bold text-amber-800">
-                              -{formatMeters(item.totalDeducted)} <span className="text-slate-400 font-normal">ม.</span>
+                              -{formatMeters(totalDeductedVal)} <span className="text-slate-400 font-normal">ม.</span>
                             </td>
                             <td className="p-3 text-right font-mono text-[11px]">
-                              <span className="text-slate-500">{formatMeters(item.remainingBefore)}</span>
+                              <span className="text-slate-500">{formatMeters(item.remainingBefore ?? 0)}</span>
                               <span className="text-slate-300 mx-1">&rarr;</span>
-                              <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter)} ม.</span>
+                              <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
                             </td>
                             <td className="p-3 font-mono text-slate-800 whitespace-nowrap font-medium">
-                              {item.usageDate}
+                              {item.cutDate || item.usageDate || item.recordedDate || '-'}
                             </td>
                             <td className="p-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
-                              {item.recordedDate}
-                              {item.createdAt && (
+                              {item.recordedDate || (item.createdAt ? new Date(item.createdAt).toLocaleDateString('th-TH') : '-')}
+                              {createdTimeStr && (
                                 <span className="text-[10px] text-slate-400 block">
-                                  {new Date(item.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                                  {createdTimeStr}
                                 </span>
                               )}
                             </td>
                             <td className="p-3 text-slate-700 truncate max-w-[120px]">
-                              {item.recordedBy || '-'}
+                              {item.recordedBy || 'ช่างคุมเครื่อง'}
                             </td>
                             <td className="p-3 text-slate-500 text-[11px] truncate max-w-[150px]" title={item.notes}>
                               {item.notes || '-'}
@@ -368,9 +505,12 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <span className="text-xs text-slate-500 hidden sm:inline">
-            ข้อมูลถูกซิงค์เรียลไทม์กับ Firebase Firestore ทุกครั้งที่มีการตัด
-          </span>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="hidden sm:inline">
+              ซิงค์เรียลไทม์กับ Firestore sub-collection (foil_rolls/{roll.id}/cut_history)
+            </span>
+          </div>
           <button
             type="button"
             onClick={onClose}

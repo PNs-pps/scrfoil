@@ -88,6 +88,7 @@ export interface CutHistoryItem {
   id: string;
   soNumber: string;
   cutMeters: number;
+  usedMeters?: number;
   ngMeters: number;
   createdAt: any;
   rollId?: string;
@@ -98,7 +99,11 @@ export interface CutHistoryItem {
   totalDeducted?: number;
   remainingBefore?: number;
   remainingAfter?: number;
-  recordedBy?: string;
+  cutDate?: string;
   usageDate?: string;
+  recordedDate?: string;
+  recordedBy?: string;
+  cutType?: 'so' | 'non_so';
+  nonSoReason?: string;
   notes?: string;
 }

@@ -10,10 +10,11 @@ import {
   writeBatch, 
   getDocs,
   query,
+  orderBy,
   Firestore
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
-import { FoilRoll, StockCutRecord } from '../types';
+import { FoilRoll, StockCutRecord, CutHistoryItem } from '../types';
 
 // User's custom configuration as requested
 export const USER_FIREBASE_CONFIG = {
@@ -238,15 +239,42 @@ export async function executeCutBatchInFirestore(
     const rollRef = doc(db, ROLLS_COLLECTION, finalRoll.id);
     batch.set(rollRef, finalRoll, { merge: true });
 
-    // 2. Insert all new Cut Records in root collection and subcollection
+    // 2. Insert all new Cut Records in root collection and subcollection `cut_history`
     batchRecords.forEach((record) => {
       // Root collection for global search & yearly summaries
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
       batch.set(recordRef, record);
 
-      // Subcollection inside the roll document for roll-specific tracking
-      const subRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cuts', record.id);
-      batch.set(subRef, record);
+      // Subcollection `cut_history` per requirement: foil_rolls/{rollId}/cut_history
+      const historyItem: CutHistoryItem = {
+        id: record.id,
+        soNumber: record.soNumber,
+        cutMeters: Number(record.usedMeters || 0),
+        ngMeters: Number(record.ngMeters || 0),
+        totalDeducted: Number(record.totalDeducted || 0),
+        remainingBefore: Number(record.remainingBefore ?? 0),
+        remainingAfter: Number(record.remainingAfter ?? 0),
+        cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
+        recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
+        notes: record.notes || '',
+        createdAt: record.createdAt || new Date().toISOString(),
+        cutType: record.cutType || 'so',
+        nonSoReason: record.nonSoReason || '',
+        rollId: finalRoll.id,
+        lotNumber: finalRoll.lotNumber,
+        rollNumber: finalRoll.rollNumber,
+        width: finalRoll.width,
+        pattern: finalRoll.pattern,
+      };
+
+      const historyRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cut_history', record.id);
+      batch.set(historyRef, historyItem);
+
+      // Also maintain legacy cuts subcollection for backwards compatibility
+      const cutsRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cuts', record.id);
+      batch.set(cutsRef, historyItem);
     });
 
     await batch.commit();
@@ -275,8 +303,34 @@ export async function executeMultiRollCutBatchInFirestore(
         const recordRef = doc(db, RECORDS_COLLECTION, rec.id);
         batch.set(recordRef, rec);
 
-        const subRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cuts', rec.id);
-        batch.set(subRef, rec);
+        const historyItem: CutHistoryItem = {
+          id: rec.id,
+          soNumber: rec.soNumber,
+          cutMeters: Number(rec.usedMeters || 0),
+          ngMeters: Number(rec.ngMeters || 0),
+          totalDeducted: Number(rec.totalDeducted || 0),
+          remainingBefore: Number(rec.remainingBefore ?? 0),
+          remainingAfter: Number(rec.remainingAfter ?? 0),
+          cutDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
+          usageDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
+          recordedDate: rec.recordedDate || new Date().toISOString().split('T')[0],
+          recordedBy: rec.recordedBy || 'ช่างคุมเครื่อง',
+          notes: rec.notes || '',
+          createdAt: rec.createdAt || new Date().toISOString(),
+          cutType: rec.cutType || 'so',
+          nonSoReason: rec.nonSoReason || '',
+          rollId: rec.foilId,
+          lotNumber: rec.lotNumber,
+          rollNumber: rec.rollNumber,
+          width: rec.width,
+          pattern: rec.pattern,
+        };
+
+        const subHistoryRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cut_history', rec.id);
+        batch.set(subHistoryRef, historyItem);
+
+        const subCutsRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cuts', rec.id);
+        batch.set(subCutsRef, historyItem);
       });
 
       // Add affected rolls in this chunk
@@ -305,11 +359,17 @@ export async function revertCutRecordInFirestore(
   try {
     const batch = writeBatch(db);
 
-    // 1. Delete the record
+    // 1. Delete the record from root collection
     const recordRef = doc(db, RECORDS_COLLECTION, recordId);
     batch.delete(recordRef);
 
-    // 2. Update roll
+    // 2. Delete from subcollection cut_history and cuts
+    const historyRef = doc(db, ROLLS_COLLECTION, updatedRoll.id, 'cut_history', recordId);
+    batch.delete(historyRef);
+    const cutsRef = doc(db, ROLLS_COLLECTION, updatedRoll.id, 'cuts', recordId);
+    batch.delete(cutsRef);
+
+    // 3. Update roll
     const rollRef = doc(db, ROLLS_COLLECTION, updatedRoll.id);
     batch.set(rollRef, updatedRoll, { merge: true });
 
@@ -318,6 +378,129 @@ export async function revertCutRecordInFirestore(
     console.warn('Notice: Could not revert cut record in Firestore:', err?.message || err);
     throw err;
   }
+}
+
+/**
+ * Subscribe to Realtime cut_history for a specific foil roll: foil_rolls/{rollId}/cut_history
+ * 1. Queries sub-collection `cut_history` with orderBy('createdAt', 'desc')
+ * 2. Catches missing index error and logs Firestore Index generation URL to console
+ * 3. Gracefully falls back to query without orderBy and sorts in memory
+ */
+export function subscribeToRollCutHistory(
+  rollId: string,
+  onUpdate: (items: CutHistoryItem[]) => void,
+  onError?: (err: any) => void
+): () => void {
+  if (!rollId) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  const cutHistoryCol = collection(db, ROLLS_COLLECTION, rollId, 'cut_history');
+
+  const mapDocs = (snapshot: any): CutHistoryItem[] => {
+    return snapshot.docs.map((docSnap: any) => {
+      const data = docSnap.data();
+      const cutMeters = Number(data.cutMeters ?? data.usedMeters ?? 0);
+      const ngMeters = Number(data.ngMeters ?? 0);
+      const totalDeducted = Number(data.totalDeducted ?? (cutMeters + ngMeters));
+
+      return {
+        id: docSnap.id,
+        soNumber: data.soNumber || '-',
+        cutMeters: cutMeters,
+        usedMeters: cutMeters,
+        ngMeters: ngMeters,
+        totalDeducted: totalDeducted,
+        remainingBefore: Number(data.remainingBefore ?? 0),
+        remainingAfter: Number(data.remainingAfter ?? 0),
+        cutDate: data.cutDate || data.usageDate || data.recordedDate || '',
+        usageDate: data.usageDate || data.cutDate || data.recordedDate || '',
+        recordedDate: data.recordedDate || data.cutDate || '',
+        recordedBy: data.recordedBy || 'ช่างคุมเครื่อง',
+        notes: data.notes || '',
+        createdAt: data.createdAt || '',
+        cutType: data.cutType || 'so',
+        nonSoReason: data.nonSoReason || '',
+        rollId: data.rollId || rollId,
+        lotNumber: data.lotNumber || '',
+        rollNumber: data.rollNumber || '',
+        width: data.width,
+        pattern: data.pattern,
+      } as CutHistoryItem;
+    });
+  };
+
+  const sortItems = (items: CutHistoryItem[]): CutHistoryItem[] => {
+    return [...items].sort((a, b) => {
+      const timeB = new Date(b.createdAt || b.cutDate || b.usageDate || 0).getTime();
+      const timeA = new Date(a.createdAt || a.cutDate || a.usageDate || 0).getTime();
+      return timeB - timeA;
+    });
+  };
+
+  let activeUnsubscribe: (() => void) | null = null;
+  let isFallback = false;
+
+  const startFallback = () => {
+    if (isFallback) return;
+    isFallback = true;
+    console.info(`🔄 [Fallback Active]: Listening to cut_history for roll ${rollId} without server orderBy, sorting in memory...`);
+    
+    activeUnsubscribe = onSnapshot(
+      cutHistoryCol,
+      (snapshot) => {
+        const items = sortItems(mapDocs(snapshot));
+        onUpdate(items);
+      },
+      (err) => {
+        console.error('❌ [Firestore Error] Fallback cut_history listener failed:', err);
+        if (onError) onError(err);
+      }
+    );
+  };
+
+  try {
+    const q = query(cutHistoryCol, orderBy('createdAt', 'desc'));
+    activeUnsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items = mapDocs(snapshot);
+        onUpdate(sortItems(items));
+      },
+      (err: any) => {
+        console.warn('⚠️ [Firestore Warning] Failed to query cut_history with orderBy("createdAt", "desc"):', err?.message || err);
+        if (err?.message && err.message.includes('https://console.firebase.google.com')) {
+          console.error(
+            '🔥 [Firestore Index Creation Link Required]\n' +
+            '====================================================================\n' +
+            'หากต้องการสร้าง Index ใน Firebase Console ให้คลิกลิงก์ด้านล่างนี้:\n' +
+            err.message + '\n' +
+            '===================================================================='
+          );
+        }
+        if (onError) onError(err);
+
+        // Fallback without server orderBy so user sees data immediately
+        if (activeUnsubscribe) {
+          activeUnsubscribe();
+        }
+        startFallback();
+      }
+    );
+  } catch (err: any) {
+    console.warn('⚠️ [Firestore Warning] Exception initializing query with orderBy:', err);
+    if (err?.message && err.message.includes('https://console.firebase.google.com')) {
+      console.error('🔥 [Firestore Index Link]:', err.message);
+    }
+    startFallback();
+  }
+
+  return () => {
+    if (activeUnsubscribe) {
+      activeUnsubscribe();
+    }
+  };
 }
 
 /**
