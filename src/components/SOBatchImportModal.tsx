@@ -236,7 +236,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
         pattern: roll.pattern,
         soNumber: row.soNumber,
         cutType: isNonSo ? 'non_so' : 'so',
-        nonSoReason: isNonSo ? row.soNumber : undefined,
+        nonSoReason: isNonSo ? row.soNumber : '',
         usedMeters: Math.abs(row.usedMeters),
         ngMeters: Math.abs(row.ngMeters),
         totalDeducted: Math.abs(row.totalDeducted),
