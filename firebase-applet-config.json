@@ -1,12 +1,12 @@
 {
   "projectId": "stock-foil",
-  "appId": "1:490056674486:web:e57afa91e5579d821e8a17",
+  "appId": "1:490056674486:web:e04dd7c683dae30a1e8a17",
   "apiKey": "AIzaSyCMtSWsr2HnVDAupSZMjZKrQ6o8ve_YxH4",
   "authDomain": "stock-foil.firebaseapp.com",
-  "firestoreDatabaseId": "(default)",
+  "firestoreDatabaseId": "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4",
   "storageBucket": "stock-foil.firebasestorage.app",
   "messagingSenderId": "490056674486",
-  "measurementId": "G-WHSENRKJPW",
-  "oAuthClientId": "",
+  "measurementId": "",
+  "oAuthClientId": "490056674486-njvkovut8s0sp23k1f35u64jcbs5odqu.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }
