@@ -16,7 +16,7 @@ service cloud.firestore {
         data.pattern is string && data.pattern.size() <= 100 &&
         data.totalMeters is number && data.totalMeters >= 0 &&
         data.remainingMeters is number && data.remainingMeters >= 0 &&
-        data.status in ['active', 'depleted'];
+        data.status in ['active', 'depleted', 'out_of_stock'];
     }
 
     function isValidStockCutRecord(data) {
@@ -49,11 +49,18 @@ service cloud.firestore {
 
       // Cuts subcollection per roll
       match /cuts/{cutId} {
-        allow read: if true;
-        allow create: if isValidId(cutId) && isValidStockCutRecord(request.resource.data);
-        allow update: if isValidId(cutId) && isValidStockCutRecord(request.resource.data);
-        allow delete: if isValidId(cutId);
+        allow read, write: if true;
       }
+
+      // Cut history subcollection per roll (foil_rolls/{rollId}/cut_history)
+      match /cut_history/{cutId} {
+        allow read, write: if true;
+      }
+    }
+
+    // Collection group query for cut_history across all rolls
+    match /{path=**}/cut_history/{cutId} {
+      allow read, write: if true;
     }
 
     // Stock cut records collection

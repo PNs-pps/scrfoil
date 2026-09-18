@@ -10,7 +10,6 @@ import {
   Check, 
   ExternalLink, 
   Smartphone, 
-  Github, 
   CheckCircle2, 
   AlertTriangle, 
   Server, 
@@ -63,13 +62,12 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   onResetData,
   showToast,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'backup' | 'permissions' | 'github' | 'mobile'>('backup');
+  const [activeSubTab, setActiveSubTab] = useState<'backup' | 'permissions' | 'mobile'>('backup');
   
   // Backup config state
   const [backupConfig, setBackupConfig] = useState<AutoBackupConfig>(getAutoBackupConfig());
   const [snapshots, setSnapshots] = useState<AutoBackupSnapshot[]>(getBackupSnapshots());
   const [copiedRules, setCopiedRules] = useState(false);
-  const [copiedGit, setCopiedGit] = useState(false);
   const [isBackingUpNow, setIsBackingUpNow] = useState(false);
 
   // Toggle backup setting
@@ -174,19 +172,6 @@ service cloud.firestore {
     showToast('คัดลอกโค้ด Rules สำเร็จ');
   };
 
-  const copyGitCommands = () => {
-    const cmds = `git init
-git add .
-git commit -m "feat: ระบบตัดสต๊อกฟอยล์ PU Foam เมทัลชีท"
-git branch -M main
-git remote add origin https://github.com/<USERNAME>/<REPO-NAME>.git
-git push -u origin main`;
-    navigator.clipboard.writeText(cmds);
-    setCopiedGit(true);
-    setTimeout(() => setCopiedGit(false), 2500);
-    showToast('คัดลอกคำสั่ง Git ทั้งหมดแล้ว');
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -197,13 +182,13 @@ git push -u origin main`;
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
                 SYSTEM CONFIGURATION
               </span>
-              <span className="text-xs text-slate-500 font-mono">v2.5 PWA & GitHub Ready</span>
+              <span className="text-xs text-slate-500 font-mono">ระบบจัดการสต๊อกฟอยล์ PWA</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
               การตั้งค่าและระบบสำรองข้อมูล
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-              จัดการการสำรองข้อมูลอัตโนมัติ สิทธิ์ Firebase Rules คลาวด์กลาง และคู่มือนำขึ้น GitHub Pages / ใช้งานบนมือถือ
+              จัดการการสำรองข้อมูลอัตโนมัติ สิทธิ์ Firebase Rules คลาวด์กลาง และคู่มือใช้งานบนมือถือ
             </p>
           </div>
 
@@ -230,7 +215,7 @@ git push -u origin main`;
             }`}
           >
             <Clock className="w-4 h-4" />
-            <span>ระบบสำรองข้อมูลอัตโนมัติ</span>
+            <span>ระบบสำรองข้อมูล & รีเซ็ต</span>
           </button>
 
           <button
@@ -246,18 +231,6 @@ git push -u origin main`;
             {syncStatus === 'permission-denied' && (
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
             )}
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('github')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'github'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Github className="w-4 h-4" />
-            <span>นำขึ้น GitHub Pages</span>
           </button>
 
           <button
@@ -629,102 +602,7 @@ service cloud.firestore {
         </div>
       )}
 
-      {/* TAB 3: GITHUB DEPLOYMENT GUIDE */}
-      {activeSubTab === 'github' && (
-        <div className="bg-white rounded-2xl p-5 sm:p-7 border border-slate-200 shadow-xs space-y-6">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
-              <Github className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">
-                คู่มือนำโค้ดขึ้น GitHub และเปิดให้รันบนเว็บ (GitHub Pages)
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-600">
-                โปรเจกต์นี้ได้รับการตั้งค่า <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-amber-700">base: './'</code> และไฟล์ <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-amber-700">.github/workflows/deploy.yml</code> ไว้พร้อมสมบูรณ์ 100%
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Method 1: AI Studio Export (Easiest) */}
-            <div className="p-5 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-3">
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-200 text-amber-900 uppercase">
-                วิธีที่ 1 • ง่ายและเร็วที่สุด (ไม่ต้องใช้คอมพิวเตอร์)
-              </span>
-              <h4 className="font-bold text-slate-900 text-base">
-                ส่งออกขึ้น GitHub ผ่าน AI Studio
-              </h4>
-              <ol className="text-xs text-slate-700 space-y-2 list-decimal list-inside leading-relaxed">
-                <li>มองไปที่ <strong>มุมขวาบน</strong> ของหน้าจอ Google AI Studio</li>
-                <li>คลิกที่ไอคอน <strong>การตั้งค่า (Settings)</strong> หรือจุดสามจุด</li>
-                <li>เลือกเมนู <strong>"Export to GitHub"</strong></li>
-                <li>ใส่ชื่อ Repository ที่ต้องการ แล้วกดยืนยัน โค้ดทั้งหมดจะขึ้น GitHub ทันที!</li>
-              </ol>
-            </div>
-
-            {/* Method 2: Git Command */}
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-800 uppercase">
-                  วิธีที่ 2 • ผ่าน Terminal / Git
-                </span>
-                <button
-                  onClick={copyGitCommands}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 hover:text-amber-700 cursor-pointer"
-                >
-                  {copiedGit ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedGit ? 'คัดลอกแล้ว' : 'คัดลอกคำสั่ง'}</span>
-                </button>
-              </div>
-              <h4 className="font-bold text-slate-900 text-base">
-                ใช้คำสั่ง Git Push จากคอมพิวเตอร์
-              </h4>
-              <pre className="p-3 bg-slate-900 text-amber-300 rounded-xl text-[11px] font-mono overflow-x-auto leading-relaxed">
-{`git init
-git add .
-git commit -m "feat: ระบบตัดสต๊อกฟอยล์"
-git branch -M main
-git remote add origin https://github.com/<USERNAME>/<REPO>.git
-git push -u origin main`}
-              </pre>
-            </div>
-          </div>
-
-          {/* Step 3: Activate GitHub Pages */}
-          <div className="p-5 rounded-2xl bg-slate-900 text-white space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-amber-400 text-slate-950 font-bold flex items-center justify-center text-xs">
-                3
-              </span>
-              <h4 className="font-bold text-base text-amber-300">
-                ขั้นตอนสุดท้าย: เปิดให้เว็บไซต์รันออนไลน์ (GitHub Pages)
-              </h4>
-            </div>
-            
-            <p className="text-xs text-slate-300 leading-relaxed">
-              เมื่อนำโค้ดขึ้น GitHub เรียบร้อยแล้ว ให้เปิดใช้งานเพียงครั้งเดียวดังนี้:
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700">
-                <span className="font-bold text-amber-400 block mb-1">1. เข้า Settings</span>
-                <span className="text-slate-300">เปิดหน้า GitHub Repository &gt; คลิกแท็บ Settings ด้านบน</span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700">
-                <span className="font-bold text-amber-400 block mb-1">2. เลือก Pages</span>
-                <span className="text-slate-300">ที่เมนูซ้ายมือ เลือกหัวข้อ Pages &gt; ตรง Source เลือก <strong>GitHub Actions</strong></span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700">
-                <span className="font-bold text-amber-400 block mb-1">3. เว็บรันทันที</span>
-                <span className="text-slate-300">ระบบจะ Build อัตโนมัติ ได้ลิงก์ <code className="text-amber-300 font-mono">https://username.github.io/repo</code> นำไปเปิดได้ทุกที่!</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: MOBILE ANDROID & IOS EXPERIENCE */}
+      {/* TAB 3: MOBILE ANDROID & IOS EXPERIENCE */}
       {activeSubTab === 'mobile' && (
         <div className="bg-white rounded-2xl p-5 sm:p-7 border border-slate-200 shadow-xs space-y-6">
           <div className="flex items-center gap-3 pb-4 border-b border-slate-100">

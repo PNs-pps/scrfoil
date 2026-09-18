@@ -290,7 +290,7 @@ export default function App() {
           remainingMeters: newRemaining,
           usedMeters: newUsed,
           ngMeters: newNg,
-          status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+          status: newRemaining <= 0 ? ('out_of_stock' as const) : ('active' as const),
         };
         updatedRollsList.push(rollObj);
         return rollObj;

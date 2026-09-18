@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
-import { SOInputHelper } from './SOInputHelper';
+import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
 import { formatMeters, round2 } from '../utils/formatters';
 import { 
@@ -10,13 +10,11 @@ import {
   User, 
   Calendar, 
   Layers, 
-  Building2, 
-  Wrench, 
-  Sparkles, 
   PlusCircle, 
   Trash2, 
   CheckCircle2,
-  FileSpreadsheet
+  Building2,
+  Wrench
 } from 'lucide-react';
 
 interface CutOrderItem {
@@ -51,23 +49,26 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   onConfirmCutBatch,
 }) => {
   const today = new Date().toISOString().slice(0, 10);
+  const defaultSoPrefix = `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`;
 
   const [selectedFoilId, setSelectedFoilId] = useState<string>('');
-  // Step-by-step cascade filters: หน้ากว้าง, ท้องฟอยล์, เบอร์ม้วน
   const [filterWidth, setFilterWidth] = useState<string>('all');
   const [filterPattern, setFilterPattern] = useState<string>('all');
 
-  // Common metadata
   const [usageDate, setUsageDate] = useState<string>(today);
   const [recordedDate, setRecordedDate] = useState<string>(today);
   const [recordedBy, setRecordedBy] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
-  // Multi-order list
+  // References to input elements for focus navigation
+  const usedMetersInputRefs = useRef<{ [orderId: string]: HTMLInputElement | null }>({});
+  const ngMetersInputRefs = useRef<{ [orderId: string]: HTMLInputElement | null }>({});
+  const soInputRefs = useRef<{ [orderId: string]: HTMLInputElement | null }>({});
+
   const createEmptyOrder = (index: number, mode: 'so' | 'non_so' = 'so'): CutOrderItem => ({
-    id: `order-item-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 5)}`,
+    id: `order-item-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
     cutType: mode,
-    soNumber: '',
+    soNumber: mode === 'so' ? defaultSoPrefix : '',
     nonSoReasonType: 'สาขายืม',
     branchName: '',
     customNonSoReason: '',
@@ -82,10 +83,12 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const recentOperators = getRecentOperators();
 
-  // Pick first available roll or preselected
+  // Reset or initialize on open
   useEffect(() => {
     if (isOpen) {
-      setOrders([createEmptyOrder(1, initialCutMode === 'non_so' ? 'non_so' : 'so')]);
+      const initMode = initialCutMode === 'non_so' ? 'non_so' : 'so';
+      const initialOrder = createEmptyOrder(1, initMode);
+      setOrders([initialOrder]);
       setError(null);
 
       if (preselectedRollId && availableRolls.some(r => r.id === preselectedRollId)) {
@@ -111,13 +114,26 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       if (!recordedBy && recentOperators.length > 0) {
         setRecordedBy(recentOperators[0]);
       }
+
+      // Auto-focus SO input on modal open
+      setTimeout(() => {
+        const firstId = initialOrder.id;
+        const el = soInputRefs.current[firstId];
+        if (el) {
+          el.focus();
+          // Place cursor at end so user can type the suffix immediately
+          const len = el.value.length;
+          el.setSelectionRange(len, len);
+        }
+      }, 150);
     }
   }, [isOpen, preselectedRollId, availableRolls, initialCutMode]);
 
   if (!isOpen) return null;
 
-  // Cascade options calculation
-  const availableWidths: FoilWidth[] = Array.from<FoilWidth>(new Set(availableRolls.map(r => r.width))).sort((a, b) => Number(a) - Number(b));
+  // Filter cascades
+  const availableWidths: FoilWidth[] = Array.from<FoilWidth>(new Set(availableRolls.map(r => r.width)))
+    .sort((a, b) => Number(a) - Number(b));
 
   const rollsFilteredByWidth = availableRolls.filter(r => 
     filterWidth === 'all' ? true : String(r.width) === filterWidth
@@ -156,9 +172,18 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   };
 
-  // Order line management
+  // Order management
   const handleAddOrder = () => {
-    setOrders(prev => [...prev, createEmptyOrder(prev.length + 1, 'so')]);
+    const newOrder = createEmptyOrder(orders.length + 1, 'so');
+    setOrders(prev => [...prev, newOrder]);
+    setTimeout(() => {
+      const el = soInputRefs.current[newOrder.id];
+      if (el) {
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      }
+    }, 100);
   };
 
   const handleRemoveOrder = (orderId: string) => {
@@ -170,10 +195,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
   };
 
-  // Multi-order Calculations with 0.01 precision
+  // Calculation logic
   const remainingBefore = currentRoll ? currentRoll.remainingMeters : 0;
 
-  // Order totals
   const orderCalculations = orders.map((order) => {
     const numUsed = round2(parseFloat(order.usedMeters) || 0);
     const numNg = round2(parseFloat(order.ngMeters) || 0);
@@ -203,9 +227,10 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     };
   });
 
+  // Formula: remainingMeters สุทธิ = remainingMeters เดิม - (cutMeters + ngMeters)
   const totalDeductedAll = round2(orderCalculations.reduce((sum, item) => sum + item.total, 0));
   const remainingAfter = round2(remainingBefore - totalDeductedAll);
-  const isOverCut = remainingAfter < 0;
+  const isOverCut = totalDeductedAll > remainingBefore;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -232,7 +257,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       }
 
       if (calc.numUsed <= 0 && calc.numNg <= 0) {
-        setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณาระบุจำนวนเมตรที่ใช้ หรือ NG ที่เสีย (รองรับทศนิยมถึง 0.01 ม.)`);
+        setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณาระบุจำนวนเมตรที่ใช้ หรือ NG ที่เสีย`);
         return;
       }
     }
@@ -242,8 +267,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       return;
     }
 
+    // Over-cut validation: Strictly prevent submission if cutMeters + ngMeters > remainingMeters
     if (isOverCut) {
-      setError(`ยอดตัดรวมทุกใบงาน (${formatMeters(totalDeductedAll)} ม.) เกินกว่ายอดคงเหลือในม้วนนี้ (${formatMeters(remainingBefore)} ม.)`);
+      setError('ไม่สามารถตัดเกินจำนวนคงเหลือในม้วนได้');
       return;
     }
 
@@ -295,7 +321,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
       <div 
         id="modal-cut-stock"
-        className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-amber-500 text-slate-950 flex items-center justify-between">
@@ -305,10 +331,10 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold leading-tight">
-                ตัดสต๊อกฟอยล์หลังคา (รองรับหลายใบงาน & ทศนิยม 0.01 ม.)
+                ตัดสต็อกฟอยล์
               </h2>
               <p className="text-xs text-slate-900/80">
-                เลือกหน้ากว้าง ท้องฟอยล์ ม้วนฟอยล์ และระบุใบสั่งซื้อที่ต้องการตัด
+                หลังคาเย็นสยาม (ร่มเกล้า) • บันทึกตัดยอด SO ลงสต๊อก
               </p>
             </div>
           </div>
@@ -322,7 +348,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         </div>
 
         {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1 text-sm">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-sm">
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2 font-medium">
               <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
@@ -330,30 +356,20 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             </div>
           )}
 
-          {/* STEP 1: Foil Selection Cascade */}
+          {/* 1. ส่วนเลือกม้วนฟอยล์ด้านบน */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-amber-600" />
-                ขั้นตอนที่ 1: เลือกฟอยล์ที่ต้องการตัด (หน้ากว้าง &gt; ท้องฟอยล์ &gt; เบอร์ม้วน)
-              </span>
-              <span className="text-[11px] text-slate-500">
-                ม้วนพร้อมตัด: {availableRolls.filter(r => r.remainingMeters > 0).length} ม้วน
-              </span>
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {/* 1. Width */}
+              {/* Width Filter */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  1. หน้ากว้าง (มม.)
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  หน้ากว้าง (มม.)
                 </label>
                 <select
                   value={filterWidth}
                   onChange={(e) => handleWidthChange(e.target.value)}
                   className="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:border-amber-500 cursor-pointer"
                 >
-                  <option value="all">ทั้งหมด ({availableWidths.length} ขนาด)</option>
+                  <option value="all">ทุกขนาด ({availableWidths.length})</option>
                   {availableWidths.map(w => (
                     <option key={w} value={String(w)}>
                       {w} มม. {WIDTH_SPECIFICATIONS[w] ? `(${WIDTH_SPECIFICATIONS[w]})` : ''}
@@ -362,27 +378,27 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 </select>
               </div>
 
-              {/* 2. Pattern (ท้องฟอยล์) */}
+              {/* Pattern Filter */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  2. ท้องฟอยล์
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ลายฟอยล์
                 </label>
                 <select
                   value={filterPattern}
                   onChange={(e) => handlePatternChange(e.target.value)}
                   className="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900 focus:border-amber-500 cursor-pointer"
                 >
-                  <option value="all">ทั้งหมด ({availablePatternsForSelectedWidth.length} ท้อง)</option>
+                  <option value="all">ทุกลาย ({availablePatternsForSelectedWidth.length})</option>
                   {availablePatternsForSelectedWidth.map(p => (
                     <option key={p} value={p}>{p}</option>
                   ))}
                 </select>
               </div>
 
-              {/* 3. Roll Selection */}
+              {/* Roll Selection */}
               <div>
-                <label htmlFor="select-foil-roll" className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  3. ม้วนฟอยล์ (ล็อต - เบอร์) <span className="text-rose-500">*</span>
+                <label htmlFor="select-foil-roll" className="block text-xs font-semibold text-slate-700 mb-1">
+                  เลือกม้วนฟอยล์ <span className="text-rose-500">*</span>
                 </label>
                 <select
                   id="select-foil-roll"
@@ -408,326 +424,281 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               </div>
             </div>
 
-            {/* Selected Roll Status Badge */}
+            {/* Selected Roll Highlight Details */}
             {currentRoll && (
-              <div className="p-3 bg-white border border-amber-300 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="p-3 bg-white border border-slate-200 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                   <span className="font-bold text-slate-900 font-mono">
                     ล็อต {currentRoll.lotNumber} #{currentRoll.rollNumber}
                   </span>
                   <span className="text-slate-400">•</span>
-                  <span className="text-slate-700">หน้ากว้าง {currentRoll.width} มม.</span>
+                  <span className="text-slate-700">{currentRoll.width} มม.</span>
                   <span className="text-slate-400">•</span>
-                  <span className="font-semibold text-slate-800">ท้อง: {currentRoll.pattern}</span>
+                  <span className="font-semibold text-slate-800">ลาย {currentRoll.pattern}</span>
                 </div>
-                <div className="flex items-center gap-1.5 font-mono">
-                  <span className="text-slate-500">คงเหลือก่อนตัด:</span>
-                  <span className="font-bold text-emerald-700 text-sm">
-                    {formatMeters(currentRoll.remainingMeters)}
-                  </span>
-                  <span className="text-slate-500 text-[11px]">ม.</span>
+
+                <div className="flex items-center gap-2">
+                  {currentRoll.remainingMeters <= 0 ? (
+                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold font-mono">
+                      ตัดหมดแล้ว (0.00 ม.)
+                    </span>
+                  ) : currentRoll.remainingMeters <= 200 ? (
+                    <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300 font-bold font-mono animate-pulse">
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (วิกฤต)
+                    </span>
+                  ) : currentRoll.remainingMeters <= 500 ? (
+                    <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 font-bold font-mono">
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (ใกล้หมด)
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono">
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (พร้อมใช้)
+                    </span>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* STEP 2: Multi-Order Cutting Section */}
+          {/* 2. ฟอร์มกรอก SO ตรงกลาง */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <FileSpreadsheet className="w-4 h-4 text-amber-600" />
-                  ขั้นตอนที่ 2: รายการใบสั่งซื้อที่ต้องการตัดสต๊อก ({orders.length} ใบงาน)
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-500">
-                * รองรับทศนิยมได้ถึง 0.01 ม. (เช่น 227.63 ม.)
-              </span>
-            </div>
-
-            {/* List of Order Cards */}
-            <div className="space-y-3">
-              {orders.map((order, index) => {
-                const orderCalc = orderCalculations[index];
-                return (
-                  <div 
-                    key={order.id}
-                    className="p-4 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3 relative hover:border-slate-300 transition-colors"
-                  >
-                    {/* Order Item Header */}
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 font-mono font-bold text-xs flex items-center justify-center">
-                          {index + 1}
-                        </span>
-                        <span className="font-bold text-slate-900 text-xs sm:text-sm">
-                          ใบสั่งซื้อที่ {index + 1}
-                        </span>
-                        {order.cutType === 'so' ? (
-                          <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
-                            {order.soNumber || 'รอระบุ SO'}
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200">
-                            ไม่ใช้ SO ({order.nonSoReasonType})
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {/* Cut Type Toggle */}
-                        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateOrder(order.id, { cutType: 'so' })}
-                            className={`px-2 py-1 rounded-md transition-all cursor-pointer font-medium ${
-                              order.cutType === 'so'
-                                ? 'bg-white text-slate-900 shadow-xs font-bold'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            มีรหัส SO
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateOrder(order.id, { cutType: 'non_so' })}
-                            className={`px-2 py-1 rounded-md transition-all cursor-pointer font-medium ${
-                              order.cutType === 'non_so'
-                                ? 'bg-white text-purple-800 shadow-xs font-bold'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            ไม่ใช้ SO
-                          </button>
-                        </div>
-
-                        {/* Delete Order Button if > 1 order */}
-                        {orders.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveOrder(order.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title={`ลบใบสั่งซื้อที่ ${index + 1}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
+            {orders.map((order, index) => {
+              const orderCalc = orderCalculations[index];
+              return (
+                <div 
+                  key={order.id}
+                  className="p-4 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-900 font-mono font-bold text-xs flex items-center justify-center">
+                        {index + 1}
+                      </span>
+                      <span className="font-bold text-slate-800 text-xs">
+                        ใบสั่งซื้อ {orders.length > 1 ? `#${index + 1}` : ''}
+                      </span>
                     </div>
 
-                    {/* SO or Non-SO Details */}
-                    {order.cutType === 'so' ? (
-                      <div>
-                        <SOInputHelper
-                          id={`order-so-${order.id}`}
-                          value={order.soNumber}
-                          onChange={(val) => handleUpdateOrder(order.id, { soNumber: val })}
-                          label={`รหัส SO ใบสั่งซื้อที่ ${index + 1}`}
-                        />
-                      </div>
-                    ) : (
-                      /* Non-SO Reason selector */
-                      <div className="p-3 bg-purple-50/50 border border-purple-200/80 rounded-xl space-y-2.5">
-                        <label className="block text-xs font-semibold text-purple-950">
-                          เหตุผลการตัด (ไม่ใช้ SO)
-                        </label>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                          {['สาขายืม', 'ซ่อมฟอยล์พ่นกาว', 'ทดสอบไลน์ผลิต / ตัวอย่าง', 'อื่นๆ'].map((type) => (
-                            <button
-                              key={type}
-                              type="button"
-                              onClick={() => handleUpdateOrder(order.id, { nonSoReasonType: type })}
-                              className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center transition-all cursor-pointer ${
-                                order.nonSoReasonType === type
-                                  ? 'bg-purple-700 text-white border-purple-800 shadow-2xs font-semibold'
-                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-purple-50'
-                              }`}
-                            >
-                              {type}
-                            </button>
-                          ))}
-                        </div>
-
-                        {order.nonSoReasonType === 'สาขายืม' && (
-                          <div className="pt-1 flex items-center gap-2">
-                            <Building2 className="w-4 h-4 text-purple-600 shrink-0" />
-                            <input
-                              type="text"
-                              value={order.branchName}
-                              onChange={(e) => handleUpdateOrder(order.id, { branchName: e.target.value })}
-                              placeholder="ระบุชื่อสาขาที่ยืม เช่น สาขาพัทยา, สาขานิคมฯ"
-                              className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
-                            />
-                          </div>
-                        )}
-
-                        {order.nonSoReasonType === 'อื่นๆ' && (
-                          <div className="pt-1 flex items-center gap-2">
-                            <Wrench className="w-4 h-4 text-purple-600 shrink-0" />
-                            <input
-                              type="text"
-                              value={order.customNonSoReason}
-                              onChange={(e) => handleUpdateOrder(order.id, { customNonSoReason: e.target.value })}
-                              placeholder="ระบุเหตุผล เช่น เบิกทดลองเครื่อง, เคลมเปลี่ยนม้วน"
-                              className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Meter Inputs: Used Meters & NG (Supports 0.01 precision) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                      {/* Used Meters */}
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-800 mb-1">
-                          จำนวนเมตรที่ใช้ (ม.) <span className="text-rose-500">*</span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={order.usedMeters}
-                            onChange={(e) => handleUpdateOrder(order.id, { usedMeters: e.target.value })}
-                            placeholder="เช่น 227.63"
-                            required
-                            className="w-full px-3 py-2 text-base font-bold font-mono text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
-                          />
-                          <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-medium">เมตร</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">
-                          รองรับทศนิยม 2 ตำแหน่ง (0.01 ม.)
-                        </span>
+                    <div className="flex items-center gap-2">
+                      {/* Mode Toggle */}
+                      <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleUpdateOrder(order.id, { 
+                              cutType: 'so',
+                              soNumber: order.soNumber || defaultSoPrefix
+                            });
+                          }}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-medium ${
+                            order.cutType === 'so'
+                              ? 'bg-white text-slate-900 shadow-xs font-bold'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          มีรหัส SO
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateOrder(order.id, { cutType: 'non_so' })}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-medium ${
+                            order.cutType === 'non_so'
+                              ? 'bg-white text-purple-800 shadow-xs font-bold'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          ไม่ใช้ SO
+                        </button>
                       </div>
 
-                      {/* NG Meters */}
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-800 mb-1">
-                          เศษเสีย NG (ม.)
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={order.ngMeters}
-                            onChange={(e) => handleUpdateOrder(order.id, { ngMeters: e.target.value })}
-                            placeholder="0.00"
-                            className="w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border border-slate-300 rounded-lg focus:border-rose-400 focus:ring-1 focus:ring-rose-400"
-                          />
-                          <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-medium">เมตร</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-0.5 block">
-                          เศษชำรุด หรือหัวม้วนที่เสีย
-                        </span>
-                      </div>
+                      {orders.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveOrder(order.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="ลบใบสั่งซื้อนี้"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
+                  </div>
 
-                    {/* Order Notes & Subtotal */}
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1 items-center">
-                      <div className="sm:col-span-8">
+                  {/* Single Consolidated SO Input Field with Default Prefix */}
+                  {order.cutType === 'so' ? (
+                    <div>
+                      <label 
+                        htmlFor={`input-so-${order.id}`}
+                        className="block text-xs font-semibold text-slate-700 mb-1"
+                      >
+                        เลขที่ใบสั่งซื้อ / SO <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        id={`input-so-${order.id}`}
+                        ref={(el) => { soInputRefs.current[order.id] = el; }}
+                        type="text"
+                        tabIndex={1}
+                        value={order.soNumber}
+                        onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value.toLowerCase() })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const target = usedMetersInputRefs.current[order.id];
+                            if (target) {
+                              target.focus();
+                              target.select();
+                            }
+                          }
+                        }}
+                        placeholder={`เช่น ${defaultSoPrefix}500`}
+                        className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal"
+                      />
+                    </div>
+                  ) : (
+                    /* Non-SO Reason selector */
+                    <div className="p-2.5 bg-purple-50/60 border border-purple-200 rounded-lg space-y-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {['สาขายืม', 'ซ่อมฟอยล์พ่นกาว', 'ทดสอบไลน์ผลิต / ตัวอย่าง', 'อื่นๆ'].map((type) => (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => handleUpdateOrder(order.id, { nonSoReasonType: type })}
+                            className={`px-2 py-1 rounded-md border text-xs font-medium text-center transition-all cursor-pointer ${
+                              order.nonSoReasonType === type
+                                ? 'bg-purple-700 text-white border-purple-800 font-semibold shadow-2xs'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-purple-50'
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        ))}
+                      </div>
+
+                      {order.nonSoReasonType === 'สาขายืม' && (
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-purple-600 shrink-0" />
+                          <input
+                            type="text"
+                            value={order.branchName}
+                            onChange={(e) => handleUpdateOrder(order.id, { branchName: e.target.value })}
+                            placeholder="ระบุชื่อสาขาที่ยืม เช่น สาขาพัทยา, สาขานิคมฯ"
+                            className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600"
+                          />
+                        </div>
+                      )}
+
+                      {order.nonSoReasonType === 'อื่นๆ' && (
+                        <div className="flex items-center gap-2">
+                          <Wrench className="w-4 h-4 text-purple-600 shrink-0" />
+                          <input
+                            type="text"
+                            value={order.customNonSoReason}
+                            onChange={(e) => handleUpdateOrder(order.id, { customNonSoReason: e.target.value })}
+                            placeholder="ระบุเหตุผลการตัด เช่น เคลมเปลี่ยนม้วน, ตัวอย่าง"
+                            className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Grid 2 Columns: จำนวนเมตรที่ใช้ & เศษเสีย NG */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label 
+                        htmlFor={`input-used-${order.id}`}
+                        className="block text-xs font-semibold text-slate-700 mb-1"
+                      >
+                        จำนวนเมตรที่ใช้ (ม.) <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
                         <input
-                          type="text"
-                          value={order.notes}
-                          onChange={(e) => handleUpdateOrder(order.id, { notes: e.target.value })}
-                          placeholder="หมายเหตุ / ลอน เช่น 5 ลอน 1 นิ้ว, ใบงานเร่งด่วน, บานหน้าต่าง"
-                          className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-amber-500"
+                          id={`input-used-${order.id}`}
+                          ref={(el) => { usedMetersInputRefs.current[order.id] = el; }}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          tabIndex={2}
+                          value={order.usedMeters}
+                          onChange={(e) => handleUpdateOrder(order.id, { usedMeters: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const target = ngMetersInputRefs.current[order.id];
+                              if (target) {
+                                target.focus();
+                                target.select();
+                              }
+                            }
+                          }}
+                          placeholder="เช่น 150.00"
+                          required
+                          className="w-full px-3 py-2 text-base font-bold font-mono text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal"
                         />
+                        <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
                       </div>
+                    </div>
 
-                      <div className="sm:col-span-4 flex items-center justify-end font-mono text-xs text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">
-                        <span className="text-slate-500 text-[11px] mr-1">รวมตัดใบนี้:</span>
-                        <strong className="text-amber-900 font-bold">
-                          {formatMeters(orderCalc.total)}
-                        </strong>
-                        <span className="ml-0.5 text-[11px] text-slate-500">ม.</span>
+                    <div>
+                      <label 
+                        htmlFor={`input-ng-${order.id}`}
+                        className="block text-xs font-semibold text-slate-700 mb-1"
+                      >
+                        เศษเสีย NG (ม.)
+                      </label>
+                      <div className="relative">
+                        <input
+                          id={`input-ng-${order.id}`}
+                          ref={(el) => { ngMetersInputRefs.current[order.id] = el; }}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          tabIndex={3}
+                          value={order.ngMeters}
+                          onChange={(e) => handleUpdateOrder(order.id, { ngMeters: e.target.value })}
+                          placeholder="0.00"
+                          className="w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border border-slate-300 rounded-lg focus:border-rose-400 focus:ring-1 focus:ring-rose-400 placeholder:text-slate-400 placeholder:font-normal"
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
                       </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
 
-            {/* Button to Add Next Order (ใบสั่งซื้อที่ 2, 3...) */}
+                  {/* Note & Single Item Total */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={order.notes}
+                      onChange={(e) => handleUpdateOrder(order.id, { notes: e.target.value })}
+                      placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
+                      className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-amber-500"
+                    />
+                    <div className="text-right text-xs font-mono shrink-0 px-2 py-1 bg-slate-100 rounded-md text-slate-600">
+                      ตัดใบนี้: <strong className="text-slate-900">{formatMeters(orderCalc.total)}</strong> ม.
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Add Next Order Button */}
             <button
               type="button"
               onClick={handleAddOrder}
-              className="w-full py-2.5 px-4 border-2 border-dashed border-amber-400/80 hover:border-amber-500 bg-amber-50/40 hover:bg-amber-100/60 text-amber-900 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.99] shadow-2xs"
+              className="w-full py-2 px-3 border border-dashed border-slate-300 hover:border-amber-500 bg-slate-50 hover:bg-amber-50/50 text-slate-700 hover:text-amber-900 rounded-xl font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4 text-amber-600" />
-              <span>+ เพิ่มใบสั่งซื้อที่ {orders.length + 1} (เพิ่มใบงานตัดสต๊อกต่อ)</span>
+              <PlusCircle className="w-3.5 h-3.5 text-amber-600" />
+              <span>+ เพิ่มใบสั่งซื้อ / SO ถัดไป</span>
             </button>
           </div>
 
-          {/* Real-time Calculation Summary of ALL Orders */}
-          <div className="p-4 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-xl space-y-3">
-            <div className="flex items-center justify-between text-xs text-slate-300">
-              <span className="font-bold text-white flex items-center gap-1.5">
-                <Scissors className="w-3.5 h-3.5 text-amber-400" />
-                สรุปยอดตัดรวมทั้งสิ้น ({orders.length} ใบงาน)
-              </span>
-              <span className="font-mono">
-                ยอดคงเหลือเดิม: <strong className="text-white">{formatMeters(remainingBefore)}</strong> ม.
-              </span>
-            </div>
-
-            {/* Individual orders breakdown list if > 1 order */}
-            {orders.length > 1 && (
-              <div className="p-2.5 bg-slate-800/80 rounded-lg border border-slate-700 space-y-1 text-xs">
-                {orders.map((ord, i) => {
-                  const calc = orderCalculations[i];
-                  return (
-                    <div key={ord.id} className="flex items-center justify-between font-mono text-[11px] text-slate-300">
-                      <span>
-                        • ใบงานที่ {i + 1} ({calc.identifier || 'รหัส SO'}):
-                      </span>
-                      <span>
-                        ใช้ {formatMeters(calc.numUsed)} ม. + NG {formatMeters(calc.numNg)} ม. = <strong className="text-amber-400">{formatMeters(calc.total)} ม.</strong>
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4 pt-1 border-t border-slate-700/80">
-              <div>
-                <span className="text-slate-400 text-xs block">รวมตัดออกทั้งหมด:</span>
-                <div className="font-mono font-bold text-amber-400 text-xl">
-                  -{formatMeters(totalDeductedAll)} <span className="text-xs font-normal text-slate-300">เมตร</span>
-                </div>
-              </div>
-
-              <div className="text-right">
-                <span className="text-slate-400 text-xs block">ยอดคงเหลือสุทธิหลังตัด:</span>
-                <div className={`font-mono font-bold text-xl ${
-                  isOverCut ? 'text-rose-400' : 'text-emerald-400'
-                }`}>
-                  {formatMeters(remainingAfter)} <span className="text-xs font-normal text-slate-300">เมตร</span>
-                </div>
-              </div>
-            </div>
-
-            {isOverCut && (
-              <div className="p-2.5 bg-rose-900/60 border border-rose-600 text-rose-200 rounded-lg text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
-                <span>
-                  <strong>ยอดตัดรวมเกินยอดคงเหลือในม้วน!</strong> (ขาด {formatMeters(Math.abs(remainingAfter))} ม.) กรุณาปรับลดจำนวนเมตร
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Common Metadata: Operator and Date */}
+          {/* Operator and Usage Date */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            {/* Operator */}
             <div>
               <label htmlFor="input-operator" className="block text-xs font-semibold text-slate-700 mb-1">
                 <span className="flex items-center gap-1">
                   <User className="w-3.5 h-3.5 text-slate-500" />
-                  ชื่อผู้บันทึกการตัด <span className="text-rose-500">*</span>
+                  ชื่อผู้บันทึก <span className="text-rose-500">*</span>
                 </span>
               </label>
               <input
@@ -736,13 +707,13 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 required
                 value={recordedBy}
                 onChange={(e) => setRecordedBy(e.target.value)}
-                placeholder="เช่น สมชาย, กิตติพงษ์, หัวหน้ากะ A"
+                placeholder="เช่น สมชาย, ช่างคุมเครื่อง"
                 className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:border-amber-500 text-slate-900 font-medium"
               />
               {recentOperators.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1.5 items-center">
                   <span className="text-[10px] text-slate-400">เลือกเร็ว:</span>
-                  {recentOperators.slice(0, 4).map((op) => (
+                  {recentOperators.slice(0, 3).map((op) => (
                     <button
                       key={op}
                       type="button"
@@ -756,12 +727,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               )}
             </div>
 
-            {/* Usage Date */}
             <div>
               <label htmlFor="input-usage-date" className="block text-xs font-semibold text-slate-700 mb-1">
                 <span className="flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                  วันที่ตัดใช้งาน
+                  วันที่ใช้งาน
                 </span>
               </label>
               <input
@@ -769,31 +739,68 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 type="date"
                 value={usageDate}
                 onChange={(e) => setUsageDate(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:border-amber-500 text-slate-900 font-mono cursor-pointer"
+                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:border-amber-500 text-slate-900 font-mono"
               />
             </div>
           </div>
 
-          {/* Submit Actions */}
-          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
+          {/* 3. กล่องสรุปยอดคงเหลือสุทธิ + ปุ่มบันทึกด้านล่าง */}
+          <div className="p-4 bg-slate-900 text-white rounded-xl space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="p-2 bg-slate-800 rounded-lg">
+                <span className="text-slate-400 block text-[11px]">ยอดคงเหลือเดิม</span>
+                <span className="font-mono font-bold text-white text-sm">
+                  {formatMeters(remainingBefore)} <span className="text-[10px] font-normal text-slate-400">ม.</span>
+                </span>
+              </div>
+
+              <div className="p-2 bg-slate-800 rounded-lg">
+                <span className="text-slate-400 block text-[11px]">รวมตัดออก (ใช้+NG)</span>
+                <span className="font-mono font-bold text-amber-400 text-sm">
+                  -{formatMeters(totalDeductedAll)} <span className="text-[10px] font-normal text-slate-400">ม.</span>
+                </span>
+              </div>
+
+              <div className={`p-2 rounded-lg ${isOverCut ? 'bg-rose-950 border border-rose-600' : 'bg-slate-800'}`}>
+                <span className="text-slate-400 block text-[11px]">คงเหลือสุทธิ</span>
+                <span className={`font-mono font-bold text-sm ${isOverCut ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {formatMeters(remainingAfter)} <span className="text-[10px] font-normal text-slate-400">ม.</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Over-cut Alert Message */}
+            {isOverCut && (
+              <div className="p-2.5 bg-rose-900/80 border border-rose-500 text-rose-200 rounded-lg text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-300" />
+                <span className="font-semibold">
+                  ไม่สามารถตัดเกินจำนวนคงเหลือในม้วนได้ (ม้วนนี้เหลือ {formatMeters(remainingBefore)} ม. แต่ระบุตัดรวม {formatMeters(totalDeductedAll)} ม.)
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Action Buttons */}
+          <div className="pt-2 flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
             >
               ยกเลิก
             </button>
+
             <button
               type="submit"
               disabled={isOverCut || totalDeductedAll <= 0}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm ${
+              className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
                 isOverCut || totalDeductedAll <= 0
-                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer active:scale-[0.98]'
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
               }`}
             >
-              <Scissors className="w-4 h-4 stroke-[2.3]" />
-              <span>ยืนยันตัดสต๊อก ({orders.length} ใบงาน - รวม {formatMeters(totalDeductedAll)} ม.)</span>
+              <Scissors className="w-4 h-4 stroke-[2.5]" />
+              <span>ยืนยันตัดสต๊อก ({formatMeters(totalDeductedAll)} ม.)</span>
             </button>
           </div>
         </form>

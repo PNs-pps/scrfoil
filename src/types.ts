@@ -33,7 +33,7 @@ export interface FoilRoll {
   usedMeters: number;        // จำนวนเมตรที่ตัดใช้สะสม
   ngMeters: number;          // จำนวนเมตร NG เสียสะสม
   dateReceived: string;      // วันที่รับเข้า YYYY-MM-DD
-  status: 'active' | 'depleted'; // สถานะ
+  status: 'active' | 'depleted' | 'out_of_stock'; // สถานะ (out_of_stock เมื่อเหลือ <= 0)
   notes?: string;
   isZeroedOut?: boolean;     // ติ๊กตัดสต๊อกเป็น 0 (กรณีเหลือสีแดง <= 50 เมตร)
   manualZeroedOriginalMeters?: number; // เก็บค่าเมตรก่อนติ๊กเป็น 0 เพื่อนำกลับมาใช้ใหม่ได้
@@ -79,4 +79,26 @@ export interface SOComponents {
   yearBE: string;   // xx เช่น 69 (พ.ศ. 2569)
   month: string;    // yy เช่น 09 (ก.ย.)
   orderNo: string;  // zzz เช่น 500
+}
+
+/**
+ * Structure of sub-collection: foil_rolls/{rollId}/cut_history
+ */
+export interface CutHistoryItem {
+  id: string;
+  soNumber: string;
+  cutMeters: number;
+  ngMeters: number;
+  createdAt: any;
+  rollId?: string;
+  lotNumber?: string;
+  rollNumber?: string;
+  width?: FoilWidth;
+  pattern?: FoilPattern;
+  totalDeducted?: number;
+  remainingBefore?: number;
+  remainingAfter?: number;
+  recordedBy?: string;
+  usageDate?: string;
+  notes?: string;
 }

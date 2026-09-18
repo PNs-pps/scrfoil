@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, RefreshCw, Download, Wrench, Settings } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'dashboard' | 'rolls' | 'history' | 'settings';
@@ -83,27 +83,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
-              id="btn-cut-foil-so"
+              id="btn-cut-foil"
               onClick={() => onOpenCutModal('so')}
-              title="ตัดสต๊อกตามใบสั่งผลิต SO (soxxyyzzz)"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
+              title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
             >
               <Scissors className="w-4 h-4 stroke-[2.5]" />
-              <span>ตัดสต๊อก (มี SO)</span>
+              <span>ตัดสต็อกฟอยล์</span>
             </button>
 
-            <button
-              id="btn-cut-foil-non-so"
-              onClick={() => onOpenCutModal('non_so')}
-              title="ตัดสต๊อกโดยไม่ต้องใส่ใบงาน SO เช่น สาขายืม หรือ ซ่อมฟอยล์พ่นกาว"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs sm:text-sm font-bold transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
-            >
-              <Wrench className="w-4 h-4 text-amber-600" />
-              <span className="hidden xl:inline">ตัดสต๊อกไม่ใช้ SO (สาขายืม/ซ่อม)</span>
-              <span className="xl:hidden">ตัดไม่ใช้ SO</span>
-            </button>
-
-            {/* Utility Dropdown / Buttons */}
+            {/* Utility / Export Button */}
             <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
               <button
                 id="btn-export-options"
@@ -112,21 +101,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-              </button>
-              <button
-                id="btn-nav-settings"
-                onClick={() => setActiveTab('settings')}
-                title="ตั้งค่าระบบ & สำรองข้อมูล"
-                className={`p-2 rounded-lg transition-colors cursor-pointer relative ${
-                  activeTab === 'settings'
-                    ? 'bg-amber-100 text-amber-900'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-                {hasPermissionNotice && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                )}
               </button>
             </div>
           </div>

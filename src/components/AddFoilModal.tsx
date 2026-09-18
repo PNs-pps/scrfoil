@@ -27,7 +27,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   const [isCustomPattern, setIsCustomPattern] = useState(false);
   const [customPatternVal, setCustomPatternVal] = useState('');
 
-  const [totalMeters, setTotalMeters] = useState<number | ''>(3000);
+  const [totalMeters, setTotalMeters] = useState<number | ''>(1000);
   const [dateReceived, setDateReceived] = useState(today);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +78,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
     // Reset form
     setLotNumber('');
     setRollNumber('01');
-    setTotalMeters(3000);
+    setTotalMeters(1000);
     setNotes('');
     onClose();
   };
@@ -274,7 +274,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
                   required
                   value={totalMeters}
                   onChange={(e) => setTotalMeters(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="3000"
+                  placeholder="1000"
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-base font-bold font-mono text-slate-900"
                 />
                 <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-medium">เมตร</span>
