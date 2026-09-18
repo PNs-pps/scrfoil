@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getFirestore, 
+  initializeFirestore,
   doc, 
   getDocFromServer, 
   collection, 
@@ -72,9 +73,25 @@ export const firebaseApp: FirebaseApp = getApps().find(a => a.name === appName)
   || initializeApp(firebaseConfig, appName === '[DEFAULT]' ? undefined : appName);
 
 // Initialize Firestore
-export const db: Firestore = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-  ? getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(firebaseApp);
+// NOTE: ignoreUndefinedProperties is set as a safety net so that any stray
+// `undefined` field (e.g. an optional field left unset) is silently skipped
+// instead of throwing a client-side "Unsupported field value: undefined"
+// error that would abort an entire batch write.
+function createDb(): Firestore {
+  try {
+    return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+      ? initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true }, firebaseConfig.firestoreDatabaseId)
+      : initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true });
+  } catch (err) {
+    // initializeFirestore throws if Firestore was already initialized for this app
+    // (e.g. hot-reload); fall back to the existing instance in that case.
+    return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+      ? getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId)
+      : getFirestore(firebaseApp);
+  }
+}
+
+export const db: Firestore = createDb();
 
 // Initialize Auth
 export const auth: Auth = getAuth(firebaseApp);
