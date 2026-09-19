@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Database, 
@@ -17,7 +17,12 @@ import {
   History, 
   Layers,
   ArrowRight,
-  Info
+  Info,
+  FolderArchive,
+  FolderOpen,
+  Folder,
+  FileText,
+  Lock
 } from 'lucide-react';
 import { 
   AutoBackupConfig, 
@@ -32,6 +37,15 @@ import {
   parseAndValidateBackupJSON 
 } from '../utils/autoBackup';
 import { FoilRoll, StockCutRecord } from '../types';
+import { UserMode } from '../utils/auth';
+import { 
+  groupRollsByDateReceived, 
+  groupCutsByDate, 
+  exportDateOrganizedArchiveJSON, 
+  exportIncomingDateCSV, 
+  exportCutsDateCSV 
+} from '../utils/dateGrouping';
+import { formatMeters } from '../utils/formatters';
 
 interface SettingsBackupViewProps {
   rolls: FoilRoll[];
@@ -46,6 +60,8 @@ interface SettingsBackupViewProps {
   onRestoreData: (newRolls: FoilRoll[], newRecords: StockCutRecord[]) => void;
   onResetData?: () => void;
   showToast: (text: string, type?: 'success' | 'info') => void;
+  userMode?: UserMode;
+  onRequestUnlock?: () => void;
 }
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
@@ -61,14 +77,28 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   onRestoreData,
   onResetData,
   showToast,
+  userMode = 'visitor',
+  onRequestUnlock,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'backup' | 'permissions' | 'mobile'>('backup');
+  const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile'>('backup');
   
   // Backup config state
   const [backupConfig, setBackupConfig] = useState<AutoBackupConfig>(getAutoBackupConfig());
   const [snapshots, setSnapshots] = useState<AutoBackupSnapshot[]>(getBackupSnapshots());
   const [copiedRules, setCopiedRules] = useState(false);
   const [isBackingUpNow, setIsBackingUpNow] = useState(false);
+
+  // Date Grouped Folders for Incoming and Cuts
+  const incomingDateFolders = useMemo(() => groupRollsByDateReceived(rolls), [rolls]);
+  const cutsDateFolders = useMemo(() => groupCutsByDate(records), [records]);
+
+  const handleActionGuarded = (action: () => void) => {
+    if (userMode === 'visitor' && onRequestUnlock) {
+      onRequestUnlock();
+      return;
+    }
+    action();
+  };
 
   // Toggle backup setting
   const updateConfig = (patch: Partial<AutoBackupConfig>) => {
@@ -216,6 +246,21 @@ service cloud.firestore {
           >
             <Clock className="w-4 h-4" />
             <span>ระบบสำรองข้อมูล & รีเซ็ต</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('folders')}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              activeSubTab === 'folders'
+                ? 'bg-slate-900 text-amber-400 shadow-xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <FolderArchive className="w-4 h-4 text-amber-500" />
+            <span>โฟลเดอร์แยกตามวันที่ (รับเข้า & ตัด SO)</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-amber-200 text-amber-950 font-bold">
+              {incomingDateFolders.length + cutsDateFolders.length}
+            </span>
           </button>
 
           <button
@@ -465,6 +510,203 @@ service cloud.firestore {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: DATE-SEPARATED FOLDERS (รับเข้า & ตัด SO) */}
+      {activeSubTab === 'folders' && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold">
+                    <FolderArchive className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                    บันทึกโฟลเดอร์แยกวันที่ (รับเข้าสต๊อก & ตัด SO)
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  แยกจัดเก็บไฟล์และข้อมูลเป็นโฟลเดอร์ตามวันที่รับเข้าฟอยล์ และวันที่ตัดงานใบสั่งผลิต SO เพื่อความสะดวกในการเรียกดูย้อนหลัง
+                </p>
+              </div>
+
+              <div className="flex items-center flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportDateOrganizedArchiveJSON(rolls, records)}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 text-xs sm:text-sm font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>ดาวน์โหลดสำรองแยก 2 โฟลเดอร์ (JSON)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleActionGuarded(async () => {
+                    await onManualSaveToCloud();
+                    showToast('บันทึกข้อมูลจัดโฟลเดอร์ขึ้น Cloud สำเร็จแล้ว');
+                  })}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                >
+                  {userMode === 'visitor' ? <Lock className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                  <span>บันทึกขึ้น Cloud ทันที</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Folder Metrics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-100 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-slate-400 block text-[11px]">โฟลเดอร์รับเข้า</span>
+                <span className="text-base font-bold font-mono text-slate-900">{incomingDateFolders.length} วัน</span>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-slate-400 block text-[11px]">ม้วนรับเข้ารวม</span>
+                <span className="text-base font-bold font-mono text-amber-700">{rolls.length} ม้วน</span>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-slate-400 block text-[11px]">โฟลเดอร์ตัด SO</span>
+                <span className="text-base font-bold font-mono text-slate-900">{cutsDateFolders.length} วัน</span>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-slate-400 block text-[11px]">รายการตัด SO รวม</span>
+                <span className="text-base font-bold font-mono text-emerald-700">{records.length} ครั้ง</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2 Column Folders Breakdown */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Column 1: Incoming Folders */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                      โฟลเดอร์รับเข้าสต๊อก (แยกตามวันที่รับ)
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      มีทั้งหมด {incomingDateFolders.length} โฟลเดอร์วันที่
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {incomingDateFolders.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs font-mono">
+                  ยังไม่มีข้อมูลม้วนฟอยล์รับเข้า
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
+                  {incomingDateFolders.map((folder) => (
+                    <div
+                      key={folder.date}
+                      className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-amber-300 transition-all space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                          <div>
+                            <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                              {folder.displayDate}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500 ml-2">
+                              ({folder.date})
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => exportIncomingDateCSV(folder.date, folder.rolls)}
+                          className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-amber-50 text-slate-700 text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                        >
+                          <Download className="w-3 h-3 text-slate-400" />
+                          <span>ดาวน์โหลด CSV</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs font-mono text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-100">
+                        <span>จำนวนม้วน: <strong className="text-slate-900">{folder.totalRolls}</strong> ม้วน</span>
+                        <span>เมตรลูกเต็มรวม: <strong className="text-amber-800">{formatMeters(folder.totalMeters)}</strong> ม.</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Column 2: Cuts SO Folders */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <FolderOpen className="w-5 h-5 text-emerald-600" />
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                      โฟลเดอร์ตัดสต๊อก SO (แยกตามวันที่ตัด)
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      มีทั้งหมด {cutsDateFolders.length} โฟลเดอร์วันที่
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {cutsDateFolders.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs font-mono">
+                  ยังไม่มีข้อมูลประวัติการตัดสต๊อก SO
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
+                  {cutsDateFolders.map((folder) => (
+                    <div
+                      key={folder.date}
+                      className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 hover:border-emerald-300 transition-all space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Folder className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <div>
+                            <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                              {folder.displayDate}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500 ml-2">
+                              ({folder.records.length} ครั้ง)
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => exportCutsDateCSV(folder.date, folder.records)}
+                          className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-emerald-50 text-slate-700 text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                        >
+                          <Download className="w-3 h-3 text-slate-400" />
+                          <span>ดาวน์โหลด CSV</span>
+                        </button>
+                      </div>
+
+                      <div className="text-xs text-slate-500 truncate">
+                        SO: {folder.uniqueSoList.join(', ')}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs font-mono text-slate-600 bg-white px-3 py-1.5 rounded-lg border border-slate-100">
+                        <span>ตัดใช้: <strong className="text-slate-900">{formatMeters(folder.totalUsedMeters)}</strong> ม.</span>
+                        {folder.totalNgMeters > 0 && (
+                          <span>NG: <strong className="text-rose-600">{formatMeters(folder.totalNgMeters)}</strong> ม.</span>
+                        )}
+                        <span>รวมตัด: <strong className="text-emerald-700">{formatMeters(folder.totalDeductedMeters)}</strong> ม.</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
+import { UserMode } from '../utils/auth';
+import { groupRollsByDateReceived } from '../utils/dateGrouping';
 import { 
   Search, 
   Filter, 
@@ -25,7 +27,9 @@ import {
   Tag,
   Hash,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Lock,
+  Calendar
 } from 'lucide-react';
 
 interface FoilRollTableProps {
@@ -38,9 +42,11 @@ interface FoilRollTableProps {
   onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
   onOpenBatchImport?: () => void;
   onOpenMonthlySummary?: () => void;
+  userMode?: UserMode;
+  onRequestUnlock?: () => void;
 }
 
-type GroupByCategory = 'none' | 'width' | 'pattern';
+type GroupByCategory = 'none' | 'width' | 'pattern' | 'date';
 
 export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   rolls,
@@ -52,6 +58,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   onToggleZeroOut,
   onOpenBatchImport,
   onOpenMonthlySummary,
+  userMode = 'visitor',
+  onRequestUnlock,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
@@ -60,6 +68,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'depleted'>('all');
   const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const handleActionGuarded = (action: () => void) => {
+    if (userMode === 'visitor' && onRequestUnlock) {
+      onRequestUnlock();
+      return;
+    }
+    action();
+  };
 
   // Unique lots for quick 1-click filter chips
   const uniqueLots = useMemo(() => {
@@ -216,6 +232,28 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       return result;
     }
 
+    if (groupBy === 'date') {
+      const dateGroups = groupRollsByDateReceived(filteredRolls);
+      return dateGroups.map(dg => {
+        const totalRemaining = dg.rolls.reduce((sum, r) => sum + r.remainingMeters, 0);
+        const totalFull = dg.rolls.reduce((sum, r) => sum + r.totalMeters, 0);
+        const activeCount = dg.rolls.filter(r => r.remainingMeters > 0).length;
+        const depletedCount = dg.rolls.filter(r => r.remainingMeters <= 0).length;
+
+        return {
+          key: `date-${dg.date}`,
+          title: `วันที่รับเข้า: ${dg.displayDate}`,
+          subTitle: `${dg.rolls.length} ม้วน (ยอดเต็ม ${formatMeters(totalFull)} ม. | เหลือ ${formatMeters(totalRemaining)} ม.)`,
+          badge: dg.date,
+          rolls: dg.rolls,
+          totalRemaining,
+          totalFull,
+          activeCount,
+          depletedCount,
+        };
+      });
+    }
+
     return null;
   }, [groupBy, filteredRolls, selectedWidth, selectedPattern, rolls]);
 
@@ -276,25 +314,36 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         key={roll.id} 
         className={rowClass}
       >
-        {/* Lot & Roll */}
+        {/* Lot & Roll - Enhanced for High Visibility */}
         <td className="px-4 py-3.5">
-          <div className="font-mono font-bold text-slate-900 text-sm flex items-center gap-1.5">
-            <span>{highlightMatch(roll.lotNumber, searchQuery)}</span>
-            {highlightLevel === 'red' && (
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" title="สต๊อกเหลือน้อยวิกฤต (<= 200 ม.)" />
-            )}
-            {highlightLevel === 'orange' && (
-              <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" title="สต๊อกใกล้หมด (<= 500 ม.)" />
-            )}
-          </div>
-          <div className="text-xs text-slate-600 font-mono">
-            เบอร์ม้วน: <span className="font-semibold text-slate-800">{highlightMatch(roll.rollNumber, searchQuery)}</span>
-          </div>
-          {roll.notes && (
-            <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={roll.notes}>
-              {roll.notes}
+          <div className="flex flex-col gap-1.5">
+            {/* Roll Number - Big Eye-Catching Badge */}
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-black text-sm font-mono shadow-xs border border-amber-500 tracking-wider">
+                #{highlightMatch(roll.rollNumber, searchQuery)}
+              </span>
+              {highlightLevel === 'red' && (
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" title="สต๊อกเหลือน้อยวิกฤต (<= 200 ม.)" />
+              )}
+              {highlightLevel === 'orange' && (
+                <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" title="สต๊อกใกล้หมด (<= 500 ม.)" />
+              )}
             </div>
-          )}
+
+            {/* Lot Number - Clear High-Contrast Mono Tag */}
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-slate-500 font-semibold">ล็อต:</span>
+              <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
+                {highlightMatch(roll.lotNumber, searchQuery)}
+              </span>
+            </div>
+
+            {roll.notes && (
+              <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={roll.notes}>
+                {roll.notes}
+              </div>
+            )}
+          </div>
         </td>
 
         {/* Width with description */}
@@ -435,15 +484,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         <td className="px-4 py-3.5 text-center">
           <div className="flex items-center justify-center gap-1">
             <button
-              onClick={() => onOpenCutModal(roll.id)}
+              onClick={() => handleActionGuarded(() => onOpenCutModal(roll.id))}
               disabled={isDepleted || isZeroed}
-              title={isZeroed ? "ม้วนนี้ถูกตัดเป็น 0 แล้ว (ติ๊กออกเพื่อคืนค่าก่อนตัด)" : "ตัดสต๊อกม้วนนี้"}
+              title={isZeroed ? "ม้วนนี้ถูกตัดเป็น 0 แล้ว (ติ๊กออกเพื่อคืนค่าก่อนตัด)" : userMode === 'visitor' ? "ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนตัดสต๊อก" : "ตัดสต๊อกม้วนนี้"}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
                 isDepleted || isZeroed
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-slate-950 border border-amber-300'
               }`}
             >
+              {userMode === 'visitor' && <Lock className="w-3 h-3 text-slate-400" />}
               <Scissors className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">ตัดสต๊อก</span>
             </button>
@@ -459,14 +509,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
             <button
               onClick={() => {
-                if (confirm(`คุณต้องการลบม้วน ${roll.lotNumber} เบอร์ ${roll.rollNumber} ใช่หรือไม่?`)) {
-                  onDeleteRoll(roll.id);
-                }
+                handleActionGuarded(() => {
+                  if (confirm(`คุณต้องการลบม้วน ${roll.lotNumber} เบอร์ ${roll.rollNumber} ใช่หรือไม่?`)) {
+                    onDeleteRoll(roll.id);
+                  }
+                });
               }}
-              title="ลบม้วนนี้ออกจากสต๊อก"
+              title={userMode === 'visitor' ? "ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนลบม้วน" : "ลบม้วนนี้ออกจากสต๊อก"}
               className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
             >
-              <Trash2 className="w-4 h-4" />
+              {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5 text-slate-300" /> : <Trash2 className="w-4 h-4" />}
             </button>
           </div>
         </td>
@@ -563,11 +615,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             {onOpenBatchImport && (
               <button
                 type="button"
-                onClick={onOpenBatchImport}
+                onClick={() => handleActionGuarded(onOpenBatchImport)}
                 className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
                 title="อัปโหลดข้อมูลใบงาน SO ที่ใช้ตัดฟอยล์แบบเป็นชุด"
               >
-                <Upload className="w-3.5 h-3.5 stroke-[2.2]" />
+                {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5 stroke-[2.2]" />}
                 <span>อัปโหลด SO ตัดฟอยล์</span>
               </button>
             )}
@@ -593,10 +645,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </button>
 
             <button
-              onClick={onOpenAddModal}
+              onClick={() => handleActionGuarded(onOpenAddModal)}
               className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5 text-amber-400" />
+              {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Plus className="w-3.5 h-3.5 text-amber-400" />}
               <span>เพิ่มฟอยล์ใหม่</span>
             </button>
           </div>
@@ -699,6 +751,18 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               }`}
             >
               ตามท้องฟอยล์
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupBy('date')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                groupBy === 'date'
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Calendar className="w-3 h-3 text-amber-500" />
+              <span>ตามวันที่รับเข้า</span>
             </button>
             <button
               type="button"

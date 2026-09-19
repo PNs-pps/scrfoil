@@ -36,6 +36,8 @@ import { MonthlySummaryModal } from './components/MonthlySummaryModal';
 import { SOBatchImportModal } from './components/SOBatchImportModal';
 import { SettingsBackupView } from './components/SettingsBackupView';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { PasswordPromptModal } from './components/PasswordPromptModal';
+import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig } from './utils/autoBackup';
 import { formatMeters, round2 } from './utils/formatters';
 import { CheckCircle2, AlertCircle, Sparkles, X } from 'lucide-react';
@@ -44,6 +46,11 @@ export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history' | 'settings'>('dashboard');
+
+  // Visitor vs Data Entry (Editor) Mode State
+  const [userMode, setUserMode] = useState<UserMode>(() => getUserMode());
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [pendingGuardedAction, setPendingGuardedAction] = useState<(() => void) | null>(null);
 
   // Firebase Realtime Sync State
   const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'offline' | 'permission-denied'>('syncing');
@@ -264,6 +271,68 @@ export default function App() {
     });
 
     showToast(`เพิ่มฟอยล์รับเข้าสำเร็จ: ล็อต ${newRoll.lotNumber} #${newRoll.rollNumber} (${newRoll.totalMeters.toLocaleString()} ม.) [บันทึกลง Cloud]`);
+  };
+
+  // Add multiple incoming rolls batch
+  const handleAddMultipleFoils = async (
+    rollsData: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>[]
+  ) => {
+    if (!rollsData || rollsData.length === 0) return;
+    const now = new Date().toISOString();
+    const newRolls: FoilRoll[] = rollsData.map((data, index) => ({
+      ...data,
+      id: `foil-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+      remainingMeters: data.totalMeters,
+      usedMeters: 0,
+      ngMeters: 0,
+      status: 'active',
+      createdAt: now,
+    }));
+
+    const updated = [...newRolls, ...rolls];
+    updateRollsState(updated);
+
+    // Save all new rolls to Firestore
+    try {
+      for (const r of newRolls) {
+        await saveFoilRollToFirestore(r);
+      }
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Batch add rolls to firestore error/warning:', err);
+    }
+
+    showToast(
+      `เพิ่มฟอยล์หลายม้วนสำเร็จ: ${newRolls.length} ม้วน (ล็อต ${newRolls[0]?.lotNumber} เบอร์ ${newRolls.map((r) => r.rollNumber).join(', ')}) [บันทึกลง Cloud]`
+    );
+  };
+
+  // Auth Guard helper: If visitor mode, prompt password first
+  const requireEditorPermission = (action: () => void) => {
+    if (userMode === 'editor') {
+      action();
+      return;
+    }
+    setPendingGuardedAction(() => action);
+    setIsPasswordModalOpen(true);
+  };
+
+  const handleUnlockSuccess = () => {
+    setUserMode('editor');
+    saveUserMode('editor');
+    setIsPasswordModalOpen(false);
+    showToast('เข้าสู่โหมดคีย์ข้อมูล (Editor Mode) สำเร็จ สามารถแก้ไขและตัดสต๊อกได้');
+    if (pendingGuardedAction) {
+      pendingGuardedAction();
+      setPendingGuardedAction(null);
+    }
+  };
+
+  const handleLockToVisitor = () => {
+    setUserMode('visitor');
+    saveUserMode('visitor');
+    showToast('สลับกลับสู่โหมดผู้เข้าชม (Visitor Mode: แสดงข้อมูลอย่างเดียว)', 'info');
   };
 
   // Cut stock handler (supports single roll batch and multi-roll import batch)
@@ -534,18 +603,23 @@ export default function App() {
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenAddModal={() => setIsAddModalOpen(true)}
+        onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
         onOpenCutModal={(mode = 'so') => {
-          setPreselectedRollId(null);
-          setCutModalInitialMode(mode);
-          setIsCutModalOpen(true);
+          requireEditorPermission(() => {
+            setPreselectedRollId(null);
+            setCutModalInitialMode(mode);
+            setIsCutModalOpen(true);
+          });
         }}
         totalRemainingMeters={totalRemainingMeters}
         activeRollsCount={activeRollsCount}
-        onResetData={handleResetData}
+        onResetData={() => requireEditorPermission(handleResetData)}
         onExportRolls={() => exportRollsToCSV(rolls)}
         onExportHistory={() => exportCutRecordsToCSV(records)}
         hasPermissionNotice={syncStatus === 'permission-denied'}
+        userMode={userMode}
+        onUnlockEditor={() => requireEditorPermission(() => {})}
+        onLockVisitor={handleLockToVisitor}
       />
 
       {/* Main Content Area */}
@@ -555,41 +629,49 @@ export default function App() {
             rolls={rolls}
             records={records}
             onOpenCutModal={(rollId) => {
-              setPreselectedRollId(rollId || null);
-              setCutModalInitialMode('so');
-              setIsCutModalOpen(true);
+              requireEditorPermission(() => {
+                setPreselectedRollId(rollId || null);
+                setCutModalInitialMode('so');
+                setIsCutModalOpen(true);
+              });
             }}
-            onOpenAddModal={() => setIsAddModalOpen(true)}
+            onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
             onViewAllRolls={() => setActiveTab('rolls')}
             onViewAllHistory={() => setActiveTab('history')}
             onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
-            onOpenBatchImport={() => setIsBatchImportOpen(true)}
+            onOpenBatchImport={() => requireEditorPermission(() => setIsBatchImportOpen(true))}
           />
         )}
 
         {activeTab === 'rolls' && (
           <FoilRollTable
             rolls={rolls}
-            onOpenCutModal={handleOpenCutForRoll}
-            onOpenAddModal={() => setIsAddModalOpen(true)}
+            onOpenCutModal={(rollId) => requireEditorPermission(() => handleOpenCutForRoll(rollId))}
+            onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
             onViewRollHistory={(roll) => setDetailRoll(roll)}
-            onDeleteRoll={handleDeleteRoll}
+            onDeleteRoll={(rollId) => requireEditorPermission(() => handleDeleteRoll(rollId))}
             onExportRolls={() => exportRollsToCSV(rolls)}
-            onToggleZeroOut={handleToggleZeroOut}
-            onOpenBatchImport={() => setIsBatchImportOpen(true)}
+            onToggleZeroOut={(rollId, zeroOut) => requireEditorPermission(() => handleToggleZeroOut(rollId, zeroOut))}
+            onOpenBatchImport={() => requireEditorPermission(() => setIsBatchImportOpen(true))}
             onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
+            userMode={userMode}
+            onRequestUnlock={() => requireEditorPermission(() => {})}
           />
         )}
 
         {activeTab === 'history' && (
           <CuttingHistoryTable
             records={records}
-            onDeleteRecord={handleDeleteRecord}
+            onDeleteRecord={(recId) => requireEditorPermission(() => handleDeleteRecord(recId))}
             onOpenCutModal={() => {
-              setPreselectedRollId(null);
-              setCutModalInitialMode('so');
-              setIsCutModalOpen(true);
+              requireEditorPermission(() => {
+                setPreselectedRollId(null);
+                setCutModalInitialMode('so');
+                setIsCutModalOpen(true);
+              });
             }}
+            userMode={userMode}
+            onRequestUnlock={() => requireEditorPermission(() => {})}
           />
         )}
 
@@ -602,14 +684,18 @@ export default function App() {
             projectId={firebaseConfig.projectId}
             isManagedTarget={activeTarget === 'managed'}
             onSwitchCloud={handleSwitchCloud}
-            onManualSaveToCloud={handleManualSaveToCloud}
+            onManualSaveToCloud={() => requireEditorPermission(handleManualSaveToCloud)}
             onManualFetchFromCloud={handleManualFetchFromCloud}
             onRestoreData={(newRolls, newRecords) => {
-              updateRollsState(newRolls);
-              updateRecordsState(newRecords);
+              requireEditorPermission(() => {
+                updateRollsState(newRolls);
+                updateRecordsState(newRecords);
+              });
             }}
-            onResetData={handleResetData}
+            onResetData={() => requireEditorPermission(handleResetData)}
             showToast={showToast}
+            userMode={userMode}
+            onRequestUnlock={() => requireEditorPermission(() => {})}
           />
         )}
       </main>
@@ -633,6 +719,7 @@ export default function App() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAddFoil={handleAddFoil}
+        onAddMultipleFoils={handleAddMultipleFoils}
       />
 
       <CutStockModal
@@ -736,11 +823,23 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenCutModal={(mode = 'so') => {
-          setPreselectedRollId(null);
-          setCutModalInitialMode(mode);
-          setIsCutModalOpen(true);
+          requireEditorPermission(() => {
+            setPreselectedRollId(null);
+            setCutModalInitialMode(mode);
+            setIsCutModalOpen(true);
+          });
         }}
         hasPermissionNotice={syncStatus === 'permission-denied'}
+      />
+
+      {/* Password Prompt Modal for Data Entry Mode */}
+      <PasswordPromptModal
+        isOpen={isPasswordModalOpen}
+        onClose={() => {
+          setIsPasswordModalOpen(false);
+          setPendingGuardedAction(null);
+        }}
+        onSuccess={handleUnlockSuccess}
       />
     </div>
   );

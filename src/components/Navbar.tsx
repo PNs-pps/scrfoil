@@ -1,5 +1,6 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key } from 'lucide-react';
+import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
   activeTab: 'dashboard' | 'rolls' | 'history' | 'settings';
@@ -12,6 +13,9 @@ interface NavbarProps {
   onExportRolls: () => void;
   onExportHistory: () => void;
   hasPermissionNotice?: boolean;
+  userMode: UserMode;
+  onUnlockEditor: () => void;
+  onLockVisitor: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -25,6 +29,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onExportRolls,
   onExportHistory,
   hasPermissionNotice = false,
+  userMode,
+  onUnlockEditor,
+  onLockVisitor,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
@@ -56,6 +63,37 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Quick Metrics & Actions */}
           <div className="flex items-center flex-wrap gap-2 sm:gap-3">
+            {/* Mode Switcher Pill */}
+            {userMode === 'visitor' ? (
+              <button
+                type="button"
+                onClick={onUnlockEditor}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                title="คลิกเพื่อใส่รหัสผ่านและปลดล็อคโหมดคีย์ข้อมูล"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-700 group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline">โหมดผู้เข้าชม (ดูอย่างเดียว)</span>
+                <span className="sm:hidden">ผู้เข้าชม</span>
+                <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 text-[10px] font-bold ml-0.5">
+                  ปลดล็อค
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onLockVisitor}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                title="คลิกเพื่อล็อคกลับสู่โหมดผู้เข้าชม"
+              >
+                <Unlock className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline">โหมดคีย์ข้อมูล (เข้าสู่ระบบแล้ว)</span>
+                <span className="sm:hidden">คีย์ข้อมูล</span>
+                <span className="px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-950 text-[10px] font-bold ml-0.5">
+                  ล็อค
+                </span>
+              </button>
+            )}
+
             <div className="hidden lg:flex items-center gap-3 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200 text-xs">
               <div>
                 <span className="text-slate-500 block">คงเหลือรวม</span>
@@ -78,7 +116,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={onOpenAddModal}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-medium transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
             >
-              <Plus className="w-4 h-4 text-amber-400" />
+              {userMode === 'visitor' ? (
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <Plus className="w-4 h-4 text-amber-400" />
+              )}
               <span>เพิ่มฟอยล์รับเข้า</span>
             </button>
 
@@ -88,7 +130,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
             >
-              <Scissors className="w-4 h-4 stroke-[2.5]" />
+              {userMode === 'visitor' ? (
+                <Lock className="w-3.5 h-3.5 stroke-[2.5]" />
+              ) : (
+                <Scissors className="w-4 h-4 stroke-[2.5]" />
+              )}
               <span>ตัดสต็อกฟอยล์</span>
             </button>
 
@@ -106,8 +152,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex border-t border-slate-100 mt-1 space-x-1 sm:space-x-4 overflow-x-auto">
+        {/* Navigation Tabs (Hidden on mobile as MobileBottomNav handles navigation) */}
+        <div className="hidden md:flex border-t border-slate-100 mt-1 space-x-1 sm:space-x-4 overflow-x-auto">
           <button
             id="tab-dashboard"
             onClick={() => setActiveTab('dashboard')}
