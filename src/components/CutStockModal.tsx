@@ -142,9 +142,13 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   );
   const availablePatternsForSelectedWidth = Array.from(new Set(rollsFilteredByWidth.map(r => r.pattern)));
 
-  const candidateRolls = rollsFilteredByWidth.filter(r =>
-    filterPattern === 'all' ? true : r.pattern === filterPattern
-  );
+  const candidateRolls = rollsFilteredByWidth
+    .filter(r => filterPattern === 'all' ? true : r.pattern === filterPattern)
+    .sort((a, b) => {
+      const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
+      if (lotComp !== 0) return lotComp;
+      return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+    });
 
   const currentRoll = availableRolls.find(r => r.id === selectedFoilId);
 
@@ -464,13 +468,13 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                     <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold font-mono">
                       ตัดหมดแล้ว (0.00 ม.)
                     </span>
-                  ) : currentRoll.remainingMeters <= 200 ? (
+                  ) : currentRoll.remainingMeters <= 50 ? (
                     <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300 font-bold font-mono animate-pulse">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (วิกฤต)
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (วิกฤต &le; 50ม. สีแดง)
                     </span>
-                  ) : currentRoll.remainingMeters <= 500 ? (
-                    <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 font-bold font-mono">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (ใกล้หมด)
+                  ) : currentRoll.remainingMeters <= 200 ? (
+                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-bold font-mono">
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (เหลือน้อย &le; 200ม. สีเหลือง)
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono">

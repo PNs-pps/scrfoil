@@ -60,8 +60,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   const activeRolls = rolls.filter(r => r.remainingMeters > 0);
   const depletedRolls = rolls.filter(r => r.remainingMeters <= 0);
-  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 200);
-  const orangeAlertRolls = rolls.filter(r => r.remainingMeters > 200 && r.remainingMeters <= 500);
+  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 50);
+  const yellowAlertRolls = rolls.filter(r => r.remainingMeters > 50 && r.remainingMeters <= 200);
 
   // Group by Pattern
   const patternStats = STANDARD_PATTERNS.map(p => {
@@ -290,13 +290,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             {redAlertRolls.length > 0 && (
               <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
                 <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
-                <span>วิกฤต (&le;200ม.): {redAlertRolls.length} ม้วน</span>
+                <span>วิกฤต (&le;50ม. สีแดง): {redAlertRolls.length} ม้วน</span>
               </div>
             )}
-            {orangeAlertRolls.length > 0 && (
-              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-orange-800 font-semibold bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
-                <span className="w-2 h-2 rounded-full bg-orange-500" />
-                <span>ใกล้หมด (&le;500ม.): {orangeAlertRolls.length} ม้วน</span>
+            {yellowAlertRolls.length > 0 && (
+              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span>เหลือน้อย (&le;200ม. สีเหลือง): {yellowAlertRolls.length} ม้วน</span>
               </div>
             )}
           </div>

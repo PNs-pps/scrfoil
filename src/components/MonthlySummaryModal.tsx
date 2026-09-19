@@ -55,6 +55,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
   const [filterPattern, setFilterPattern] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [summarySortBy, setSummarySortBy] = useState<'width_lot_roll' | 'most_used'>('width_lot_roll');
 
   // Available years from records or rolls
   const availableYears = useMemo(() => {
@@ -151,11 +152,20 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
       );
     }
 
-    // Sort by most used this month
-    list.sort((a, b) => b.totalDeductedThisMonth - a.totalDeductedThisMonth);
+    // Sort either by Width > Lot > Roll Number (default, easy to check) or by Most Used
+    if (summarySortBy === 'width_lot_roll') {
+      list.sort((a, b) => {
+        if (a.width !== b.width) return Number(a.width) - Number(b.width);
+        const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
+        if (lotComp !== 0) return lotComp;
+        return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+      });
+    } else {
+      list.sort((a, b) => b.totalDeductedThisMonth - a.totalDeductedThisMonth);
+    }
 
     return list;
-  }, [monthlyRecords, rolls, filterPattern, searchQuery]);
+  }, [monthlyRecords, rolls, filterPattern, searchQuery, summarySortBy]);
 
   // Overall KPIs for this month
   const totalUsedMonth = monthlyRecords.reduce((sum, r) => sum + r.usedMeters, 0);
@@ -169,13 +179,13 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   const currentMonthLabel = THAI_MONTHS.find(m => m.value === selectedMonth)?.label || selectedMonth;
   const thaiYear = selectedYear + 543;
 
-  // Export Monthly Summary to CSV
+  // Export Monthly Summary to CSV (Ordering: Width > Lot > Roll Number consecutively)
   const handleExportMonthlyCSV = () => {
     const headers = [
       'ลำดับ',
+      'หน้ากว้าง (มม.)',
       'เลขล็อต',
       'เบอร์ม้วน',
-      'หน้ากว้าง (มม.)',
       'ลายฟอยล์',
       'เมตรที่ใช้ลงแผ่นจริงเดือนนี้ (ม.)',
       'NG ที่เสียเดือนนี้ (ม.)',
@@ -187,7 +197,15 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
       'รายการใบงาน / SO ที่ตัด'
     ];
 
-    const rows = rollUsageSummary.map((item, idx) => {
+    // Ensure rows are sorted Width > Lot > Roll Number for easy physical auditing
+    const sortedForExport = [...rollUsageSummary].sort((a, b) => {
+      if (a.width !== b.width) return Number(a.width) - Number(b.width);
+      const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
+      if (lotComp !== 0) return lotComp;
+      return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    const rows = sortedForExport.map((item, idx) => {
       const pctLeft = item.totalMeters > 0 
         ? Math.round((item.currentRemaining / item.totalMeters) * 100) 
         : 0;
@@ -195,24 +213,24 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
         ? 'ตัดเป็น 0 (เศษเหลือน้อย)' 
         : item.currentRemaining <= 0 
           ? 'หมดแล้ว' 
-          : item.currentRemaining <= 200 
-            ? 'วิกฤต (<=200ม.)' 
-            : item.currentRemaining <= 500 
-              ? 'ใกล้หมด (<=500ม.)' 
+          : item.currentRemaining <= 50 
+            ? 'วิกฤต (<=50ม. สีแดง)' 
+            : item.currentRemaining <= 200 
+              ? 'เหลือน้อย (<=200ม. สีเหลือง)' 
               : 'พร้อมใช้งาน';
 
       return [
         idx + 1,
-        item.lotNumber,
-        item.rollNumber,
         item.width,
-        item.pattern,
+        `"${item.lotNumber}"`,
+        `"${item.rollNumber}"`,
+        `"${item.pattern}"`,
         item.usedMetersThisMonth,
         item.ngMetersThisMonth,
         item.totalDeductedThisMonth,
         item.currentRemaining,
         `${pctLeft}%`,
-        statusText,
+        `"${statusText}"`,
         item.cutCount,
         `"${item.soNumbers.join(', ')}"`
       ];
@@ -347,6 +365,33 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                 className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-xl w-36 sm:w-48 shadow-2xs focus:outline-none focus:border-amber-500"
               />
             </div>
+
+            {/* Sort Toggle: Width > Lot > Roll (easy check) vs Most used */}
+            <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl border border-slate-300 text-xs">
+              <button
+                type="button"
+                onClick={() => setSummarySortBy('width_lot_roll')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                  summarySortBy === 'width_lot_roll'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="เรียงหน้ากว้าง > ล็อต > เบอร์ม้วน เพื่อง่ายต่อการตรวจเช็ค"
+              >
+                เรียง: กว้าง &gt; ล็อต &gt; เบอร์
+              </button>
+              <button
+                type="button"
+                onClick={() => setSummarySortBy('most_used')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  summarySortBy === 'most_used'
+                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ยอดตัดสูงสุด
+              </button>
+            </div>
           </div>
 
           {/* Export CSV Button */}
@@ -463,8 +508,10 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                   <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
                     <tr>
                       <th className="p-3.5">ลำดับ</th>
-                      <th className="p-3.5">ล็อต & เบอร์ม้วน</th>
-                      <th className="p-3.5">หน้ากว้าง & ลาย</th>
+                      <th className="p-3.5">หน้ากว้าง</th>
+                      <th className="p-3.5">เลขล็อต</th>
+                      <th className="p-3.5">เบอร์ม้วน</th>
+                      <th className="p-3.5">ลายท้องฟอยล์</th>
                       <th className="p-3.5 text-right">ใช้ลงแผ่นจริง (ม.)</th>
                       <th className="p-3.5 text-right">NG เสีย (ม.)</th>
                       <th className="p-3.5 text-right">รวมตัดเดือนนี้ (ม.)</th>
@@ -480,9 +527,9 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                       const rem = item.currentRemaining;
                       const isDepleted = rem <= 0 && !isZeroed;
 
-                      // Thresholds: <= 200 red, <= 500 orange, > 500 normal
-                      const isRed = isZeroed || (rem > 0 && rem <= 200);
-                      const isOrange = rem > 200 && rem <= 500;
+                      // Thresholds: <= 50 red, <= 200 yellow, > 200 normal
+                      const isRed = isZeroed || (rem > 0 && rem <= 50);
+                      const isYellow = rem > 50 && rem <= 200;
 
                       return (
                         <tr key={item.rollId || idx} className="hover:bg-amber-50/40 transition-colors">
@@ -490,19 +537,21 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                             {idx + 1}
                           </td>
                           <td className="p-3.5">
-                            <div className="font-mono font-bold text-slate-900 text-xs sm:text-sm">
-                              {item.lotNumber}
-                            </div>
-                            <div className="text-[11px] text-slate-500 font-mono">
-                              เบอร์: <span className="font-semibold text-slate-700">#{item.rollNumber}</span>
-                            </div>
+                            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-900 border border-slate-200">
+                              {item.width} มม.
+                            </span>
+                          </td>
+                          <td className="p-3.5 font-mono font-bold text-slate-900 text-xs sm:text-sm">
+                            {item.lotNumber}
+                          </td>
+                          <td className="p-3.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold font-mono text-xs border border-amber-500">
+                              #{item.rollNumber}
+                            </span>
                           </td>
                           <td className="p-3.5">
                             <div className="font-semibold text-slate-800">
                               {item.pattern}
-                            </div>
-                            <div className="text-[11px] text-slate-500 font-mono">
-                              {item.width} มม.
                             </div>
                           </td>
                           <td className="p-3.5 text-right font-mono font-bold text-blue-900 text-xs sm:text-sm">
@@ -523,7 +572,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                           </td>
                           <td className="p-3.5 text-right">
                             <div className={`font-mono font-bold text-xs sm:text-sm ${
-                              isRed ? 'text-rose-700' : isOrange ? 'text-orange-700' : 'text-emerald-700'
+                              isRed ? 'text-rose-700' : isYellow ? 'text-amber-700' : 'text-emerald-700'
                             }`}>
                               {formatMeters(item.currentRemaining)}{' '}
                               <span className="text-[10px] font-normal text-slate-400">ม.</span>
@@ -545,11 +594,11 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                               </span>
                             ) : isRed ? (
                               <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
-                                &le; 200 ม. (แดง)
+                                &le; 50 ม. (แดง)
                               </span>
-                            ) : isOrange ? (
-                              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
-                                &le; 500 ม. (ส้ม)
+                            ) : isYellow ? (
+                              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                &le; 200 ม. (เหลือง)
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">

@@ -16,3 +16,18 @@ export const round2 = (num: number): number => {
   if (isNaN(num)) return 0;
   return Math.round((num + Number.EPSILON) * 100) / 100;
 };
+
+/**
+ * Sorts rolls naturally by Lot Number, then by Roll Number
+ */
+export const compareLotAndRoll = (
+  aLot: string,
+  aRoll: string,
+  bLot: string,
+  bRoll: string
+): number => {
+  const lotComp = aLot.localeCompare(bLot, undefined, { numeric: true, sensitivity: 'base' });
+  if (lotComp !== 0) return lotComp;
+  return aRoll.localeCompare(bRoll, undefined, { numeric: true, sensitivity: 'base' });
+};
+

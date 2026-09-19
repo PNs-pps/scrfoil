@@ -263,13 +263,13 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                     <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-xs rounded-md font-semibold">
                       ตัดหมดแล้ว
                     </span>
-                  ) : roll.remainingMeters <= 200 ? (
+                  ) : roll.remainingMeters <= 50 ? (
                     <span className="px-2 py-0.5 bg-rose-100 text-rose-700 border border-rose-300 text-xs rounded-md font-bold animate-pulse">
-                      เหลือ &le; 200 ม. (วิกฤต)
+                      เหลือ &le; 50 ม. (วิกฤต สีแดง)
                     </span>
-                  ) : roll.remainingMeters <= 500 ? (
-                    <span className="px-2 py-0.5 bg-orange-100 text-orange-800 border border-orange-300 text-xs rounded-md font-bold">
-                      เหลือ &le; 500 ม. (ใกล้หมด)
+                  ) : roll.remainingMeters <= 200 ? (
+                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-xs rounded-md font-bold">
+                      เหลือ &le; 200 ม. (เหลือน้อย สีเหลือง)
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs rounded-md font-semibold">
@@ -333,10 +333,10 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 </span>
               </div>
               <div className={`p-2.5 rounded-lg border ${
-                roll.remainingMeters <= 200 
+                roll.remainingMeters <= 50 
                   ? 'bg-rose-50 border-rose-200 text-rose-900' 
-                  : roll.remainingMeters <= 500 
-                    ? 'bg-orange-50 border-orange-200 text-orange-900' 
+                  : roll.remainingMeters <= 200 
+                    ? 'bg-amber-50 border-amber-200 text-amber-900' 
                     : 'bg-emerald-50 border-emerald-200 text-emerald-900'
               }`}>
                 <span className="text-[11px] text-slate-500 block">คงเหลือปัจจุบัน</span>
@@ -355,8 +355,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                 <div 
                   className={`h-2 rounded-full transition-all duration-300 ${
-                    roll.remainingMeters <= 200 ? 'bg-rose-500' :
-                    roll.remainingMeters <= 500 ? 'bg-orange-500' :
+                    roll.remainingMeters <= 50 ? 'bg-rose-500' :
+                    roll.remainingMeters <= 200 ? 'bg-amber-500' :
                     'bg-emerald-500'
                   }`}
                   style={{ width: `${percentLeft}%` }}

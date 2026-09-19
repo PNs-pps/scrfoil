@@ -273,6 +273,22 @@ export default function App() {
     showToast(`เพิ่มฟอยล์รับเข้าสำเร็จ: ล็อต ${newRoll.lotNumber} #${newRoll.rollNumber} (${newRoll.totalMeters.toLocaleString()} ม.) [บันทึกลง Cloud]`);
   };
 
+  // Update existing foil roll
+  const handleUpdateRoll = async (updatedRoll: FoilRoll) => {
+    const updated = rolls.map(r => r.id === updatedRoll.id ? updatedRoll : r);
+    updateRollsState(updated);
+
+    try {
+      await saveFoilRollToFirestore(updatedRoll);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Update foil roll in Firestore warning/offline:', err);
+    }
+
+    showToast(`แก้ไขข้อมูลฟอยล์สำเร็จ: ล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber}`);
+  };
+
   // Add multiple incoming rolls batch
   const handleAddMultipleFoils = async (
     rollsData: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>[]
@@ -654,6 +670,7 @@ export default function App() {
             onToggleZeroOut={(rollId, zeroOut) => requireEditorPermission(() => handleToggleZeroOut(rollId, zeroOut))}
             onOpenBatchImport={() => requireEditorPermission(() => setIsBatchImportOpen(true))}
             onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
+            onUpdateRoll={(updatedRoll) => requireEditorPermission(() => handleUpdateRoll(updatedRoll))}
             userMode={userMode}
             onRequestUnlock={() => requireEditorPermission(() => {})}
           />
