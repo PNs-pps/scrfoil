@@ -274,7 +274,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                     </span>
                   ) : effectiveRemaining <= 50 ? (
                     <span className="px-2 py-0.5 bg-rose-100 text-rose-700 border border-rose-300 text-xs rounded-md font-bold animate-pulse">
-                      เหลือ &le; 50 ม. (วิกฤต สีแดง)
+                      เหลือ &le; 50 ม. (ใกล้หมด สีแดง)
                     </span>
                   ) : effectiveRemaining <= 200 ? (
                     <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-xs rounded-md font-bold">
