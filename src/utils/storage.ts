@@ -1,5 +1,6 @@
 import { FoilRoll, StockCutRecord } from '../types';
 import { INITIAL_FOIL_ROLLS, INITIAL_CUT_RECORDS } from '../data/initialData';
+import { normalizePattern } from './soFormatter';
 
 const STORAGE_KEYS = {
   ROLLS: 'pufoam_foil_rolls_v3',
@@ -36,9 +37,7 @@ export function getStoredRolls(): FoilRoll[] {
     // Normalize spelling for existing saved data
     return parsed.map(r => ({
       ...r,
-      pattern: r.pattern === 'ลายไม่อ่อน' ? 'ไม้อ่อน' : 
-               r.pattern === 'ลายไม้เข้ม' ? 'ไม้เข้ม' : 
-               r.pattern === 'กลับบัว' ? 'กลีบบัว' : r.pattern
+      pattern: normalizePattern(r.pattern),
     }));
   } catch (err) {
     console.warn('Failed to load foil rolls from storage', err);
@@ -65,9 +64,7 @@ export function getStoredCutRecords(): StockCutRecord[] {
     const parsed: StockCutRecord[] = JSON.parse(raw);
     return parsed.map(r => ({
       ...r,
-      pattern: r.pattern === 'ลายไม่อ่อน' ? 'ไม้อ่อน' : 
-               r.pattern === 'ลายไม้เข้ม' ? 'ไม้เข้ม' : 
-               r.pattern === 'กลับบัว' ? 'กลีบบัว' : r.pattern
+      pattern: normalizePattern(r.pattern),
     }));
   } catch (err) {
     console.warn('Failed to load cut records from storage', err);
