@@ -1,10 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
-import { formatMeters, compareLotAndRoll } from '../utils/formatters';
-import { UserMode } from '../utils/auth';
-import { groupRollsByDateReceived } from '../utils/dateGrouping';
-import { EditFoilModal } from './EditFoilModal';
+import { formatMeters } from '../utils/formatters';
 import { 
   Search, 
   Filter, 
@@ -28,10 +25,7 @@ import {
   Tag,
   Hash,
   Upload,
-  FileSpreadsheet,
-  Lock,
-  Calendar,
-  Pencil
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface FoilRollTableProps {
@@ -44,12 +38,9 @@ interface FoilRollTableProps {
   onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
   onOpenBatchImport?: () => void;
   onOpenMonthlySummary?: () => void;
-  onUpdateRoll?: (roll: FoilRoll) => void;
-  userMode?: UserMode;
-  onRequestUnlock?: () => void;
 }
 
-type GroupByCategory = 'hierarchy' | 'width' | 'pattern' | 'date' | 'none';
+type GroupByCategory = 'none' | 'width' | 'pattern';
 
 export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   rolls,
@@ -61,26 +52,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   onToggleZeroOut,
   onOpenBatchImport,
   onOpenMonthlySummary,
-  onUpdateRoll,
-  userMode = 'visitor',
-  onRequestUnlock,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
   const [selectedWidth, setSelectedWidth] = useState<string>('all');
   const [selectedPattern, setSelectedPattern] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'depleted'>('all');
-  const [groupBy, setGroupBy] = useState<GroupByCategory>('hierarchy');
+  const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const [editingRoll, setEditingRoll] = useState<FoilRoll | null>(null);
-
-  const handleActionGuarded = (action: () => void) => {
-    if (userMode === 'visitor' && onRequestUnlock) {
-      onRequestUnlock();
-      return;
-    }
-    action();
-  };
 
   // Unique lots for quick 1-click filter chips
   const uniqueLots = useMemo(() => {
@@ -93,22 +72,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     return Array.from(set).slice(0, 8);
   }, [rolls]);
 
-  const toggleGroup = (key: string, defaultCollapsed: boolean = true) => {
-    setCollapsedGroups(prev => {
-      const current = prev[key] !== undefined ? prev[key] : defaultCollapsed;
-      return {
-        ...prev,
-        [key]: !current
-      };
-    });
-  };
-
-  const toggleAllWidths = (collapsed: boolean) => {
-    const newState: Record<string, boolean> = {};
-    STANDARD_WIDTHS.forEach(w => {
-      newState[`w-${w}`] = collapsed;
-    });
-    setCollapsedGroups(prev => ({ ...prev, ...newState }));
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
   };
 
   const filteredRolls = useMemo(() => {
@@ -134,11 +102,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       const matchWidth = selectedWidth === 'all' || String(r.width) === selectedWidth;
 
       // Pattern
-      const matchPattern = selectedPattern === 'all' || 
-        r.pattern === selectedPattern ||
-        (selectedPattern === 'ขาว' && r.pattern === 'ท้องขาว') ||
-        (selectedPattern === 'กลีบบัว' && r.pattern === 'เงิน') ||
-        (selectedPattern === 'ไม้อ่อน' && (r.pattern === 'ไม้อ้อน' || r.pattern === 'ลายไม่อ่อน'));
+      const matchPattern = selectedPattern === 'all' || r.pattern === selectedPattern;
 
       // Status
       const matchStatus = 
@@ -147,153 +111,12 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         (statusFilter === 'depleted' && r.remainingMeters <= 0);
 
       return matchQuery && matchWidth && matchPattern && matchStatus;
-    }).sort((a, b) => compareLotAndRoll(a.lotNumber, a.rollNumber, b.lotNumber, b.rollNumber));
+    });
   }, [rolls, searchQuery, searchTarget, selectedWidth, selectedPattern, statusFilter]);
 
   const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
 
-  // Hierarchical Grouping: Width > Pattern > Lot
-  interface LotGroup {
-    lotNumber: string;
-    rolls: FoilRoll[];
-    totalRemaining: number;
-    totalFull: number;
-    activeCount: number;
-    depletedCount: number;
-  }
-
-  interface PatternGroup {
-    pattern: string;
-    totalRemaining: number;
-    totalFull: number;
-    totalRolls: number;
-    activeCount: number;
-    depletedCount: number;
-    lots: LotGroup[];
-  }
-
-  interface HierarchyGroup {
-    width: number;
-    widthTitle: string;
-    spec?: string;
-    totalRemaining: number;
-    totalFull: number;
-    totalRolls: number;
-    activeCount: number;
-    depletedCount: number;
-    patterns: PatternGroup[];
-  }
-
-  const hierarchyData = useMemo(() => {
-    if (groupBy !== 'hierarchy') {
-      return null;
-    }
-
-    // 1. Group by Width (Standard widths first)
-    const widthMap = new Map<number, FoilRoll[]>();
-    STANDARD_WIDTHS.forEach(w => widthMap.set(w, []));
-
-    filteredRolls.forEach(roll => {
-      const list = widthMap.get(roll.width) || [];
-      list.push(roll);
-      widthMap.set(roll.width, list);
-    });
-
-    const result: HierarchyGroup[] = [];
-
-    widthMap.forEach((wRolls, w) => {
-      if (wRolls.length === 0 && selectedWidth !== 'all') return;
-      if (wRolls.length === 0 && rolls.filter(r => r.width === w).length === 0) return;
-
-      // 2. Group by Pattern (ท้องฟอยล์)
-      const patternMap = new Map<string, FoilRoll[]>();
-      STANDARD_PATTERNS.forEach(p => patternMap.set(p.value, []));
-
-      wRolls.forEach(roll => {
-        const list = patternMap.get(roll.pattern) || [];
-        list.push(roll);
-        patternMap.set(roll.pattern, list);
-      });
-
-      const patternGroups: PatternGroup[] = [];
-
-      patternMap.forEach((pRolls, pName) => {
-        if (pRolls.length === 0) return;
-
-        // 3. Group by Lot within this Pattern
-        const lotMap = new Map<string, FoilRoll[]>();
-        pRolls.forEach(roll => {
-          const lotKey = roll.lotNumber && roll.lotNumber.trim() ? roll.lotNumber.trim() : 'ไม่ระบุล็อต';
-          const list = lotMap.get(lotKey) || [];
-          list.push(roll);
-          lotMap.set(lotKey, list);
-        });
-
-        // Sort Lot keys naturally
-        const sortedLots = Array.from(lotMap.keys()).sort((a, b) =>
-          a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-        );
-
-        const lotGroups: LotGroup[] = sortedLots.map(lotKey => {
-          const lRolls = lotMap.get(lotKey) || [];
-          // Sort rolls by Lot and Roll number
-          lRolls.sort((a, b) => compareLotAndRoll(a.lotNumber, a.rollNumber, b.lotNumber, b.rollNumber));
-
-          const totalRemaining = lRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
-          const totalFull = lRolls.reduce((sum, r) => sum + r.totalMeters, 0);
-          const activeCount = lRolls.filter(r => r.remainingMeters > 0).length;
-          const depletedCount = lRolls.filter(r => r.remainingMeters <= 0).length;
-
-          return {
-            lotNumber: lotKey,
-            rolls: lRolls,
-            totalRemaining,
-            totalFull,
-            activeCount,
-            depletedCount,
-          };
-        });
-
-        const pTotalRemaining = pRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
-        const pTotalFull = pRolls.reduce((sum, r) => sum + r.totalMeters, 0);
-        const pActiveCount = pRolls.filter(r => r.remainingMeters > 0).length;
-        const pDepletedCount = pRolls.filter(r => r.remainingMeters <= 0).length;
-
-        patternGroups.push({
-          pattern: pName,
-          totalRemaining: pTotalRemaining,
-          totalFull: pTotalFull,
-          totalRolls: pRolls.length,
-          activeCount: pActiveCount,
-          depletedCount: pDepletedCount,
-          lots: lotGroups,
-        });
-      });
-
-      if (patternGroups.length === 0) return;
-
-      const wTotalRemaining = wRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
-      const wTotalFull = wRolls.reduce((sum, r) => sum + r.totalMeters, 0);
-      const wActiveCount = wRolls.filter(r => r.remainingMeters > 0).length;
-      const wDepletedCount = wRolls.filter(r => r.remainingMeters <= 0).length;
-
-      result.push({
-        width: w,
-        widthTitle: `หน้ากว้าง ${w} มม.`,
-        spec: WIDTH_SPECIFICATIONS[w],
-        totalRemaining: wTotalRemaining,
-        totalFull: wTotalFull,
-        totalRolls: wRolls.length,
-        activeCount: wActiveCount,
-        depletedCount: wDepletedCount,
-        patterns: patternGroups,
-      });
-    });
-
-    return result;
-  }, [groupBy, filteredRolls, selectedWidth, rolls]);
-
-  // Grouped Rolls computation for other modes
+  // Grouped Rolls computation
   interface RollGroup {
     key: string;
     title: string;
@@ -309,7 +132,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   }
 
   const groupedData = useMemo(() => {
-    if (groupBy === 'none' || groupBy === 'hierarchy') {
+    if (groupBy === 'none') {
       return null;
     }
 
@@ -354,7 +177,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }
 
     if (groupBy === 'pattern') {
-      // Group by Pattern (ท้องขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว)
+      // Group by Pattern (ขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว)
       const groupsMap = new Map<string, FoilRoll[]>();
       
       // Standard patterns first
@@ -393,28 +216,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       return result;
     }
 
-    if (groupBy === 'date') {
-      const dateGroups = groupRollsByDateReceived(filteredRolls);
-      return dateGroups.map(dg => {
-        const totalRemaining = dg.rolls.reduce((sum, r) => sum + r.remainingMeters, 0);
-        const totalFull = dg.rolls.reduce((sum, r) => sum + r.totalMeters, 0);
-        const activeCount = dg.rolls.filter(r => r.remainingMeters > 0).length;
-        const depletedCount = dg.rolls.filter(r => r.remainingMeters <= 0).length;
-
-        return {
-          key: `date-${dg.date}`,
-          title: `วันที่รับเข้า: ${dg.displayDate}`,
-          subTitle: `${dg.rolls.length} ม้วน (ยอดเต็ม ${formatMeters(totalFull)} ม. | เหลือ ${formatMeters(totalRemaining)} ม.)`,
-          badge: dg.date,
-          rolls: dg.rolls,
-          totalRemaining,
-          totalFull,
-          activeCount,
-          depletedCount,
-        };
-      });
-    }
-
     return null;
   }, [groupBy, filteredRolls, selectedWidth, selectedPattern, rolls]);
 
@@ -449,14 +250,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       : 0;
 
     // Color highlights requested:
-    // <= 50m   -> Red (50 สีแดง - วิกฤต / ติ๊กเป็น 0 ได้)
-    // <= 200m  -> Yellow (200 สีเหลือง - เหลือน้อย)
-    // > 200m   -> Normal (เขียว/ปกติ)
-    let highlightLevel: 'red' | 'yellow' | 'normal' | 'depleted' = 'normal';
-    if (isZeroed || (rem > 0 && rem <= 50)) {
+    // <= 200m  -> Red (200 สีแดง - วิกฤต / ติ๊กเป็น 0 ได้)
+    // <= 500m  -> Orange (500 สีส้ม - ใกล้หมด / เตรียมสั่ง)
+    // > 500m   -> Normal (เขียว/ปกติ)
+    let highlightLevel: 'red' | 'orange' | 'normal' | 'depleted' = 'normal';
+    if (isZeroed || (rem > 0 && rem <= 200)) {
       highlightLevel = 'red';
-    } else if (rem > 50 && rem <= 200) {
-      highlightLevel = 'yellow';
+    } else if (rem > 200 && rem <= 500) {
+      highlightLevel = 'orange';
     } else if (isDepleted) {
       highlightLevel = 'depleted';
     }
@@ -464,8 +265,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     let rowClass = 'hover:bg-slate-50/80 transition-colors';
     if (highlightLevel === 'red') {
       rowClass = 'bg-rose-50/90 hover:bg-rose-100/80 border-l-4 border-l-rose-500 transition-colors';
-    } else if (highlightLevel === 'yellow') {
-      rowClass = 'bg-amber-50/90 hover:bg-amber-100/80 border-l-4 border-l-amber-400 transition-colors';
+    } else if (highlightLevel === 'orange') {
+      rowClass = 'bg-orange-50/90 hover:bg-orange-100/80 border-l-4 border-l-orange-500 transition-colors';
     } else if (highlightLevel === 'depleted') {
       rowClass = 'bg-slate-50/50 opacity-75 transition-colors';
     }
@@ -475,36 +276,25 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         key={roll.id} 
         className={rowClass}
       >
-        {/* Lot & Roll - Enhanced for High Visibility */}
+        {/* Lot & Roll */}
         <td className="px-4 py-3.5">
-          <div className="flex flex-col gap-1.5">
-            {/* Roll Number - Big Eye-Catching Badge */}
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-black text-sm font-mono shadow-xs border border-amber-500 tracking-wider">
-                #{highlightMatch(roll.rollNumber, searchQuery)}
-              </span>
-              {highlightLevel === 'red' && (
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" title="สต๊อกเหลือน้อยวิกฤต (<= 50 ม. สีแดง)" />
-              )}
-              {highlightLevel === 'yellow' && (
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" title="สต๊อกเหลือน้อย (<= 200 ม. สีเหลือง)" />
-              )}
-            </div>
-
-            {/* Lot Number - Clear High-Contrast Mono Tag */}
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-slate-500 font-semibold">ล็อต:</span>
-              <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
-                {highlightMatch(roll.lotNumber, searchQuery)}
-              </span>
-            </div>
-
-            {roll.notes && (
-              <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={roll.notes}>
-                {roll.notes}
-              </div>
+          <div className="font-mono font-bold text-slate-900 text-sm flex items-center gap-1.5">
+            <span>{highlightMatch(roll.lotNumber, searchQuery)}</span>
+            {highlightLevel === 'red' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" title="สต๊อกเหลือน้อยวิกฤต (<= 200 ม.)" />
+            )}
+            {highlightLevel === 'orange' && (
+              <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0" title="สต๊อกใกล้หมด (<= 500 ม.)" />
             )}
           </div>
+          <div className="text-xs text-slate-600 font-mono">
+            เบอร์ม้วน: <span className="font-semibold text-slate-800">{highlightMatch(roll.rollNumber, searchQuery)}</span>
+          </div>
+          {roll.notes && (
+            <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={roll.notes}>
+              {roll.notes}
+            </div>
+          )}
         </td>
 
         {/* Width with description */}
@@ -525,12 +315,12 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         <td className="px-4 py-3.5">
           <div className="flex items-center gap-1.5">
             <span className={`w-3 h-3 rounded-full border border-slate-300 shrink-0 ${
-              roll.pattern === 'ขาว' || roll.pattern === 'ท้องขาว' ? 'bg-white' :
-              roll.pattern === 'ดำ' ? 'bg-slate-900 border-black' :
-              roll.pattern === 'ไม้อ่อน' || (roll.pattern as string) === 'ลายไม่อ่อน' || (roll.pattern as string) === 'ไม้อ้อน' ? 'bg-amber-300 border-amber-400' :
-              roll.pattern === 'ไม้เข้ม' || (roll.pattern as string) === 'ลายไม้เข้ม' ? 'bg-[#78350f] border-[#451a03]' :
-              roll.pattern === 'เทา' ? 'bg-slate-400 border-slate-500' :
-              'bg-gradient-to-tr from-slate-200 via-zinc-100 to-slate-400 border-slate-400'
+              roll.pattern === 'ขาว' ? 'bg-white' :
+              roll.pattern === 'ดำ' ? 'bg-slate-900' :
+              roll.pattern === 'ไม้อ่อน' || (roll.pattern as string) === 'ลายไม่อ่อน' ? 'bg-amber-200' :
+              roll.pattern === 'ไม้เข้ม' || (roll.pattern as string) === 'ลายไม้เข้ม' ? 'bg-amber-800' :
+              roll.pattern === 'เทา' ? 'bg-slate-400' :
+              'bg-rose-300'
             }`} />
             <span className="font-medium text-slate-900 text-xs">
               {roll.pattern}
@@ -548,8 +338,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           <div className="flex items-center justify-end gap-1.5">
             <span className={`font-mono font-bold text-sm ${
               isZeroed ? 'text-rose-700 line-through' :
-              highlightLevel === 'red' ? 'text-rose-700 font-black' :
-              highlightLevel === 'yellow' ? 'text-amber-800 font-bold' :
+              highlightLevel === 'red' ? 'text-rose-700' :
+              highlightLevel === 'orange' ? 'text-orange-700' :
               isDepleted ? 'text-slate-400' :
               'text-emerald-700'
             }`}>
@@ -570,7 +360,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               className={`h-1.5 rounded-full transition-all duration-300 ${
                 isZeroed ? 'bg-rose-500' :
                 highlightLevel === 'red' ? 'bg-rose-600' :
-                highlightLevel === 'yellow' ? 'bg-amber-400' :
+                highlightLevel === 'orange' ? 'bg-orange-500' :
                 isDepleted ? 'bg-slate-300' :
                 'bg-emerald-500'
               }`}
@@ -581,8 +371,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             คงเหลือ {percentLeft}%
           </span>
 
-          {/* Checkbox to zero-out roll (for rolls highlighted <= 200m or currently zeroed) */}
-          {(highlightLevel === 'red' || highlightLevel === 'yellow' || isZeroed) && onToggleZeroOut && (
+          {/* Checkbox to zero-out roll (for rolls highlighted in red <= 200m, or currently zeroed) */}
+          {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (
             <div className="mt-1.5 flex items-center justify-end">
               <label 
                 htmlFor={`zero-toggle-${roll.id}`}
@@ -628,11 +418,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </span>
           ) : highlightLevel === 'red' ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-300 animate-pulse">
-              &le; 50 ม. (แดง)
+              &le; 200 ม. (แดง)
             </span>
-          ) : highlightLevel === 'yellow' ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-              &le; 200 ม. (เหลือง)
+          ) : highlightLevel === 'orange' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
+              &le; 500 ม. (ส้ม)
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -645,31 +435,18 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         <td className="px-4 py-3.5 text-center">
           <div className="flex items-center justify-center gap-1">
             <button
-              onClick={() => handleActionGuarded(() => onOpenCutModal(roll.id))}
+              onClick={() => onOpenCutModal(roll.id)}
               disabled={isDepleted || isZeroed}
-              title={isZeroed ? "ม้วนนี้ถูกตัดเป็น 0 แล้ว (ติ๊กออกเพื่อคืนค่าก่อนตัด)" : userMode === 'visitor' ? "ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนตัดสต๊อก" : "ตัดสต๊อกม้วนนี้"}
+              title={isZeroed ? "ม้วนนี้ถูกตัดเป็น 0 แล้ว (ติ๊กออกเพื่อคืนค่าก่อนตัด)" : "ตัดสต๊อกม้วนนี้"}
               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
                 isDepleted || isZeroed
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-slate-950 border border-amber-300'
               }`}
             >
-              {userMode === 'visitor' && <Lock className="w-3 h-3 text-slate-400" />}
               <Scissors className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">ตัดสต๊อก</span>
             </button>
-
-            {onUpdateRoll && (
-              <button
-                onClick={() => handleActionGuarded(() => setEditingRoll(roll))}
-                title={userMode === 'visitor' ? "ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนแก้ไขข้อมูลฟอยล์" : "แก้ไขข้อมูลฟอยล์ม้วนนี้"}
-                className="px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border border-slate-200 hover:border-amber-300 transition-colors cursor-pointer"
-              >
-                {userMode === 'visitor' && <Lock className="w-3 h-3 text-slate-400" />}
-                <Pencil className="w-3.5 h-3.5 text-amber-600" />
-                <span className="hidden xl:inline">แก้ไข</span>
-              </button>
-            )}
 
             <button
               onClick={() => onViewRollHistory(roll)}
@@ -682,16 +459,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
             <button
               onClick={() => {
-                handleActionGuarded(() => {
-                  if (confirm(`คุณต้องการลบม้วน ${roll.lotNumber} เบอร์ ${roll.rollNumber} ใช่หรือไม่?`)) {
-                    onDeleteRoll(roll.id);
-                  }
-                });
+                if (confirm(`คุณต้องการลบม้วน ${roll.lotNumber} เบอร์ ${roll.rollNumber} ใช่หรือไม่?`)) {
+                  onDeleteRoll(roll.id);
+                }
               }}
-              title={userMode === 'visitor' ? "ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนลบม้วน" : "ลบม้วนนี้ออกจากสต๊อก"}
+              title="ลบม้วนนี้ออกจากสต๊อก"
               className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
             >
-              {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5 text-slate-300" /> : <Trash2 className="w-4 h-4" />}
+              <Trash2 className="w-4 h-4" />
             </button>
           </div>
         </td>
@@ -788,11 +563,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             {onOpenBatchImport && (
               <button
                 type="button"
-                onClick={() => handleActionGuarded(onOpenBatchImport)}
+                onClick={onOpenBatchImport}
                 className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
                 title="อัปโหลดข้อมูลใบงาน SO ที่ใช้ตัดฟอยล์แบบเป็นชุด"
               >
-                {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5 stroke-[2.2]" />}
+                <Upload className="w-3.5 h-3.5 stroke-[2.2]" />
                 <span>อัปโหลด SO ตัดฟอยล์</span>
               </button>
             )}
@@ -818,10 +593,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </button>
 
             <button
-              onClick={() => handleActionGuarded(onOpenAddModal)}
+              onClick={onOpenAddModal}
               className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
             >
-              {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Plus className="w-3.5 h-3.5 text-amber-400" />}
+              <Plus className="w-3.5 h-3.5 text-amber-400" />
               <span>เพิ่มฟอยล์ใหม่</span>
             </button>
           </div>
@@ -905,18 +680,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </span>
             <button
               type="button"
-              onClick={() => setGroupBy('hierarchy')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                groupBy === 'hierarchy'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span>กว้าง &gt; ท้อง &gt; ล็อต</span>
-              <span className="text-[10px] bg-amber-600 text-white px-1 rounded-sm font-normal">หลัก</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setGroupBy('width')}
               className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
                 groupBy === 'width'
@@ -936,18 +699,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               }`}
             >
               ตามท้องฟอยล์
-            </button>
-            <button
-              type="button"
-              onClick={() => setGroupBy('date')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1 ${
-                groupBy === 'date'
-                  ? 'bg-white text-slate-900 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Calendar className="w-3 h-3 text-amber-500" />
-              <span>ตามวันที่รับเข้า</span>
             </button>
             <button
               type="button"
@@ -1036,41 +787,20 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         </div>
 
         {/* Stock Level Warning Legend */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-100 text-[11px] font-medium text-slate-600">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-slate-400 font-semibold">ไฮไลท์ระดับสต๊อก:</span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-100/90 text-rose-900 border border-rose-300 font-mono font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></span>
-              &le; 50 ม. (สีแดง - สต๊อกวิกฤต / มีช่องติ๊กตัดสล็อตเป็น 0)
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-100/90 text-amber-900 border border-amber-300 font-mono font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-              &le; 200 ม. (สีเหลือง - สต๊อกเหลือน้อย)
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              &gt; 200 ม. (ปกติ / พร้อมใช้งาน)
-            </span>
-          </div>
-
-          {groupBy === 'width' && (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => toggleAllWidths(false)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-              >
-                เปิดทุกหน้ากว้าง
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleAllWidths(true)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
-              >
-                ปิดทุกหน้ากว้าง
-              </button>
-            </div>
-          )}
+        <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-slate-100 text-[11px] font-medium text-slate-600">
+          <span className="text-slate-400 font-semibold">ไฮไลท์ระดับสต๊อก:</span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-orange-100/90 text-orange-900 border border-orange-300 font-mono">
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
+            &le; 500 ม. (สีส้ม - สต๊อกใกล้หมด / เตรียมสั่ง)
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-100/90 text-rose-900 border border-rose-300 font-mono">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></span>
+            &le; 200 ม. (สีแดง - สต๊อกวิกฤต / มีช่องติ๊กตัดสล็อตเป็น 0)
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            &gt; 500 ม. (ปกติ / พร้อมใช้งาน)
+          </span>
         </div>
       </div>
 
@@ -1107,232 +837,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </button>
           )}
         </div>
-      ) : hierarchyData && hierarchyData.length > 0 ? (
-        /* Hierarchical Grouping: Width > Pattern > Lot */
-        <div className="space-y-6">
-          {hierarchyData.map((wGroup) => {
-            const widthKey = `w-${wGroup.width}`;
-            const isWidthCollapsed = searchQuery.trim() 
-              ? false 
-              : (collapsedGroups[widthKey] !== undefined ? collapsedGroups[widthKey] : true);
-            const percentRemaining = wGroup.totalFull > 0 
-              ? Math.round((wGroup.totalRemaining / wGroup.totalFull) * 100) 
-              : 0;
-
-            return (
-              <div 
-                key={widthKey}
-                className="bg-white rounded-2xl border-2 border-slate-200 shadow-xs overflow-hidden transition-all"
-              >
-                {/* Level 1: Width Header */}
-                <div 
-                  onClick={() => toggleGroup(widthKey, true)}
-                  className="px-4 sm:px-6 py-4 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 cursor-pointer select-none hover:bg-slate-800 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <button 
-                      type="button" 
-                      className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-                    >
-                      {isWidthCollapsed ? (
-                        <ChevronRight className="w-5 h-5 text-amber-400" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5 text-amber-400" />
-                      )}
-                    </button>
-
-                    <div className="flex items-center gap-2.5">
-                      <span className="px-2.5 py-1 rounded-lg bg-amber-400 text-slate-950 font-black text-sm font-mono shadow-xs">
-                        {wGroup.width} มม.
-                      </span>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-white text-base">
-                            {wGroup.widthTitle}
-                          </h3>
-                          {wGroup.spec && (
-                            <span className="text-xs text-amber-300 font-medium hidden md:inline">
-                              ({wGroup.spec})
-                            </span>
-                          )}
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono">
-                            {wGroup.totalRolls} ม้วน
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400 font-mono">
-                          {wGroup.patterns.length} ชนิดท้องฟอยล์ • พร้อมใช้ {wGroup.activeCount} ม้วน • หมด {wGroup.depletedCount} ม้วน
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Width Level Stats */}
-                  <div className="flex items-center gap-6 font-mono text-xs self-end sm:self-auto">
-                    <div className="text-right">
-                      <span className="text-slate-400 block text-[11px]">คงเหลือรวมหน้ากว้างนี้</span>
-                      <span className="text-base font-bold text-amber-400">
-                        {formatMeters(wGroup.totalRemaining)}{' '}
-                        <span className="text-xs font-normal text-slate-300">ม.</span>
-                      </span>
-                    </div>
-
-                    <div className="w-24 hidden md:block">
-                      <div className="flex justify-between text-[10px] text-slate-300 mb-1">
-                        <span>คงเหลือ</span>
-                        <span className="font-bold">{percentRemaining}%</span>
-                      </div>
-                      <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                        <div 
-                          className="bg-amber-400 h-1.5 rounded-full transition-all"
-                          style={{ width: `${percentRemaining}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Level 2 & 3: Patterns & Lots */}
-                {!isWidthCollapsed && (
-                  <div className="p-3 sm:p-5 space-y-5 bg-slate-50/70">
-                    {wGroup.patterns.map((pGroup) => {
-                      const patternKey = `w-${wGroup.width}-p-${pGroup.pattern}`;
-                      const isPatternCollapsed = searchQuery.trim() ? false : !!collapsedGroups[patternKey];
-
-                      return (
-                        <div 
-                          key={patternKey}
-                          className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden"
-                        >
-                          {/* Pattern Header */}
-                          <div 
-                            onClick={() => toggleGroup(patternKey)}
-                            className="px-4 py-3 bg-slate-100/90 hover:bg-slate-200/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 cursor-pointer select-none transition-colors"
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <button 
-                                type="button" 
-                                className="p-1 rounded text-slate-500 hover:text-slate-800"
-                              >
-                                {isPatternCollapsed ? (
-                                  <ChevronRight className="w-4 h-4" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4" />
-                                )}
-                              </button>
-
-                              <span className={`w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 ${
-                                pGroup.pattern === 'ขาว' || pGroup.pattern === 'ท้องขาว' ? 'bg-white' :
-                                pGroup.pattern === 'ดำ' ? 'bg-slate-900 border-black' :
-                                pGroup.pattern === 'ไม้อ่อน' || (pGroup.pattern as string) === 'ลายไม่อ่อน' || (pGroup.pattern as string) === 'ไม้อ้อน' ? 'bg-amber-300 border-amber-400' :
-                                pGroup.pattern === 'ไม้เข้ม' || (pGroup.pattern as string) === 'ลายไม้เข้ม' ? 'bg-[#78350f] border-[#451a03]' :
-                                pGroup.pattern === 'เทา' ? 'bg-slate-400 border-slate-500' :
-                                'bg-gradient-to-tr from-slate-200 via-zinc-100 to-slate-400 border-slate-400'
-                              }`} />
-
-                              <span className="font-bold text-slate-800 text-sm">
-                                ท้องฟอยล์: {pGroup.pattern}
-                              </span>
-
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-white border border-slate-300 text-slate-700 font-mono font-semibold">
-                                {pGroup.totalRolls} ม้วน ({pGroup.lots.length} ล็อต)
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-4 text-xs font-mono self-end sm:self-auto">
-                              <span className="text-slate-500">
-                                พร้อมใช้ <strong className="text-emerald-700">{pGroup.activeCount}</strong> ม้วน
-                              </span>
-                              <span className="text-slate-300">|</span>
-                              <span className="text-slate-700">
-                                รวมเหลือ: <strong className="text-emerald-700 font-bold">{formatMeters(pGroup.totalRemaining)}</strong> ม.
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Lots and Table */}
-                          {!isPatternCollapsed && (
-                            <div className="p-3 sm:p-4 space-y-4">
-                              {pGroup.lots.map((lot) => {
-                                return (
-                                  <div 
-                                    key={`lot-${lot.lotNumber}`}
-                                    className="rounded-lg border border-slate-200 overflow-hidden bg-white shadow-2xs"
-                                  >
-                                    {/* Lot Sub-header */}
-                                    <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-slate-500">ล็อต:</span>
-                                        <span className="font-mono font-bold text-xs bg-slate-900 text-amber-300 px-2.5 py-0.5 rounded shadow-2xs">
-                                          {lot.lotNumber}
-                                        </span>
-                                        <span className="text-xs text-slate-500 font-mono">
-                                          ({lot.rolls.length} ม้วน)
-                                        </span>
-                                        <div className="hidden sm:flex items-center gap-1 text-[11px] text-slate-500 font-mono">
-                                          <span>เบอร์:</span>
-                                          {lot.rolls.map(r => (
-                                            <span 
-                                              key={r.id}
-                                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                                                r.remainingMeters <= 0 
-                                                  ? 'bg-slate-200 text-slate-500 line-through'
-                                                  : r.remainingMeters <= 50
-                                                  ? 'bg-rose-100 text-rose-700 border border-rose-200'
-                                                  : r.remainingMeters <= 200
-                                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                                  : 'bg-white text-slate-700 border border-slate-200'
-                                              }`}
-                                            >
-                                              #{r.rollNumber}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      </div>
-
-                                      <div className="text-xs font-mono text-slate-600">
-                                        คงเหลือในล็อต:{' '}
-                                        <strong className="text-emerald-700 font-bold text-sm">
-                                          {formatMeters(lot.totalRemaining)}
-                                        </strong>{' '}
-                                        ม.
-                                      </div>
-                                    </div>
-
-                                    {/* Rolls Table for this Lot */}
-                                    <div className="overflow-x-auto">
-                                      <table className="w-full text-left text-sm">
-                                        <thead className="bg-slate-50/50 text-slate-500 text-[11px] uppercase border-b border-slate-200 font-semibold">
-                                          <tr>
-                                            <th className="px-4 py-2.5">ล็อต & เบอร์</th>
-                                            <th className="px-4 py-2.5">หน้ากว้าง</th>
-                                            <th className="px-4 py-2.5">ท้องฟอยล์</th>
-                                            <th className="px-4 py-2.5 text-right">ลูกเต็ม</th>
-                                            <th className="px-4 py-2.5 text-right w-44">คงเหลือปัจจุบัน</th>
-                                            <th className="px-4 py-2.5 text-right">ตัดใช้</th>
-                                            <th className="px-4 py-2.5 text-right">NG เสีย</th>
-                                            <th className="px-4 py-2.5 text-center">สถานะ</th>
-                                            <th className="px-4 py-2.5 text-center">จัดการ</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                          {lot.rolls.map(renderRollRow)}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
       ) : groupedData && groupedData.length > 0 ? (
         /* Categorized / Grouped View */
         <div className="space-y-4">
@@ -1367,7 +871,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     {/* Group Icon / Dot */}
                     {group.pattern ? (
                       <span className={`w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 ${
-                        group.pattern === 'ท้องขาว' ? 'bg-white' :
+                        group.pattern === 'ขาว' ? 'bg-white' :
                         group.pattern === 'ดำ' ? 'bg-slate-900' :
                         group.pattern === 'ไม้อ่อน' || (group.pattern as string) === 'ลายไม่อ่อน' ? 'bg-amber-200' :
                         group.pattern === 'ลายไม้เข้ม' ? 'bg-amber-800' :
@@ -1505,19 +1009,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* Edit Foil Modal */}
-      {editingRoll && onUpdateRoll && (
-        <EditFoilModal
-          isOpen={Boolean(editingRoll)}
-          onClose={() => setEditingRoll(null)}
-          roll={editingRoll}
-          onSave={(updatedRoll) => {
-            onUpdateRoll(updatedRoll);
-            setEditingRoll(null);
-          }}
-        />
       )}
     </div>
   );

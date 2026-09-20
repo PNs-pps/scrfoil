@@ -1,30 +1,18 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { FoilRoll, StockCutRecord } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
-import { formatMeters, round2 } from '../utils/formatters';
-import { 
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-} from 'recharts';
+import { formatMeters } from '../utils/formatters';
 import { 
   Package, 
   Scissors, 
   AlertOctagon, 
   TrendingDown, 
-  TrendingUp,
   Layers, 
   CheckCircle, 
   AlertTriangle, 
   ArrowRight,
   Sparkles,
-  BarChart2,
-  Calendar
+  BarChart2
 } from 'lucide-react';
 
 interface DashboardOverviewProps {
@@ -60,8 +48,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   const activeRolls = rolls.filter(r => r.remainingMeters > 0);
   const depletedRolls = rolls.filter(r => r.remainingMeters <= 0);
-  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 50);
-  const yellowAlertRolls = rolls.filter(r => r.remainingMeters > 50 && r.remainingMeters <= 200);
+  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 200);
+  const orangeAlertRolls = rolls.filter(r => r.remainingMeters > 200 && r.remainingMeters <= 500);
 
   // Group by Pattern
   const patternStats = STANDARD_PATTERNS.map(p => {
@@ -116,79 +104,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // Recent 5 cuts
   const recentCuts = [...records].reverse().slice(0, 5);
 
-  // Weekly aggregation for Recharts BarChart
-  const weeklyUsageData = useMemo(() => {
-    const now = new Date();
-    // Generate the last 6 calendar weeks (Monday through Sunday)
-    const weeks: Array<{
-      weekKey: string;
-      weekLabel: string;
-      dateRangeLabel: string;
-      usedMeters: number;
-      ngMeters: number;
-      totalDeducted: number;
-      cutsCount: number;
-      startDate: Date;
-      endDate: Date;
-    }> = [];
-
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i * 7);
-
-      const dayOfWeek = d.getDay();
-      const diffToMonday = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-      const monday = new Date(d.setDate(diffToMonday));
-      monday.setHours(0, 0, 0, 0);
-
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      sunday.setHours(23, 59, 59, 999);
-
-      const weekKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
-      const monStr = `${monday.getDate()}/${monday.getMonth() + 1}`;
-      const sunStr = `${sunday.getDate()}/${sunday.getMonth() + 1}`;
-      const label = i === 0 ? 'สัปดาห์นี้' : i === 1 ? 'สัปดาห์ก่อน' : `สัปดาห์ -${i}`;
-
-      weeks.push({
-        weekKey,
-        weekLabel: label,
-        dateRangeLabel: `${monStr} - ${sunStr}`,
-        usedMeters: 0,
-        ngMeters: 0,
-        totalDeducted: 0,
-        cutsCount: 0,
-        startDate: monday,
-        endDate: sunday,
-      });
-    }
-
-    records.forEach((rec) => {
-      const dateStr = rec.usageDate || rec.recordedDate || rec.createdAt;
-      if (!dateStr) return;
-      const recDate = new Date(dateStr);
-      if (isNaN(recDate.getTime())) return;
-
-      for (const w of weeks) {
-        if (recDate >= w.startDate && recDate <= w.endDate) {
-          w.usedMeters = round2(w.usedMeters + (rec.usedMeters || 0));
-          w.ngMeters = round2(w.ngMeters + (rec.ngMeters || 0));
-          w.totalDeducted = round2(w.totalDeducted + (rec.totalDeducted || (rec.usedMeters + rec.ngMeters)));
-          w.cutsCount += 1;
-          break;
-        }
-      }
-    });
-
-    return weeks;
-  }, [records]);
-
-  const currentWeek = weeklyUsageData[weeklyUsageData.length - 1];
-  const previousWeek = weeklyUsageData[weeklyUsageData.length - 2];
-  const weekDiff = currentWeek && previousWeek 
-    ? currentWeek.usedMeters - previousWeek.usedMeters 
-    : 0;
-
   return (
     <div className="space-y-6">
       {/* Top Welcome / Status Banner */}
@@ -234,6 +149,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <span>อัปโหลด SO ตัดฟอยล์</span>
             </button>
           )}
+
+          <button
+            onClick={() => onOpenCutModal()}
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Scissors className="w-4 h-4 stroke-[2.5]" />
+            <span>ตัดสต๊อก</span>
+          </button>
+
+          <button
+            onClick={onOpenAddModal}
+            className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Package className="w-4 h-4 text-amber-600" />
+            <span>+ รับเข้าม้วนใหม่</span>
+          </button>
         </div>
       </div>
 
@@ -290,13 +221,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             {redAlertRolls.length > 0 && (
               <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
                 <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
-                <span>วิกฤต (&le;50ม. สีแดง): {redAlertRolls.length} ม้วน</span>
+                <span>วิกฤต (&le;200ม.): {redAlertRolls.length} ม้วน</span>
               </div>
             )}
-            {yellowAlertRolls.length > 0 && (
-              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>เหลือน้อย (&le;200ม. สีเหลือง): {yellowAlertRolls.length} ม้วน</span>
+            {orangeAlertRolls.length > 0 && (
+              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-orange-800 font-semibold bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                <span className="w-2 h-2 rounded-full bg-orange-500" />
+                <span>ใกล้หมด (&le;500ม.): {orangeAlertRolls.length} ม้วน</span>
               </div>
             )}
           </div>
@@ -347,135 +278,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
-      {/* Weekly Foil Usage Comparison - Recharts Bar Chart */}
-      <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold">
-                <BarChart2 className="w-4 h-4" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">
-                เปรียบเทียบยอดการใช้ฟอยล์รายสัปดาห์ (Weekly Foil Usage & Trend)
-              </h3>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              แสดงแนวโน้มเมตรที่ตัดใช้จริงเทียบกับเศษเสีย NG ย้อนหลัง 6 สัปดาห์
-            </p>
-          </div>
-
-          <div className="flex items-center flex-wrap gap-2 text-xs">
-            <div className="bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl flex items-center gap-2">
-              <span className="text-slate-500">สัปดาห์นี้:</span>
-              <span className="font-bold text-slate-900 font-mono">
-                {formatMeters(currentWeek?.usedMeters || 0)} ม.
-              </span>
-              {weekDiff > 0 ? (
-                <span className="text-emerald-600 font-bold flex items-center text-[11px]">
-                  <TrendingUp className="w-3 h-3 mr-0.5" />
-                  +{formatMeters(weekDiff)} ม.
-                </span>
-              ) : weekDiff < 0 ? (
-                <span className="text-rose-600 font-bold flex items-center text-[11px]">
-                  <TrendingDown className="w-3 h-3 mr-0.5" />
-                  {formatMeters(weekDiff)} ม.
-                </span>
-              ) : null}
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl text-amber-900 hidden sm:block">
-              <span>ตัด SO รวมสัปดาห์นี้: </span>
-              <strong className="font-mono font-bold">{currentWeek?.cutsCount || 0} ครั้ง</strong>
-            </div>
-          </div>
-        </div>
-
-        {/* Recharts Bar Chart Container */}
-        <div className="w-full h-72 pt-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={weeklyUsageData}
-              margin={{ top: 10, right: 15, left: -10, bottom: 0 }}
-              barGap={6}
-            >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis
-                dataKey="weekLabel"
-                stroke="#64748b"
-                fontSize={12}
-                tickLine={false}
-                axisLine={{ stroke: '#cbd5e1' }}
-              />
-              <YAxis
-                stroke="#64748b"
-                fontSize={11}
-                tickLine={false}
-                axisLine={{ stroke: '#cbd5e1' }}
-                unit=" ม."
-              />
-              <Tooltip
-                content={({ active, payload, label }) => {
-                  if (active && payload && payload.length) {
-                    const item = payload[0].payload;
-                    return (
-                      <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl text-xs space-y-2 border border-slate-800 min-w-[200px]">
-                        <div className="font-bold text-amber-400 flex items-center justify-between gap-4 border-b border-slate-800 pb-1.5">
-                          <span>{label}</span>
-                          <span className="text-slate-400 font-normal font-mono text-[11px]">
-                            {item.dateRangeLabel}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-4 text-slate-200">
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded bg-amber-500" />
-                            ตัดใช้จริง:
-                          </span>
-                          <span className="font-bold font-mono text-white">
-                            {formatMeters(item.usedMeters)} ม.
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-4 text-slate-200">
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded bg-rose-500" />
-                            เศษเสีย NG:
-                          </span>
-                          <span className="font-bold font-mono text-rose-400">
-                            {formatMeters(item.ngMeters)} ม.
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-4 text-slate-400 pt-1.5 border-t border-slate-800 text-[11px]">
-                          <span>จำนวนครั้งที่ตัด SO:</span>
-                          <span className="font-mono text-slate-200 font-semibold">{item.cutsCount} ครั้ง</span>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                }}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}
-                formatter={(value) => <span className="text-slate-700 font-medium">{value}</span>}
-              />
-              <Bar
-                dataKey="usedMeters"
-                name="เมตรที่ตัดใช้จริง"
-                fill="#f59e0b"
-                radius={[4, 4, 0, 0]}
-                maxBarSize={44}
-              />
-              <Bar
-                dataKey="ngMeters"
-                name="เศษเสีย NG"
-                fill="#f43f5e"
-                radius={[4, 4, 0, 0]}
-                maxBarSize={44}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
       {/* Analytics Section: Breakdown by Pattern & Width */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -487,7 +289,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 สต๊อกคงเหลือแยกตามลาย
               </h3>
               <p className="text-xs text-slate-500">
-                ท้องขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว
+                ขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว
               </p>
             </div>
             <span className="text-xs font-semibold px-2 py-1 bg-slate-100 text-slate-700 rounded-lg">
@@ -501,7 +303,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-2">
                     <span className={`w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 ${
-                      item.name === 'ท้องขาว' ? 'bg-white' :
+                      item.name === 'ขาว' ? 'bg-white' :
                       item.name === 'ดำ' ? 'bg-slate-900' :
                       item.name === 'ไม้อ่อน' ? 'bg-amber-200' :
                       item.name === 'ลายไม้เข้ม' ? 'bg-amber-800' :
