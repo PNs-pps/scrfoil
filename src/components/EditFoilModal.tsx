@@ -53,10 +53,10 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
       let initialPattern: FoilPattern = 'ขาว';
       const rawP = (roll.pattern || '').trim();
       if (rawP === 'ดำ') initialPattern = 'ดำ';
-      else if (rawP === 'ไม้อ่อน' || rawP === 'ไม้อ้อน' || rawP === 'ลายไม่อ่อน') initialPattern = 'ไม้อ่อน';
-      else if (rawP === 'ไม้เข้ม' || rawP === 'ลายไม้เข้ม') initialPattern = 'ไม้เข้ม';
+      else if (rawP === 'ไม้อ่อน'') initialPattern = 'ไม้อ่อน';
+      else if (rawP === 'ไม้เข้ม') initialPattern = 'ไม้เข้ม';
       else if (rawP === 'เทา') initialPattern = 'เทา';
-      else if (rawP === 'กลีบบัว' || rawP === 'เงิน' || rawP === 'บัว') initialPattern = 'กลีบบัว';
+      else if (rawP === 'กลีบบัว') initialPattern = 'กลีบบัว';
       else initialPattern = 'ขาว';
 
       setPattern(initialPattern);
@@ -364,7 +364,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="เช่น ฟอยล์ชุดพิเศษ, วางล็อค B2"
+                placeholder="เช่น ฟอยล์ชุดพิเศษ"
                 className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs sm:text-sm focus:border-blue-500"
               />
             </div>
