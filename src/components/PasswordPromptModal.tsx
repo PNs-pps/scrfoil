@@ -30,7 +30,7 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
       setError(null);
       onSuccess();
     } else {
-      setError('รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่อีกครั้ง');
+      setError('รหัสผ่านไม่ถูกต้อง กรุณาเดาใหม่นะจ๊ะ');
     }
   };
 
@@ -75,7 +75,7 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
             <div className="font-bold flex items-center gap-1.5">
               <Key className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>การป้องกันสิทธิ์เข้าถึง (Security Access)</span>
+              <span>รับชมอย่างเดียวพอแล้ว (Only Visitor)</span>
             </div>
             <p className="text-amber-800 leading-relaxed">
               ปัจจุบันคุณอยู่ใน <strong>โหมดผู้เข้าชม (Visitor)</strong> สำหรับดูยอดคงเหลือและประวัติ หากต้องการเพิ่มฟอยล์ ตัดสต๊อก หรือแก้ไขข้อมูล กรุณาใส่รหัสผ่านผู้ดูแล
