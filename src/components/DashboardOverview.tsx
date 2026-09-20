@@ -269,7 +269,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               {formatMeters(totalNgMeters)} <span className="text-sm font-normal text-slate-500">เมตร</span>
             </div>
             <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-slate-500">อัตราสูญเสีย (Scrap Rate):</span>
+              <span className="text-slate-500">'ลายไม้เข้ม'</span>
               <span className="font-bold text-rose-700 font-mono bg-rose-50 px-1.5 py-0.5 rounded">
                 {ngRatePercent}%
               </span>
@@ -306,7 +306,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                       item.name === 'ขาว' ? 'bg-white' :
                       item.name === 'ดำ' ? 'bg-slate-900' :
                       item.name === 'ไม้อ่อน' ? 'bg-amber-200' :
-                      item.name === 'ลายไม้เข้ม' ? 'bg-amber-800' :
+                      item.name === 'ไม้เข้ม' ? 'bg-amber-800' :
                       item.name === 'เทา' ? 'bg-slate-400' :
                       'bg-rose-300'
                     }`} />
@@ -329,7 +329,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     className={`h-2 rounded-full transition-all duration-500 ${
                       item.remaining === 0 ? 'bg-slate-300' :
                       item.name === 'ดำ' ? 'bg-slate-800' :
-                      item.name === 'ลายไม้เข้ม' ? 'bg-amber-800' :
+                      item.name === 'ไม้เข้ม' ? 'bg-amber-800' :
                       item.name === 'ไม้อ่อน' ? 'bg-amber-500' :
                       item.name === 'กลีบบัว' ? 'bg-rose-400' :
                       item.name === 'เทา' ? 'bg-slate-500' :
@@ -399,10 +399,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               คำแนะนำการเลือกหน้ากว้างกับลอนหลังคา:
             </span>
             <p className="text-slate-600 text-[11px]">
-              • <strong>830 / 850 มม.:</strong> สำหรับลอนมาตรฐาน 760, ลอนฝ้า, ลอนสเปนทั่วไป
+              • <strong>830 / 850 มม.:</strong> สำหรับลอนมาตรฐาน 760 , ฉนวนหนา 25 มม. (1 นิ้ว)
             </p>
             <p className="text-slate-600 text-[11px]">
-              • <strong>880 / 900 มม.:</strong> สำหรับลอนประกบคู่, สแปนกว้างพิเศษ, หรือฉนวนหนา 50 มม.
+              • <strong>880 / 900 มม.:</strong> สำหรับลอนมาตรฐาน 760 , ฉนวนหนา 50 มม. (2 นิ้ว)
             </p>
           </div>
         </div>
