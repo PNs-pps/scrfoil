@@ -800,7 +800,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                 <tr>
                   {renderSortHeader('date', 'วันที่ใช้งาน')}
                   {renderSortHeader('so', 'รหัสคำสั่งซื้อ SO')}
-                  {renderSortHeader('lot_roll', 'ล็อต & เบอร์ม้วน')}
+                  {renderSortHeader('lot_roll', 'ล็อต')}
                   {renderSortHeader('width', 'หน้ากว้าง')}
                   {renderSortHeader('pattern', 'ท้องฟอยล์')}
                   {renderSortHeader('used', 'เมตรที่ใช้', 'right')}
