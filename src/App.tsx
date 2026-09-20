@@ -480,7 +480,7 @@ export default function App() {
 
   // Reset to default sample
   const handleResetData = () => {
-    if (confirm('คุณต้องการรีเซ็ตข้อมูลเป็นตัวอย่างเริ่มต้นของโรงงานหรือไม่? (ระบบจะสร้างจุดสำรองข้อมูลปัจจุบันไว้ให้ก่อนรีเซ็ต)')) {
+    if (confirm('คุณต้องการรีเซ็ตข้อมูลเป็นตัวอย่างเริ่มต้นของโรงงานหรือไม่? (คิดดีๆ)')) {
       createBackupSnapshot(rolls, records, 'before_reset');
       const { rolls: initR, records: initC } = resetAllDataToDefault();
       setRolls(initR);
@@ -628,7 +628,7 @@ export default function App() {
       <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono">
           <div>
-            หลังคาเย็นสยาม (ร่มเกล้า) • ระบบตัดสต๊อกฟอยล์หลังคา PU Foam เมทัลชีท หน้ากว้าง 830, 850, 880, 900 มม.
+            หลังคาเย็นสยาม (ร่มเกล้า) • ระบบตัดสต๊อกฟอยล์ โดย นอต
           </div>
           <div className="flex items-center gap-2">
             <span>รองรับคำสั่งซื้อรูปแบบ <strong className="text-amber-700">soxxyyzzz</strong> และตัดไม่ใช้ SO</span>
