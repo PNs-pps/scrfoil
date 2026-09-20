@@ -153,7 +153,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Navigation Tabs (Hidden on mobile as MobileBottomNav handles navigation) */}
-        <div className="hidden md:flex border-t border-slate-100 mt-1 space-x-1 sm:space-x-4 overflow-x-auto">
+        {/* Uses short labels on tablet widths (md-lg) so 4 tabs never overflow/clip;
+            full descriptive labels appear on large desktop screens (lg+), which also
+            keeps the PC nav visually distinct from the icon-only mobile bottom bar. */}
+        <div className="hidden md:flex border-t border-slate-100 mt-1 gap-1 lg:gap-2 overflow-x-auto">
           <button
             id="tab-dashboard"
             onClick={() => setActiveTab('dashboard')}
@@ -164,7 +167,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <BarChart3 className="w-4 h-4" />
-            <span>แดชบอร์ดสรุปยอดคงเหลือ</span>
+            <span className="lg:hidden">แดชบอร์ด</span>
+            <span className="hidden lg:inline">แดชบอร์ดสรุปยอดคงเหลือ</span>
           </button>
 
           <button
@@ -177,7 +181,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Package className="w-4 h-4" />
-            <span>รายการม้วนฟอยล์ในสต๊อก</span>
+            <span className="lg:hidden">ม้วนฟอยล์</span>
+            <span className="hidden lg:inline">รายการม้วนฟอยล์ในสต๊อก</span>
             <span className="text-xs px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded-full font-mono">
               {activeRollsCount}
             </span>
@@ -193,7 +198,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <History className="w-4 h-4" />
-            <span>ประวัติการตัดสต๊อก (SO)</span>
+            <span className="lg:hidden">ประวัติตัด</span>
+            <span className="hidden lg:inline">ประวัติการตัดสต๊อก (SO)</span>
           </button>
 
           <button
@@ -206,7 +212,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Settings className="w-4 h-4" />
-            <span>ตั้งค่า & สำรองข้อมูล</span>
+            <span className="lg:hidden">ตั้งค่า</span>
+            <span className="hidden lg:inline">ตั้งค่า & สำรองข้อมูล</span>
             {hasPermissionNotice && (
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
             )}
