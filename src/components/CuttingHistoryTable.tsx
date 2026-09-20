@@ -828,11 +828,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                           <div className="font-mono font-black text-amber-900 text-sm bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 inline-block shadow-2xs">
                             {highlightMatch(item.soNumber, searchQuery)}
                           </div>
-                          {item.isSilverSide && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[11px] font-bold border border-slate-300 shadow-2xs">
-                              ท้องเงิน
-                            </span>
-                          )}
                         </div>
                         {item.notes && (
                           <div className="text-[11px] text-slate-500 mt-1 truncate max-w-[200px]" title={item.notes}>
@@ -874,11 +869,18 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
 
                       {/* Pattern (ท้องฟอยล์) - Clear Color Swatch & Explicit Badge */}
                       <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${patternStyle.dotClass}`} />
-                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${patternStyle.badgeClass}`}>
-                            ท้อง{patternStyle.name} ({patternStyle.colorName})
-                          </span>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                            <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${patternStyle.badgeClass}`}>
+                              {patternStyle.name}
+                            </span>
+                          </div>
+                          {item.isSilverSide && (
+                            <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-md bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[11px] font-bold border border-slate-300 shadow-2xs">
+                              เงิน
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -1081,11 +1083,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                                   <span className="font-mono font-bold text-amber-900 text-xs bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                                     {highlightMatch(item.soNumber, searchQuery)}
                                   </span>
-                                  {item.isSilverSide && (
-                                    <span className="inline-flex items-center px-1.5 py-0.2 rounded bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[10px] font-bold border border-slate-300">
-                                      ท้องเงิน
-                                    </span>
-                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3">
@@ -1104,11 +1101,18 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                                 </span>
                               </td>
                               <td className="px-4 py-3">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`w-3 h-3 rounded-full shrink-0 ${patternStyle.dotClass}`} />
-                                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${patternStyle.badgeClass}`}>
-                                    ท้อง{patternStyle.name} ({patternStyle.colorName})
-                                  </span>
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`w-3 h-3 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${patternStyle.badgeClass}`}>
+                                      {patternStyle.name}
+                                    </span>
+                                  </div>
+                                  {item.isSilverSide && (
+                                    <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[10px] font-bold border border-slate-300">
+                                      เงิน
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 text-xs">
