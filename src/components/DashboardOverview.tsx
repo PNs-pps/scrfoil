@@ -48,8 +48,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   const activeRolls = rolls.filter(r => r.remainingMeters > 0);
   const depletedRolls = rolls.filter(r => r.remainingMeters <= 0);
-  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 200);
-  const orangeAlertRolls = rolls.filter(r => r.remainingMeters > 200 && r.remainingMeters <= 500);
+  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 50);
+  const yellowAlertRolls = rolls.filter(r => r.remainingMeters > 50 && r.remainingMeters <= 200);
 
   // Group by Pattern
   const patternStats = STANDARD_PATTERNS.map(p => {
@@ -221,13 +221,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             {redAlertRolls.length > 0 && (
               <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
                 <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
-                <span>วิกฤต (&le;200ม.): {redAlertRolls.length} ม้วน</span>
+                <span>ใกล้หมด (&le;50ม.): {redAlertRolls.length} ม้วน</span>
               </div>
             )}
-            {orangeAlertRolls.length > 0 && (
-              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-orange-800 font-semibold bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
-                <span className="w-2 h-2 rounded-full bg-orange-500" />
-                <span>ใกล้หมด (&le;500ม.): {orangeAlertRolls.length} ม้วน</span>
+            {yellowAlertRolls.length > 0 && (
+              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-yellow-800 font-semibold bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">
+                <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                <span>เหลือน้อย (&le;200ม.): {yellowAlertRolls.length} ม้วน</span>
               </div>
             )}
           </div>
@@ -247,9 +247,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 tracking-tight">
               {formatMeters(totalUsedMeters)} <span className="text-sm font-normal text-slate-500">เมตร</span>
             </div>
-            <div className="mt-2 text-xs text-slate-500 flex items-center justify-between">
+            <div className="mt-2 text-xs text-slate-500">
               <span>บันทึกการตัดแล้ว: {records.length} ครั้ง</span>
-              <span className="text-blue-700 font-medium font-mono">{records.length > 0 ? records[records.length-1].soNumber : '-'}</span>
             </div>
           </div>
         </div>
@@ -268,8 +267,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <div className="text-2xl sm:text-3xl font-bold font-mono text-rose-600 tracking-tight">
               {formatMeters(totalNgMeters)} <span className="text-sm font-normal text-slate-500">เมตร</span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-slate-500">'ลายไม้เข้ม'</span>
+            <div className="mt-2 flex items-center justify-end text-xs">
               <span className="font-bold text-rose-700 font-mono bg-rose-50 px-1.5 py-0.5 rounded">
                 {ngRatePercent}%
               </span>
