@@ -2,8 +2,6 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getFirestore, 
   initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   doc, 
   getDocFromServer, 
   collection, 
@@ -18,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
 import { FoilRoll, StockCutRecord, CutHistoryItem } from '../types';
+import { normalizePattern } from '../utils/soFormatter';
 
 // User's custom configuration as requested
 export const USER_FIREBASE_CONFIG = {
@@ -80,17 +79,10 @@ export const firebaseApp: FirebaseApp = getApps().find(a => a.name === appName)
 // instead of throwing a client-side "Unsupported field value: undefined"
 // error that would abort an entire batch write.
 function createDb(): Firestore {
-  const settings = {
-    ignoreUndefinedProperties: true,
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager(),
-    }),
-  };
-
   try {
     return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-      ? initializeFirestore(firebaseApp, settings, firebaseConfig.firestoreDatabaseId)
-      : initializeFirestore(firebaseApp, settings);
+      ? initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true }, firebaseConfig.firestoreDatabaseId)
+      : initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true });
   } catch (err) {
     // initializeFirestore throws if Firestore was already initialized for this app
     // (e.g. hot-reload); fall back to the existing instance in that case.
@@ -150,7 +142,11 @@ export function subscribeToFoilRolls(
       (snapshot) => {
         const rolls: FoilRoll[] = [];
         snapshot.forEach((docSnap) => {
-          rolls.push(docSnap.data() as FoilRoll);
+          const data = docSnap.data() as FoilRoll;
+          // Normalize legacy pattern spellings (e.g. old "ท้องขาว" rolls) so they
+          // group under today's canonical pattern name instead of appearing as a
+          // separate duplicate pattern in the dashboard breakdown.
+          rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
         });
         // Sort newest first
         rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -184,7 +180,8 @@ export function subscribeToStockCutRecords(
       (snapshot) => {
         const records: StockCutRecord[] = [];
         snapshot.forEach((docSnap) => {
-          records.push(docSnap.data() as StockCutRecord);
+          const data = docSnap.data() as StockCutRecord;
+          records.push({ ...data, pattern: normalizePattern(data.pattern) });
         });
         records.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
         onUpdate(records);
