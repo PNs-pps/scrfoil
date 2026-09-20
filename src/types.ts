@@ -7,15 +7,6 @@ export type FoilPattern =
   | 'กลีบบัว'
   | string;
 
-export const ALLOWED_FOIL_PATTERNS = [
-  'ขาว',
-  'ดำ',
-  'ไม้อ่อน',
-  'ไม้เข้ม',
-  'เทา',
-  'กลีบบัว',
-] as const;
-
 export type FoilWidth = 830 | 850 | 880 | 900 | number;
 
 export const WIDTH_SPECIFICATIONS: Record<number, string> = {
@@ -36,7 +27,7 @@ export interface FoilRoll {
   lotNumber: string;         // ล็อต เช่น LOT-6909-A
   rollNumber: string;        // เบอร์ เช่น 01, R-05
   width: FoilWidth;          // หน้ากว้าง 830, 850, 880, 900
-  pattern: FoilPattern;      // ท้อง ท้องขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว
+  pattern: FoilPattern;      // ท้อง ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว
   totalMeters: number;       // จำนวนเมตรลูกเต็ม
   remainingMeters: number;   // จำนวนเมตรคงเหลือ
   usedMeters: number;        // จำนวนเมตรที่ตัดใช้สะสม
@@ -50,7 +41,6 @@ export interface FoilRoll {
     id: string;
     soNumber: string;
     cutType?: 'so' | 'non_so';
-    isSilverSide?: boolean;
     usedMeters: number;
     ngMeters: number;
     totalDeducted: number;
@@ -72,7 +62,6 @@ export interface StockCutRecord {
   pattern: FoilPattern;      // ท้อง
   soNumber: string;          // รหัส SO หรือ เหตุผลการเบิกกรณีไม่ใช้ SO เช่น 'สาขายืม', 'ซ่อมฟอยล์พ่นกาว'
   cutType?: 'so' | 'non_so'; // ชนิดการตัด: มี SO หรือ ไม่ใช้ SO
-  isSilverSide?: boolean;    // ใช้เป็นท้องเงิน
   nonSoReason?: string;      // เหตุผลเพิ่มเติมกรณีไม่ใช้ SO (เช่น สาขาพัทยายืม)
   usedMeters: number;        // จำนวนเมตรที่ใช้
   ngMeters: number;          // NG ที่เสีย (เมตร)
