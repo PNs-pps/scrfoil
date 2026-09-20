@@ -100,9 +100,31 @@ export const STANDARD_PATTERNS = [
   { value: 'ขาว', label: 'ขาว', colorClass: 'bg-white text-slate-800 border-slate-300' },
   { value: 'ดำ', label: 'ดำ', colorClass: 'bg-slate-900 text-white' },
   { value: 'ไม้อ่อน', label: 'ไม้อ่อน', colorClass: 'bg-amber-100 text-amber-900 border-amber-300' },
-  { value: 'ไม้เข้ม', label: 'ไม้เข้ม', colorClass: 'bg-[#78350f] text-amber-50' },
+  { value: 'ไม้เข้ม', label: 'ไม้เข้ม', colorClass: 'bg-amber-800 text-amber-50' },
   { value: 'เทา', label: 'เทา', colorClass: 'bg-slate-400 text-slate-900' },
-  { value: 'กลีบบัว', label: 'กลีบบัว', colorClass: 'bg-gradient-to-r from-slate-200 to-zinc-300 text-slate-900 border-slate-400' },
+  { value: 'กลีบบัว', label: 'กลีบบัว', colorClass: 'bg-rose-200 text-rose-900 border-rose-300' },
 ];
 
 export const STANDARD_WIDTHS = [830, 850, 880, 900] as const;
+
+/**
+ * Normalizes legacy / mis-typed pattern spellings to the current canonical
+ * pattern names, so older saved data (local storage or Firestore) still
+ * groups correctly with today's standard pattern list instead of showing up
+ * as a separate "custom pattern" bar in the dashboard (e.g. an old roll
+ * saved as "ท้องขาว" before the pattern was renamed to "ขาว").
+ */
+export function normalizePattern(pattern: string): string {
+  switch (pattern) {
+    case 'ท้องขาว':
+      return 'ขาว';
+    case 'ลายไม่อ่อน':
+      return 'ไม้อ่อน';
+    case 'ลายไม้เข้ม':
+      return 'ไม้เข้ม';
+    case 'กลับบัว':
+      return 'กลีบบัว';
+    default:
+      return pattern;
+  }
+}
