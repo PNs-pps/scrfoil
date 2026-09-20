@@ -145,8 +145,17 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   const totalUsed = historyItems.reduce((sum, r) => sum + Number(r.cutMeters ?? r.usedMeters ?? 0), 0);
   const totalNg = historyItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
   const totalDeducted = historyItems.reduce((sum, r) => sum + Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0))), 0);
+  
+  // Accurately calculate effective remaining meters:
+  // If cuts exist, remaining meters must be totalMeters - totalDeducted so it never shows full amount when cut
+  const effectiveRemaining = roll.isZeroedOut
+    ? 0
+    : historyItems.length > 0
+      ? Math.max(0, roll.totalMeters - totalDeducted)
+      : Math.max(0, roll.remainingMeters);
+
   const percentLeft = roll.totalMeters > 0 
-    ? Math.max(0, Math.round((roll.remainingMeters / roll.totalMeters) * 100)) 
+    ? Math.max(0, Math.round((effectiveRemaining / roll.totalMeters) * 100)) 
     : 0;
 
   // Export single roll history to CSV
@@ -259,15 +268,15 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                   <span className="px-2 py-0.5 bg-white text-slate-700 border border-slate-200 text-xs rounded-md font-mono">
                     กว้าง {roll.width} มม.
                   </span>
-                  {roll.status === 'depleted' || roll.remainingMeters <= 0 ? (
+                  {roll.isZeroedOut || effectiveRemaining <= 0 ? (
                     <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-xs rounded-md font-semibold">
-                      ตัดหมดแล้ว
+                      {roll.isZeroedOut ? 'ตัดเป็น 0 แล้ว' : 'ตัดหมดแล้ว'}
                     </span>
-                  ) : roll.remainingMeters <= 50 ? (
+                  ) : effectiveRemaining <= 50 ? (
                     <span className="px-2 py-0.5 bg-rose-100 text-rose-700 border border-rose-300 text-xs rounded-md font-bold animate-pulse">
                       เหลือ &le; 50 ม. (วิกฤต สีแดง)
                     </span>
-                  ) : roll.remainingMeters <= 200 ? (
+                  ) : effectiveRemaining <= 200 ? (
                     <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-xs rounded-md font-bold">
                       เหลือ &le; 200 ม. (เหลือน้อย สีเหลือง)
                     </span>
@@ -296,7 +305,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                   <span>ส่งออก CSV ลูกนี้</span>
                 </button>
 
-                {roll.remainingMeters > 0 && !roll.isZeroedOut && (
+                {effectiveRemaining > 0 && !roll.isZeroedOut && (
                   <button
                     type="button"
                     onClick={() => {
@@ -333,15 +342,15 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 </span>
               </div>
               <div className={`p-2.5 rounded-lg border ${
-                roll.remainingMeters <= 50 
+                effectiveRemaining <= 50 
                   ? 'bg-rose-50 border-rose-200 text-rose-900' 
-                  : roll.remainingMeters <= 200 
+                  : effectiveRemaining <= 200 
                     ? 'bg-amber-50 border-amber-200 text-amber-900' 
                     : 'bg-emerald-50 border-emerald-200 text-emerald-900'
               }`}>
                 <span className="text-[11px] text-slate-500 block">คงเหลือปัจจุบัน</span>
                 <span className="font-mono font-bold text-base">
-                  {formatMeters(roll.remainingMeters)} <span className="text-xs font-normal text-slate-400">ม.</span>
+                  {formatMeters(effectiveRemaining)} <span className="text-xs font-normal text-slate-400">ม.</span>
                 </span>
               </div>
             </div>
@@ -355,8 +364,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                 <div 
                   className={`h-2 rounded-full transition-all duration-300 ${
-                    roll.remainingMeters <= 50 ? 'bg-rose-500' :
-                    roll.remainingMeters <= 200 ? 'bg-amber-500' :
+                    effectiveRemaining <= 50 ? 'bg-rose-500' :
+                    effectiveRemaining <= 200 ? 'bg-amber-500' :
                     'bg-emerald-500'
                   }`}
                   style={{ width: `${percentLeft}%` }}

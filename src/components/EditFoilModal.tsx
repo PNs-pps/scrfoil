@@ -23,7 +23,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
   const [isCustomWidth, setIsCustomWidth] = useState(false);
   const [customWidthVal, setCustomWidthVal] = useState('');
 
-  const [pattern, setPattern] = useState<FoilPattern>('ท้องขาว');
+  const [pattern, setPattern] = useState<FoilPattern>('ขาว');
   const [isCustomPattern, setIsCustomPattern] = useState(false);
   const [customPatternVal, setCustomPatternVal] = useState('');
 
@@ -49,15 +49,19 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
         setCustomWidthVal(String(roll.width || ''));
       }
 
-      const isStdPattern = STANDARD_PATTERNS.some((p) => p.value === roll.pattern);
-      if (isStdPattern) {
-        setPattern(roll.pattern as FoilPattern);
-        setIsCustomPattern(false);
-        setCustomPatternVal('');
-      } else {
-        setIsCustomPattern(true);
-        setCustomPatternVal(roll.pattern || '');
-      }
+      // Normalize pattern to the 6 allowed patterns
+      let initialPattern: FoilPattern = 'ขาว';
+      const rawP = (roll.pattern || '').trim();
+      if (rawP === 'ดำ') initialPattern = 'ดำ';
+      else if (rawP === 'ไม้อ่อน' || rawP === 'ไม้อ้อน' || rawP === 'ลายไม่อ่อน') initialPattern = 'ไม้อ่อน';
+      else if (rawP === 'ไม้เข้ม' || rawP === 'ลายไม้เข้ม') initialPattern = 'ไม้เข้ม';
+      else if (rawP === 'เทา') initialPattern = 'เทา';
+      else if (rawP === 'กลีบบัว' || rawP === 'เงิน' || rawP === 'บัว') initialPattern = 'กลีบบัว';
+      else initialPattern = 'ขาว';
+
+      setPattern(initialPattern);
+      setIsCustomPattern(false);
+      setCustomPatternVal('');
 
       setTotalMeters(roll.totalMeters);
       setRemainingMeters(roll.remainingMeters);
@@ -262,48 +266,20 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 ลายท้องฟอยล์ <span className="text-rose-500">*</span>
               </label>
-              {!isCustomPattern ? (
-                <div className="space-y-1.5">
-                  <select
-                    value={pattern}
-                    onChange={(e) => setPattern(e.target.value as FoilPattern)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-semibold text-slate-800 text-xs sm:text-sm focus:border-blue-500 cursor-pointer"
-                  >
-                    {STANDARD_PATTERNS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomPattern(true)}
-                    className="text-[11px] text-blue-600 hover:underline cursor-pointer"
-                  >
-                    + ระบุลายอื่น
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <input
-                    type="text"
-                    value={customPatternVal}
-                    onChange={(e) => setCustomPatternVal(e.target.value)}
-                    placeholder="พิมพ์ชื่อลาย"
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900 text-xs sm:text-sm focus:border-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsCustomPattern(false);
-                      setPattern('ท้องขาว');
-                    }}
-                    className="text-[11px] text-slate-500 hover:underline cursor-pointer"
-                  >
-                    เลือกลายมาตรฐาน
-                  </button>
-                </div>
-              )}
+              <select
+                value={pattern}
+                onChange={(e) => setPattern(e.target.value as FoilPattern)}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-semibold text-slate-800 text-xs sm:text-sm focus:border-blue-500 cursor-pointer"
+              >
+                {STANDARD_PATTERNS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                (กำหนดเฉพาะ 6 ชนิด: ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว)
+              </p>
             </div>
           </div>
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { StockCutRecord } from '../types';
+import { StockCutRecord, WIDTH_SPECIFICATIONS } from '../types';
 import { 
   Search, 
   Download, 
@@ -16,12 +16,19 @@ import {
   Layers,
   ChevronDown,
   ChevronRight,
-  Filter
+  Filter,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { exportCutRecordsToCSV } from '../utils/storage';
-import { formatMeters } from '../utils/formatters';
+import { formatMeters, compareLotAndRoll } from '../utils/formatters';
 import { UserMode } from '../utils/auth';
 import { groupCutsByDate, exportCutsDateCSV } from '../utils/dateGrouping';
+import { getPatternStyle } from '../utils/patternStyles';
+
+type SortField = 'date' | 'so' | 'lot_roll' | 'width' | 'pattern' | 'used' | 'ng' | 'total' | 'remaining' | 'recorder';
+type SortDirection = 'asc' | 'desc';
 
 interface CuttingHistoryTableProps {
   records: StockCutRecord[];
@@ -40,57 +47,254 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchScope, setSearchScope] = useState<'all' | 'so' | 'employee' | 'lot_roll'>('all');
+  const [selectedSo, setSelectedSo] = useState('all');
+  const [selectedLot, setSelectedLot] = useState('all');
+  const [selectedWidth, setSelectedWidth] = useState('all');
   const [selectedPattern, setSelectedPattern] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [viewMode, setViewMode] = useState<'flat' | 'date_folder'>('flat');
   const [collapsedDates, setCollapsedDates] = useState<Record<string, boolean>>({});
 
-  // Unique SO numbers and Employee names for quick filter pills
-  const quickFilters = useMemo(() => {
-    const sos = Array.from(new Set(records.map(r => r.soNumber).filter(Boolean))).slice(-8).reverse();
-    const employees = Array.from(new Set(records.map(r => r.recordedBy).filter(Boolean))).slice(0, 6);
-    return { sos, employees };
+  // Sort state: default to 'date' desc (ปัจจุบันไปหาอดีต)
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  const handleToggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      // Default to desc for dates and numeric amounts; asc for text
+      if (field === 'date' || field === 'used' || field === 'ng' || field === 'total' || field === 'remaining') {
+        setSortDirection('desc');
+      } else {
+        setSortDirection('asc');
+      }
+    }
+  };
+
+  // Unique SO numbers and Employee names for quick filter pills & dropdowns
+  const { sosList, lotsList, widthsList, employeesList } = useMemo(() => {
+    const soMap = new Map<string, number>();
+    const lotMap = new Map<string, number>();
+    const widthSet = new Set<number>();
+    const empSet = new Set<string>();
+
+    records.forEach(r => {
+      const so = (r.soNumber || '').trim();
+      if (so) soMap.set(so, (soMap.get(so) || 0) + 1);
+
+      const lot = (r.lotNumber || '').trim();
+      if (lot) lotMap.set(lot, (lotMap.get(lot) || 0) + 1);
+
+      if (r.width) widthSet.add(r.width);
+      if (r.recordedBy) empSet.add(r.recordedBy.trim());
+    });
+
+    const sosList = Array.from(soMap.entries())
+      .map(([so, count]) => ({ so, count }))
+      .sort((a, b) => a.so.localeCompare(b.so, undefined, { numeric: true, sensitivity: 'base' }));
+
+    const lotsList = Array.from(lotMap.entries())
+      .map(([lot, count]) => ({ lot, count }))
+      .sort((a, b) => a.lot.localeCompare(b.lot, undefined, { numeric: true, sensitivity: 'base' }));
+
+    const widthsList = Array.from(widthSet).sort((a, b) => a - b);
+    const employeesList = Array.from(empSet).slice(0, 8);
+
+    return { sosList, lotsList, widthsList, employeesList };
   }, [records]);
 
-  // Filter records
+  // Date range preset handler
+  const handleDatePreset = (preset: 'today' | '7days' | '30days' | 'this_month' | 'clear') => {
+    const today = new Date();
+    const toYMD = (d: Date) => d.toISOString().split('T')[0];
+
+    if (preset === 'clear') {
+      setStartDate('');
+      setEndDate('');
+      return;
+    }
+
+    if (preset === 'today') {
+      const s = toYMD(today);
+      setStartDate(s);
+      setEndDate(s);
+      return;
+    }
+
+    if (preset === '7days') {
+      const past = new Date();
+      past.setDate(today.getDate() - 7);
+      setStartDate(toYMD(past));
+      setEndDate(toYMD(today));
+      return;
+    }
+
+    if (preset === '30days') {
+      const past = new Date();
+      past.setDate(today.getDate() - 30);
+      setStartDate(toYMD(past));
+      setEndDate(toYMD(today));
+      return;
+    }
+
+    if (preset === 'this_month') {
+      const first = new Date(today.getFullYear(), today.getMonth(), 1);
+      setStartDate(toYMD(first));
+      setEndDate(toYMD(today));
+      return;
+    }
+  };
+
+  // Has active filter applied
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+    selectedSo !== 'all' ||
+    selectedLot !== 'all' ||
+    selectedWidth !== 'all' ||
+    selectedPattern !== 'all' ||
+    startDate ||
+    endDate
+  );
+
+  const handleClearAllFilters = () => {
+    setSearchQuery('');
+    setSearchScope('all');
+    setSelectedSo('all');
+    setSelectedLot('all');
+    setSelectedWidth('all');
+    setSelectedPattern('all');
+    setStartDate('');
+    setEndDate('');
+  };
+
+  // Filter and sort records
   const filteredRecords = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
 
-    return records
-      .slice()
-      .reverse()
-      .filter((r) => {
-        // Pattern filter
-        if (selectedPattern !== 'all' && r.pattern !== selectedPattern) {
+    // 1. Filter
+    const matched = records.filter((r) => {
+      // SO dropdown
+      if (selectedSo !== 'all' && (r.soNumber || '').trim() !== selectedSo) {
+        return false;
+      }
+
+      // Lot dropdown
+      if (selectedLot !== 'all' && (r.lotNumber || '').trim() !== selectedLot) {
+        return false;
+      }
+
+      // Width dropdown
+      if (selectedWidth !== 'all' && String(r.width) !== selectedWidth) {
+        return false;
+      }
+
+      // Pattern filter
+      if (selectedPattern !== 'all') {
+        const pNorm = (r.pattern || '').trim().toLowerCase();
+        const selNorm = selectedPattern.trim().toLowerCase();
+        if (selNorm === 'ไม้อ่อน' || selNorm === 'ไม้อ้อน') {
+          if (!pNorm.includes('ไม้อ่อน') && !pNorm.includes('ไม้อ้อน')) return false;
+        } else if (selNorm === 'ขาว' || selNorm === 'ท้องขาว') {
+          if (!pNorm.includes('ขาว')) return false;
+        } else if (selNorm === 'กลีบบัว' || selNorm === 'เงิน') {
+          if (!pNorm.includes('กลีบบัว') && !pNorm.includes('เงิน')) return false;
+        } else if (r.pattern !== selectedPattern) {
           return false;
         }
+      }
 
-        if (!q) return true;
+      // Date range filter (usageDate, fallback to recordedDate / createdAt)
+      const recordDate = (r.usageDate || r.recordedDate || (r.createdAt ? r.createdAt.slice(0, 10) : '')).trim();
+      if (startDate && recordDate && recordDate < startDate) {
+        return false;
+      }
+      if (endDate && recordDate && recordDate > endDate) {
+        return false;
+      }
 
-        if (searchScope === 'so') {
-          return r.soNumber.toLowerCase().includes(q);
-        }
+      if (!q) return true;
 
-        if (searchScope === 'employee') {
-          return r.recordedBy.toLowerCase().includes(q);
-        }
-
-        if (searchScope === 'lot_roll') {
-          return (
-            r.lotNumber.toLowerCase().includes(q) ||
-            r.rollNumber.toLowerCase().includes(q)
-          );
-        }
-
-        // 'all'
+      if (searchScope === 'so') {
         return (
           r.soNumber.toLowerCase().includes(q) ||
-          r.recordedBy.toLowerCase().includes(q) ||
-          r.lotNumber.toLowerCase().includes(q) ||
-          r.rollNumber.toLowerCase().includes(q) ||
-          (r.notes && r.notes.toLowerCase().includes(q))
+          (r.isSilverSide && ('ท้องเงิน'.includes(q) || 'เงิน'.includes(q)))
         );
-      });
-  }, [records, searchQuery, searchScope, selectedPattern]);
+      }
+
+      if (searchScope === 'employee') {
+        return r.recordedBy.toLowerCase().includes(q);
+      }
+
+      if (searchScope === 'lot_roll') {
+        return (
+          r.lotNumber.toLowerCase().includes(q) ||
+          r.rollNumber.toLowerCase().includes(q)
+        );
+      }
+
+      // 'all'
+      return (
+        r.soNumber.toLowerCase().includes(q) ||
+        r.recordedBy.toLowerCase().includes(q) ||
+        r.lotNumber.toLowerCase().includes(q) ||
+        r.rollNumber.toLowerCase().includes(q) ||
+        (r.isSilverSide && ('ท้องเงิน'.includes(q) || 'เงิน'.includes(q))) ||
+        (r.notes && r.notes.toLowerCase().includes(q))
+      );
+    });
+
+    // 2. Sort (default: date desc - ปัจจุบันไปหาอดีต)
+    return matched.sort((a, b) => {
+      let diff = 0;
+      switch (sortField) {
+        case 'date': {
+          const dateA = a.usageDate || a.recordedDate || a.createdAt || '';
+          const dateB = b.usageDate || b.recordedDate || b.createdAt || '';
+          diff = dateA.localeCompare(dateB);
+          if (diff === 0) {
+            // Secondary tie-breaker: createdAt
+            const ca = a.createdAt || '';
+            const cb = b.createdAt || '';
+            diff = ca.localeCompare(cb);
+          }
+          break;
+        }
+        case 'so':
+          diff = a.soNumber.localeCompare(b.soNumber, undefined, { numeric: true, sensitivity: 'base' });
+          break;
+        case 'lot_roll':
+          diff = compareLotAndRoll(a.lotNumber, a.rollNumber, b.lotNumber, b.rollNumber);
+          break;
+        case 'width':
+          diff = a.width - b.width;
+          break;
+        case 'pattern':
+          diff = a.pattern.localeCompare(b.pattern);
+          break;
+        case 'used':
+          diff = a.usedMeters - b.usedMeters;
+          break;
+        case 'ng':
+          diff = a.ngMeters - b.ngMeters;
+          break;
+        case 'total':
+          diff = a.totalDeducted - b.totalDeducted;
+          break;
+        case 'remaining':
+          diff = a.remainingAfter - b.remainingAfter;
+          break;
+        case 'recorder':
+          diff = a.recordedBy.localeCompare(b.recordedBy);
+          break;
+        default:
+          diff = 0;
+      }
+      return sortDirection === 'asc' ? diff : -diff;
+    });
+  }, [records, searchQuery, searchScope, selectedSo, selectedLot, selectedWidth, selectedPattern, startDate, endDate, sortField, sortDirection]);
 
   // Date grouped records
   const dateGroups = useMemo(() => {
@@ -101,7 +305,24 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   const totalNgFiltered = filteredRecords.reduce((sum, r) => sum + r.ngMeters, 0);
 
   const toggleDateCollapse = (date: string) => {
-    setCollapsedDates(prev => ({ ...prev, [date]: !prev[date] }));
+    setCollapsedDates(prev => {
+      // Default is collapsed (true) unless active filters are present
+      const currentCollapsed = hasActiveFilters
+        ? prev[date] === true
+        : (prev[date] !== undefined ? prev[date] : true);
+      return {
+        ...prev,
+        [date]: !currentCollapsed
+      };
+    });
+  };
+
+  const toggleAllFolders = (expand: boolean) => {
+    const newState: Record<string, boolean> = {};
+    dateGroups.forEach(g => {
+      newState[g.date] = !expand; // false = expanded, true = collapsed
+    });
+    setCollapsedDates(newState);
   };
 
   const handleActionGuarded = (action: () => void) => {
@@ -110,6 +331,31 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
       return;
     }
     action();
+  };
+
+  const renderSortHeader = (field: SortField, label: string, align: 'left' | 'right' | 'center' = 'left') => {
+    const isActive = sortField === field;
+    return (
+      <th
+        onClick={() => handleToggleSort(field)}
+        className={`px-4 py-3.5 cursor-pointer select-none transition-colors hover:bg-slate-100/90 ${
+          align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
+        }`}
+      >
+        <div className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
+          <span className={isActive ? 'text-slate-900 font-bold' : 'text-slate-600'}>{label}</span>
+          {isActive ? (
+            sortDirection === 'asc' ? (
+              <ArrowUp className="w-3.5 h-3.5 text-amber-600 stroke-[2.5]" />
+            ) : (
+              <ArrowDown className="w-3.5 h-3.5 text-amber-600 stroke-[2.5]" />
+            )
+          ) : (
+            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 hover:opacity-100" />
+          )}
+        </div>
+      </th>
+    );
   };
 
   const highlightMatch = (text: string, query: string) => {
@@ -249,72 +495,220 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           </div>
         </div>
 
-        {/* Row 1.5: Quick Filter Chips (SO Numbers & Employees) */}
-        <div className="flex items-center flex-wrap gap-1.5 pt-1 text-xs border-t border-slate-100">
-          <span className="text-slate-400 text-[11px] font-medium mr-1 flex items-center gap-1">
-            <Filter className="w-3 h-3 text-slate-400" />
-            <span>คลิกกรองด่วน:</span>
-          </span>
-
-          {/* Quick SO Chips */}
-          {quickFilters.sos.map((so) => (
-            <button
-              key={so}
-              type="button"
-              onClick={() => {
-                if (searchQuery === so) {
-                  setSearchQuery('');
-                } else {
-                  setSearchQuery(so);
-                  setSearchScope('so');
-                }
-              }}
-              className={`px-2 py-0.5 rounded-md font-mono text-[11px] transition-all cursor-pointer border ${
-                searchQuery === so
-                  ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold ring-1 ring-amber-400'
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+        {/* Row 1.5: Dropdown Selection Filters (SO, Lot, Width, Pattern) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2.5 pt-2 border-t border-slate-100 text-xs">
+          {/* Dropdown: SO Number */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+              รหัสคำสั่งซื้อ SO:
+            </label>
+            <select
+              value={selectedSo}
+              onChange={(e) => setSelectedSo(e.target.value)}
+              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-colors cursor-pointer ${
+                selectedSo !== 'all'
+                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
               }`}
             >
-              {so}
-            </button>
-          ))}
+              <option value="all">รหัส SO: ทั้งหมด ({sosList.length})</option>
+              {sosList.map(({ so, count }) => (
+                <option key={so} value={so}>
+                  {so} ({count} ครั้ง)
+                </option>
+              ))}
+            </select>
+          </div>
 
-          {/* Quick Employee Chips */}
-          {quickFilters.employees.map((emp) => (
-            <button
-              key={emp}
-              type="button"
-              onClick={() => {
-                if (searchQuery === emp) {
-                  setSearchQuery('');
-                } else {
-                  setSearchQuery(emp);
-                  setSearchScope('employee');
-                }
-              }}
-              className={`px-2 py-0.5 rounded-md text-[11px] transition-all cursor-pointer border flex items-center gap-1 ${
-                searchQuery === emp
-                  ? 'bg-blue-100 text-blue-900 border-blue-300 font-bold ring-1 ring-blue-400'
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+          {/* Dropdown: Lot Number */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+              เลขล็อต (Lot No.):
+            </label>
+            <select
+              value={selectedLot}
+              onChange={(e) => setSelectedLot(e.target.value)}
+              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-colors cursor-pointer ${
+                selectedLot !== 'all'
+                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
               }`}
             >
-              <User className="w-2.5 h-2.5 text-slate-400" />
-              <span>{emp}</span>
-            </button>
-          ))}
+              <option value="all">ทุกล็อต ({lotsList.length})</option>
+              {lotsList.map(({ lot, count }) => (
+                <option key={lot} value={lot}>
+                  {lot} ({count} ม้วน/ครั้ง)
+                </option>
+              ))}
+            </select>
+          </div>
 
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="text-[11px] text-rose-600 hover:underline ml-1 font-medium cursor-pointer"
+          {/* Dropdown: Width */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+              หน้ากว้าง (มม.):
+            </label>
+            <select
+              value={selectedWidth}
+              onChange={(e) => setSelectedWidth(e.target.value)}
+              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-colors cursor-pointer ${
+                selectedWidth !== 'all'
+                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
+              }`}
             >
-              ล้างคำค้น
-            </button>
-          )}
+              <option value="all">หน้ากว้าง: ทั้งหมด</option>
+              {widthsList.map((w) => (
+                <option key={w} value={String(w)}>
+                  หน้า {w} มม. {WIDTH_SPECIFICATIONS[w] ? `(${WIDTH_SPECIFICATIONS[w]})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dropdown: Pattern */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+              ลายท้องฟอยล์:
+            </label>
+            <select
+              value={selectedPattern}
+              onChange={(e) => setSelectedPattern(e.target.value)}
+              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                selectedPattern !== 'all'
+                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
+              }`}
+            >
+              <option value="all">ลายท้อง: ทั้งหมด</option>
+              <option value="ขาว">ขาว</option>
+              <option value="ดำ">ดำ</option>
+              <option value="ไม้อ่อน">ไม้อ่อน</option>
+              <option value="ไม้เข้ม">ไม้เข้ม</option>
+              <option value="เทา">เทา</option>
+              <option value="กลีบบัว">กลีบบัว</option>
+            </select>
+          </div>
+
+          {/* Clear Filters Action */}
+          <div className="col-span-2 sm:col-span-4 lg:col-span-1 flex items-end">
+            {hasActiveFilters ? (
+              <button
+                type="button"
+                onClick={handleClearAllFilters}
+                className="w-full px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-2xs"
+              >
+                <X className="w-3.5 h-3.5 text-rose-600" />
+                <span>ล้างตัวกรองทั้งหมด</span>
+              </button>
+            ) : (
+              <div className="text-[11px] text-slate-400 italic py-1.5 flex items-center gap-1">
+                <span>กรองย้อนหลังได้รวดเร็ว</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Row 2: View Mode (Flat Table vs Date Folder Grouping) & Pattern Filter */}
+        {/* Row 2: Date Range Filter & Quick Presets */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-slate-500 font-semibold text-[11px] flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5 text-amber-600" />
+              <span>ช่วงวันที่ใช้งาน:</span>
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                title="จากวันที่"
+                className="px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono focus:border-amber-500 cursor-pointer"
+              />
+              <span className="text-slate-400 text-xs">ถึง</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                title="ถึงวันที่"
+                className="px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono focus:border-amber-500 cursor-pointer"
+              />
+            </div>
+
+            {/* Quick Presets */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleDatePreset('today')}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
+              >
+                วันนี้
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('7days')}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
+              >
+                7 วันล่าสุด
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('30days')}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
+              >
+                30 วันล่าสุด
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDatePreset('this_month')}
+                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
+              >
+                เดือนนี้
+              </button>
+              {(startDate || endDate) && (
+                <button
+                  type="button"
+                  onClick={() => handleDatePreset('clear')}
+                  className="px-1.5 py-0.5 rounded text-rose-600 hover:bg-rose-50 text-[11px] font-bold cursor-pointer"
+                >
+                  ล้างวันที่
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Filter Chips (Employees) */}
+          <div className="flex items-center flex-wrap gap-1.5 text-xs">
+            <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <User className="w-3 h-3 text-slate-400" />
+              <span>ผู้บันทึก:</span>
+            </span>
+            {employeesList.slice(0, 5).map((emp) => (
+              <button
+                key={emp}
+                type="button"
+                onClick={() => {
+                  if (searchQuery === emp && searchScope === 'employee') {
+                    setSearchQuery('');
+                    setSearchScope('all');
+                  } else {
+                    setSearchQuery(emp);
+                    setSearchScope('employee');
+                  }
+                }}
+                className={`px-2 py-0.5 rounded-md text-[11px] transition-all cursor-pointer border flex items-center gap-1 ${
+                  searchQuery === emp && searchScope === 'employee'
+                    ? 'bg-blue-100 text-blue-900 border-blue-300 font-bold ring-1 ring-blue-400'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+              >
+                <span>{emp}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Row 3: View Mode (Flat Table vs Date Folder Grouping) & Folder Collapse Controls */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
           <div className="flex items-center gap-2">
             {/* View Mode Toggle */}
@@ -344,19 +738,25 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
               </button>
             </div>
 
-            {/* Pattern Filter */}
-            <select
-              value={selectedPattern}
-              onChange={(e) => setSelectedPattern(e.target.value)}
-              className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:border-amber-500 cursor-pointer"
-            >
-              <option value="all">เลือกลาย: ทั้งหมด</option>
-              {Array.from(new Set(records.map((r) => r.pattern))).map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+            {/* Folder Expand/Collapse buttons when in date_folder view */}
+            {viewMode === 'date_folder' && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleAllFolders(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium text-xs cursor-pointer shadow-2xs"
+                >
+                  📁 เปิดทั้งหมด
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleAllFolders(false)}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium text-xs cursor-pointer shadow-2xs"
+                >
+                  📁 ปิดทั้งหมด
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-4 text-xs font-mono text-slate-600">
@@ -365,6 +765,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
             </div>
             <div>
               NG เสีย: <strong className="text-rose-600 font-bold">{formatMeters(totalNgFiltered)}</strong> ม.
+            </div>
+            <div>
+              รวมตัดออก: <strong className="text-amber-800 font-bold">{formatMeters(totalUsedFiltered + totalNgFiltered)}</strong> ม.
             </div>
           </div>
         </div>
@@ -395,133 +798,162 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
                 <tr>
-                  <th className="px-4 py-3.5">รหัสคำสั่งซื้อ SO</th>
-                  <th className="px-4 py-3.5">ล็อต & เบอร์ม้วน</th>
-                  <th className="px-4 py-3.5">ลาย & ขนาด</th>
-                  <th className="px-4 py-3.5 text-right">เมตรที่ใช้</th>
-                  <th className="px-4 py-3.5 text-right">NG ที่เสีย</th>
-                  <th className="px-4 py-3.5 text-right">รวมตัดออก</th>
-                  <th className="px-4 py-3.5 text-right">คงเหลือหลังตัด</th>
-                  <th className="px-4 py-3.5">วันที่ใช้งาน</th>
-                  <th className="px-4 py-3.5">ผู้บันทึก</th>
+                  {renderSortHeader('date', 'วันที่ใช้งาน')}
+                  {renderSortHeader('so', 'รหัสคำสั่งซื้อ SO')}
+                  {renderSortHeader('lot_roll', 'ล็อต & เบอร์ม้วน')}
+                  {renderSortHeader('width', 'หน้ากว้าง')}
+                  {renderSortHeader('pattern', 'ท้องฟอยล์')}
+                  {renderSortHeader('used', 'เมตรที่ใช้', 'right')}
+                  {renderSortHeader('ng', 'NG ที่เสีย', 'right')}
+                  {renderSortHeader('total', 'รวมตัดออก', 'right')}
+                  {renderSortHeader('remaining', 'คงเหลือหลังตัด', 'right')}
+                  {renderSortHeader('recorder', 'ผู้บันทึก')}
                   <th className="px-4 py-3.5 text-center">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRecords.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* SO Number with prominent styling */}
-                    <td className="px-4 py-3.5">
-                      <div className="font-mono font-black text-amber-900 text-sm bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 inline-block shadow-2xs">
-                        {highlightMatch(item.soNumber, searchQuery)}
-                      </div>
-                      {item.notes && (
-                        <div className="text-[11px] text-slate-500 mt-1 truncate max-w-[200px]" title={item.notes}>
-                          {item.notes}
+                {filteredRecords.map((item) => {
+                  const patternStyle = getPatternStyle(item.pattern);
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                      {/* Usage & Record Date */}
+                      <td className="px-4 py-3.5 text-xs whitespace-nowrap">
+                        <div className="font-mono text-slate-900 font-bold">{item.usageDate || '-'}</div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">บันทึก: {item.recordedDate || '-'}</div>
+                      </td>
+
+                      {/* SO Number with prominent styling */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="font-mono font-black text-amber-900 text-sm bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 inline-block shadow-2xs">
+                            {highlightMatch(item.soNumber, searchQuery)}
+                          </div>
+                          {item.isSilverSide && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[11px] font-bold border border-slate-300 shadow-2xs">
+                              ท้องเงิน
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </td>
-
-                    {/* Lot & Roll - Enhanced Prominence */}
-                    <td className="px-4 py-3.5">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-black text-xs font-mono border border-amber-500 shadow-2xs">
-                            #{highlightMatch(item.rollNumber, searchQuery)}
-                          </span>
-                        </div>
-                        <div className="text-xs">
-                          <span className="text-slate-400 mr-1">ล็อต:</span>
-                          <span className="font-mono font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                            {highlightMatch(item.lotNumber, searchQuery)}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Pattern & Width */}
-                    <td className="px-4 py-3.5 text-xs">
-                      <div className="font-medium text-slate-900">{item.pattern}</div>
-                      <div className="text-slate-500 font-mono">{item.width} มม.</div>
-                    </td>
-
-                    {/* Used Meters */}
-                    <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900">
-                      {formatMeters(item.usedMeters)}{' '}
-                      <span className="text-[11px] font-normal text-slate-400">ม.</span>
-                    </td>
-
-                    {/* NG Meters */}
-                    <td className="px-4 py-3.5 text-right font-mono text-xs font-semibold text-rose-600">
-                      {item.ngMeters > 0 ? (
-                        <>
-                          {formatMeters(item.ngMeters)}{' '}
-                          <span className="text-[11px] font-normal text-slate-400">ม.</span>
-                        </>
-                      ) : (
-                        <span className="text-slate-300">-</span>
-                      )}
-                    </td>
-
-                    {/* Total Deducted */}
-                    <td className="px-4 py-3.5 text-right font-mono text-xs font-bold text-amber-800">
-                      -{formatMeters(item.totalDeducted)}{' '}
-                      <span className="text-[11px] font-normal text-slate-400">ม.</span>
-                    </td>
-
-                    {/* Remaining After */}
-                    <td className="px-4 py-3.5 text-right font-mono text-xs font-bold text-emerald-700">
-                      {formatMeters(item.remainingAfter)}{' '}
-                      <span className="text-[11px] font-normal text-slate-400">ม.</span>
-                    </td>
-
-                    {/* Usage & Record Date */}
-                    <td className="px-4 py-3.5 text-xs">
-                      <div className="font-mono text-slate-800 font-medium">{item.usageDate}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">บันทึก: {item.recordedDate}</div>
-                    </td>
-
-                    {/* Recorded By with Highlight */}
-                    <td className="px-4 py-3.5 text-xs text-slate-700">
-                      <div className="flex items-center gap-1.5 font-medium">
-                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="truncate max-w-[140px]">
-                          {highlightMatch(item.recordedBy, searchQuery)}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Delete / Void Action */}
-                    <td className="px-4 py-3.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleActionGuarded(() => {
-                            if (
-                              confirm(
-                                `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
-                              )
-                            ) {
-                              onDeleteRecord(item.id);
-                            }
-                          });
-                        }}
-                        title={
-                          userMode === 'visitor'
-                            ? 'ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนยกเลิกรายการ'
-                            : 'ยกเลิกรายการนี้และคืนยอดกลับม้วนฟอยล์'
-                        }
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                      >
-                        {userMode === 'visitor' ? (
-                          <Lock className="w-3.5 h-3.5 text-slate-300" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
+                        {item.notes && (
+                          <div className="text-[11px] text-slate-500 mt-1 truncate max-w-[200px]" title={item.notes}>
+                            {item.notes}
+                          </div>
                         )}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+
+                      {/* Lot & Roll - Enhanced Prominence */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-black text-xs font-mono border border-amber-500 shadow-2xs">
+                              #{highlightMatch(item.rollNumber, searchQuery)}
+                            </span>
+                          </div>
+                          <div className="text-xs">
+                            <span className="text-slate-400 mr-1">ล็อต:</span>
+                            <span className="font-mono font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                              {highlightMatch(item.lotNumber, searchQuery)}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Width (หน้ากว้าง) - Clear & Distinct */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-col">
+                          <span className="font-mono font-bold text-xs bg-slate-100 text-slate-900 px-2.5 py-1 rounded-md border border-slate-300 inline-block shadow-2xs w-fit">
+                            หน้า {item.width} มม.
+                          </span>
+                          {WIDTH_SPECIFICATIONS[item.width] && (
+                            <span className="text-[11px] text-slate-500 font-mono mt-0.5 whitespace-nowrap">
+                              {WIDTH_SPECIFICATIONS[item.width]}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Pattern (ท้องฟอยล์) - Clear Color Swatch & Explicit Badge */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${patternStyle.badgeClass}`}>
+                            ท้อง{patternStyle.name} ({patternStyle.colorName})
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Used Meters */}
+                      <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900">
+                        {formatMeters(item.usedMeters)}{' '}
+                        <span className="text-[11px] font-normal text-slate-400">ม.</span>
+                      </td>
+
+                      {/* NG Meters */}
+                      <td className="px-4 py-3.5 text-right font-mono text-xs font-semibold text-rose-600">
+                        {item.ngMeters > 0 ? (
+                          <>
+                            {formatMeters(item.ngMeters)}{' '}
+                            <span className="text-[11px] font-normal text-slate-400">ม.</span>
+                          </>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      {/* Total Deducted */}
+                      <td className="px-4 py-3.5 text-right font-mono text-xs font-bold text-amber-800">
+                        -{formatMeters(item.totalDeducted)}{' '}
+                        <span className="text-[11px] font-normal text-slate-400">ม.</span>
+                      </td>
+
+                      {/* Remaining After */}
+                      <td className="px-4 py-3.5 text-right font-mono text-xs font-bold text-emerald-700">
+                        {formatMeters(item.remainingAfter)}{' '}
+                        <span className="text-[11px] font-normal text-slate-400">ม.</span>
+                      </td>
+
+                      {/* Recorded By with Highlight */}
+                      <td className="px-4 py-3.5 text-xs text-slate-700">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate max-w-[140px]">
+                            {highlightMatch(item.recordedBy, searchQuery)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Delete / Void Action */}
+                      <td className="px-4 py-3.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleActionGuarded(() => {
+                              if (
+                                confirm(
+                                  `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                )
+                              ) {
+                                onDeleteRecord(item.id);
+                              }
+                            });
+                          }}
+                          title={
+                            userMode === 'visitor'
+                              ? 'ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนยกเลิกรายการ'
+                              : 'ยกเลิกรายการนี้และคืนยอดกลับม้วนฟอยล์'
+                          }
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        >
+                          {userMode === 'visitor' ? (
+                            <Lock className="w-3.5 h-3.5 text-slate-300" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -553,7 +985,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         /* Date Folder Grouped View */
         <div className="space-y-3">
           {dateGroups.map((group) => {
-            const isCollapsed = !!collapsedDates[group.date];
+            const isCollapsed = hasActiveFilters
+              ? collapsedDates[group.date] === true
+              : (collapsedDates[group.date] !== undefined ? collapsedDates[group.date] : true);
             return (
               <div
                 key={group.date}
@@ -628,7 +1062,8 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         <tr>
                           <th className="px-4 py-2.5">รหัส SO</th>
                           <th className="px-4 py-2.5">ล็อต & เบอร์ม้วน</th>
-                          <th className="px-4 py-2.5">ลาย & ขนาด</th>
+                          <th className="px-4 py-2.5">หน้ากว้าง</th>
+                          <th className="px-4 py-2.5">ท้องฟอยล์</th>
                           <th className="px-4 py-2.5 text-right">เมตรที่ใช้</th>
                           <th className="px-4 py-2.5 text-right">NG</th>
                           <th className="px-4 py-2.5 text-right">รวมตัดออก</th>
@@ -637,64 +1072,83 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {group.records.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="px-4 py-3">
-                              <span className="font-mono font-bold text-amber-900 text-xs bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                {highlightMatch(item.soNumber, searchQuery)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-1.5 text-xs">
-                                <span className="inline-flex items-center px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-black font-mono text-[11px]">
-                                  #{highlightMatch(item.rollNumber, searchQuery)}
+                        {group.records.map((item) => {
+                          const patternStyle = getPatternStyle(item.pattern);
+                          return (
+                            <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <span className="font-mono font-bold text-amber-900 text-xs bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                    {highlightMatch(item.soNumber, searchQuery)}
+                                  </span>
+                                  {item.isSilverSide && (
+                                    <span className="inline-flex items-center px-1.5 py-0.2 rounded bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[10px] font-bold border border-slate-300">
+                                      ท้องเงิน
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5 text-xs">
+                                  <span className="inline-flex items-center px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-black font-mono text-[11px]">
+                                    #{highlightMatch(item.rollNumber, searchQuery)}
+                                  </span>
+                                  <span className="font-mono text-slate-700">
+                                    {highlightMatch(item.lotNumber, searchQuery)}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="font-mono font-bold text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-300">
+                                  หน้า {item.width} มม.
                                 </span>
-                                <span className="font-mono text-slate-700">
-                                  {highlightMatch(item.lotNumber, searchQuery)}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-xs">
-                              <span className="font-medium text-slate-800">{item.pattern}</span>{' '}
-                              <span className="text-slate-400 font-mono">({item.width} มม.)</span>
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 text-xs">
-                              {formatMeters(item.usedMeters)} ม.
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-xs text-rose-600">
-                              {item.ngMeters > 0 ? `${formatMeters(item.ngMeters)} ม.` : '-'}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono font-bold text-amber-800 text-xs">
-                              -{formatMeters(item.totalDeducted)} ม.
-                            </td>
-                            <td className="px-4 py-3 text-xs text-slate-700">
-                              <div className="flex items-center gap-1">
-                                <User className="w-3 h-3 text-slate-400" />
-                                <span>{highlightMatch(item.recordedBy, searchQuery)}</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  handleActionGuarded(() => {
-                                    if (
-                                      confirm(
-                                        `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
-                                      )
-                                    ) {
-                                      onDeleteRecord(item.id);
-                                    }
-                                  });
-                                }}
-                                className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                                title="ยกเลิกรายการ"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`w-3 h-3 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${patternStyle.badgeClass}`}>
+                                    ท้อง{patternStyle.name} ({patternStyle.colorName})
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 text-xs">
+                                {formatMeters(item.usedMeters)} ม.
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono text-xs text-rose-600">
+                                {item.ngMeters > 0 ? `${formatMeters(item.ngMeters)} ม.` : '-'}
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono font-bold text-amber-800 text-xs">
+                                -{formatMeters(item.totalDeducted)} ม.
+                              </td>
+                              <td className="px-4 py-3 text-xs text-slate-700">
+                                <div className="flex items-center gap-1">
+                                  <User className="w-3 h-3 text-slate-400" />
+                                  <span>{highlightMatch(item.recordedBy, searchQuery)}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleActionGuarded(() => {
+                                      if (
+                                        confirm(
+                                          `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                        )
+                                      ) {
+                                        onDeleteRecord(item.id);
+                                      }
+                                    });
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                                  title="ยกเลิกรายการ"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

@@ -2,6 +2,8 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getFirestore, 
   initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc, 
   getDocFromServer, 
   collection, 
@@ -78,10 +80,17 @@ export const firebaseApp: FirebaseApp = getApps().find(a => a.name === appName)
 // instead of throwing a client-side "Unsupported field value: undefined"
 // error that would abort an entire batch write.
 function createDb(): Firestore {
+  const settings = {
+    ignoreUndefinedProperties: true,
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  };
+
   try {
     return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-      ? initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true }, firebaseConfig.firestoreDatabaseId)
-      : initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true });
+      ? initializeFirestore(firebaseApp, settings, firebaseConfig.firestoreDatabaseId)
+      : initializeFirestore(firebaseApp, settings);
   } catch (err) {
     // initializeFirestore throws if Firestore was already initialized for this app
     // (e.g. hot-reload); fall back to the existing instance in that case.

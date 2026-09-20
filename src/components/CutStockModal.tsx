@@ -22,6 +22,7 @@ interface CutOrderItem {
   id: string;
   cutType: 'so' | 'non_so';
   soNumber: string;
+  isSilverSide?: boolean;
   nonSoReasonType: string;
   branchName: string;
   customNonSoReason: string;
@@ -71,6 +72,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     id: `order-item-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
     cutType: mode,
     soNumber: mode === 'so' ? defaultSoPrefix : '',
+    isSilverSide: false,
     nonSoReasonType: 'สาขายืม',
     branchName: '',
     customNonSoReason: '',
@@ -302,6 +304,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         rollNumber: currentRoll.rollNumber,
         width: currentRoll.width,
         pattern: currentRoll.pattern,
+        isSilverSide: !!ord.isSilverSide,
         soNumber: calc.identifier,
         cutType: ord.cutType,
         nonSoReason: ord.cutType === 'non_so' ? (ord.notes.trim() || calc.identifier) : '',
@@ -552,33 +555,50 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
                   {/* Single Consolidated SO Input Field with Default Prefix */}
                   {order.cutType === 'so' ? (
-                    <div>
-                      <label 
-                        htmlFor={`input-so-${order.id}`}
-                        className="block text-xs font-semibold text-slate-700 mb-1"
-                      >
-                        เลขที่ใบสั่งซื้อ / SO <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        id={`input-so-${order.id}`}
-                        ref={(el) => { soInputRefs.current[order.id] = el; }}
-                        type="text"
-                        tabIndex={1}
-                        value={order.soNumber}
-                        onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value.toLowerCase() })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            const target = usedMetersInputRefs.current[order.id];
-                            if (target) {
-                              target.focus();
-                              target.select();
+                    <div className="space-y-2">
+                      <div>
+                        <label 
+                          htmlFor={`input-so-${order.id}`}
+                          className="block text-xs font-semibold text-slate-700 mb-1"
+                        >
+                          เลขที่ใบสั่งซื้อ / SO <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          id={`input-so-${order.id}`}
+                          ref={(el) => { soInputRefs.current[order.id] = el; }}
+                          type="text"
+                          tabIndex={1}
+                          value={order.soNumber}
+                          onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value.toLowerCase() })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const target = usedMetersInputRefs.current[order.id];
+                              if (target) {
+                                target.focus();
+                                target.select();
+                              }
                             }
-                          }
-                        }}
-                        placeholder={`เช่น ${defaultSoPrefix}500`}
-                        className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal"
-                      />
+                          }}
+                          placeholder={`เช่น ${defaultSoPrefix}500`}
+                          className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal"
+                        />
+                      </div>
+
+                      {/* Checkbox: ใช้เป็นท้องเงิน */}
+                      <div className="flex items-center pt-0.5">
+                        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!order.isSilverSide}
+                            onChange={(e) => handleUpdateOrder(order.id, { isSilverSide: e.target.checked })}
+                            className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                          />
+                          <span className="text-xs font-semibold text-slate-800">
+                            ใช้เป็นท้องเงิน
+                          </span>
+                        </label>
+                      </div>
                     </div>
                   ) : (
                     /* Non-SO Reason selector */

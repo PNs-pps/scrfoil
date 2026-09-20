@@ -234,6 +234,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
         rollNumber: roll.rollNumber,
         width: roll.width,
         pattern: roll.pattern,
+        isSilverSide: !!(row.notes?.toLowerCase().includes('ท้องเงิน') || row.soNumber?.toLowerCase().includes('ท้องเงิน')),
         soNumber: row.soNumber,
         cutType: isNonSo ? 'non_so' : 'so',
         nonSoReason: isNonSo ? row.soNumber : '',
