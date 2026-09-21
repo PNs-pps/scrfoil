@@ -19,7 +19,9 @@ import {
   Filter,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Copy,
+  Check
 } from 'lucide-react';
 import { exportCutRecordsToCSV } from '../utils/storage';
 import { formatMeters, compareLotAndRoll } from '../utils/formatters';
@@ -59,6 +61,72 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   // Sort state: default to 'date' desc (ปัจจุบันไปหาอดีต)
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [copiedRecordId, setCopiedRecordId] = useState<string | null>(null);
+  const [copiedBatch, setCopiedBatch] = useState<boolean>(false);
+
+  // Copy single record for LINE
+  const handleCopySingleRecord = (item: StockCutRecord) => {
+    const sideText = item.isSilverSide ? ' [ท้องเงิน]' : item.isWhiteSide ? ' [ท้องขาว]' : '';
+    const dateText = item.usageDate || item.recordedDate || (item.createdAt ? item.createdAt.slice(0, 10) : '');
+    const text = [
+      `📋 รายละเอียดตัดฟอยล์ SO: ${item.soNumber}`,
+      `📅 วันที่ตัด: ${dateText}`,
+      `🏷️ ม้วน: ล็อต ${item.lotNumber} | เบอร์ #${item.rollNumber}`,
+      `📐 หน้ากว้าง: ${item.width} มม.`,
+      `🎨 ลายฟอยล์: ${item.pattern}${sideText}`,
+      `✂️ ยอดตัดใช้งาน: ${formatMeters(item.usedMeters)} ม.` + (item.ngMeters > 0 ? ` (NG เสีย: ${formatMeters(item.ngMeters)} ม.)` : ''),
+      `📉 รวมตัดออกสุทธิ: ${formatMeters(item.totalDeducted)} ม.`,
+      `📊 คงเหลือในม้วน: ${formatMeters(item.remainingAfter)} ม.`,
+      `👤 ผู้บันทึก: ${item.recordedBy || '-'}`,
+      item.notes ? `📝 หมายเหตุ: ${item.notes}` : '',
+    ].filter(Boolean).join('\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedRecordId(item.id);
+      setTimeout(() => setCopiedRecordId(null), 2500);
+    });
+  };
+
+  // Copy batch of records
+  const handleCopyBatchSummary = (itemsToCopy: StockCutRecord[]) => {
+    if (itemsToCopy.length === 0) return;
+    const totalUsed = itemsToCopy.reduce((sum, r) => sum + r.usedMeters, 0);
+    const totalNg = itemsToCopy.reduce((sum, r) => sum + r.ngMeters, 0);
+    const totalDeducted = totalUsed + totalNg;
+
+    const lines: string[] = [
+      `📋 สรุปรายการตัดสต๊อกฟอยล์ (${itemsToCopy.length} รายการ)`,
+      `─────────────────────────`,
+    ];
+
+    itemsToCopy.slice(0, 50).forEach((item, idx) => {
+      const sideText = item.isSilverSide ? ' [เงิน]' : item.isWhiteSide ? ' [ขาว]' : '';
+      lines.push(
+        `${idx + 1}. SO: ${item.soNumber} | #${item.rollNumber} (${item.lotNumber})` +
+        `\n   ${item.pattern}${sideText} | หน้า ${item.width} มม.` +
+        `\n   ตัดใช้: ${formatMeters(item.usedMeters)} ม.` +
+        (item.ngMeters > 0 ? ` (NG: ${formatMeters(item.ngMeters)} ม.)` : '') +
+        ` | เหลือ: ${formatMeters(item.remainingAfter)} ม.`
+      );
+    });
+
+    if (itemsToCopy.length > 50) {
+      lines.push(`... และอีก ${itemsToCopy.length - 50} รายการ`);
+    }
+
+    lines.push(`─────────────────────────`);
+    lines.push(`✅ รวมตัดใช้งานจริง: ${formatMeters(totalUsed)} ม.`);
+    if (totalNg > 0) {
+      lines.push(`⚠️ รวมเศษ NG เสีย: ${formatMeters(totalNg)} ม.`);
+    }
+    lines.push(`📦 รวมตัดออกจากสต๊อกสุทธิ: ${formatMeters(totalDeducted)} ม.`);
+
+    const text = lines.join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedBatch(true);
+      setTimeout(() => setCopiedBatch(false), 2500);
+    });
+  };
 
   const handleToggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -474,23 +542,35 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => handleCopyBatchSummary(filteredRecords)}
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                copiedBatch
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'border-slate-200 hover:bg-slate-50 text-slate-700 bg-white'
+              }`}
+              title="คัดลอกรายละเอียดรายการที่กรองลงคลิปบอร์ดเพื่อนำไปวางใน LINE"
+            >
+              {copiedBatch ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>คัดลอกแล้ว!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-amber-600" />
+                  <span>คัดลอกข้อมูล</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => exportCutRecordsToCSV(filteredRecords)}
               className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
               title="ส่งออกรายการที่กรองเป็น CSV"
             >
               <Download className="w-3.5 h-3.5 text-slate-500" />
               <span className="hidden sm:inline">ส่งออก CSV</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleActionGuarded(onOpenCutModal)}
-              className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-            >
-              {userMode === 'visitor' ? (
-                <Lock className="w-3.5 h-3.5 text-slate-900" />
-              ) : null}
-              <span>+ บันทึกตัดสต๊อก</span>
             </button>
           </div>
         </div>
@@ -881,6 +961,11 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               เงิน
                             </span>
                           )}
+                          {item.isWhiteSide && (
+                            <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-md bg-white text-slate-800 text-[11px] font-bold border border-slate-300 shadow-2xs">
+                              ขาว
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -924,34 +1009,57 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         </div>
                       </td>
 
-                      {/* Delete / Void Action */}
+                      {/* Actions: Copy Details for LINE & Delete/Void */}
                       <td className="px-4 py-3.5 text-center">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleActionGuarded(() => {
-                              if (
-                                confirm(
-                                  `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
-                                )
-                              ) {
-                                onDeleteRecord(item.id);
-                              }
-                            });
-                          }}
-                          title={
-                            userMode === 'visitor'
-                              ? 'ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนยกเลิกรายการ'
-                              : 'ยกเลิกรายการนี้และคืนยอดกลับม้วนฟอยล์'
-                          }
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                        >
-                          {userMode === 'visitor' ? (
-                            <Lock className="w-3.5 h-3.5 text-slate-300" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleCopySingleRecord(item)}
+                            title={
+                              copiedRecordId === item.id
+                                ? 'คัดลอกลงคลิปบอร์ดแล้ว!'
+                                : 'คัดลอกรายละเอียดงาน SO นี้เพื่อนำไปวางใน LINE'
+                            }
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              copiedRecordId === item.id
+                                ? 'text-emerald-600 bg-emerald-50'
+                                : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                            }`}
+                          >
+                            {copiedRecordId === item.id ? (
+                              <Check className="w-3.5 h-3.5" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleActionGuarded(() => {
+                                if (
+                                  confirm(
+                                    `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                  )
+                                ) {
+                                  onDeleteRecord(item.id);
+                                }
+                              });
+                            }}
+                            title={
+                              userMode === 'visitor'
+                                ? 'ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนยกเลิกรายการ'
+                                : 'ยกเลิกรายการนี้และคืนยอดกลับม้วนฟอยล์'
+                            }
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            {userMode === 'visitor' ? (
+                              <Lock className="w-3.5 h-3.5 text-slate-300" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1045,6 +1153,18 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
+                        handleCopyBatchSummary(group.records);
+                      }}
+                      title="คัดลอกรายการตัดของวันนี้เพื่อส่ง LINE"
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-amber-50 text-slate-700 flex items-center gap-1 font-sans text-xs font-semibold cursor-pointer shadow-2xs"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-amber-600" />
+                      <span className="hidden md:inline">คัดลอกวันนี้</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
                         exportCutsDateCSV(group.date, group.records);
                       }}
                       title="ดาวน์โหลด CSV สำหรับวันนี้"
@@ -1113,6 +1233,11 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                                       เงิน
                                     </span>
                                   )}
+                                  {item.isWhiteSide && (
+                                    <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-white text-slate-800 text-[10px] font-bold border border-slate-300">
+                                      ขาว
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 text-xs">
@@ -1131,24 +1256,47 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    handleActionGuarded(() => {
-                                      if (
-                                        confirm(
-                                          `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
-                                        )
-                                      ) {
-                                        onDeleteRecord(item.id);
-                                      }
-                                    });
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                                  title="ยกเลิกรายการ"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopySingleRecord(item)}
+                                    title={
+                                      copiedRecordId === item.id
+                                        ? 'คัดลอกลงคลิปบอร์ดแล้ว!'
+                                        : 'คัดลอกรายละเอียดงาน SO นี้เพื่อนำไปวางใน LINE'
+                                    }
+                                    className={`p-1 rounded transition-colors cursor-pointer ${
+                                      copiedRecordId === item.id
+                                        ? 'text-emerald-600 bg-emerald-50'
+                                        : 'text-slate-400 hover:text-amber-600'
+                                    }`}
+                                  >
+                                    {copiedRecordId === item.id ? (
+                                      <Check className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleActionGuarded(() => {
+                                        if (
+                                          confirm(
+                                            `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                          )
+                                        ) {
+                                          onDeleteRecord(item.id);
+                                        }
+                                      });
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                                    title="ยกเลิกรายการ"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );

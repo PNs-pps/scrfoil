@@ -19,6 +19,7 @@ import {
   revertCutRecordInFirestore, 
   uploadAllToFirestore,
   testFirestoreConnection,
+  fetchAllCutRecordsFromFirestore,
   firebaseConfig,
   activeTarget,
   setActiveTarget
@@ -29,6 +30,7 @@ import { FirebaseRulesModal } from './components/FirebaseRulesModal';
 import { DashboardOverview } from './components/DashboardOverview';
 import { FoilRollTable } from './components/FoilRollTable';
 import { CuttingHistoryTable } from './components/CuttingHistoryTable';
+import { DailyProductionFlow } from './components/DailyProductionFlow';
 import { AddFoilModal } from './components/AddFoilModal';
 import { CutStockModal } from './components/CutStockModal';
 import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
@@ -38,14 +40,14 @@ import { SettingsBackupView } from './components/SettingsBackupView';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
-import { createBackupSnapshot, getAutoBackupConfig } from './utils/autoBackup';
+import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
 import { formatMeters, round2 } from './utils/formatters';
 import { CheckCircle2, AlertCircle, Sparkles, X } from 'lucide-react';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history' | 'flow' | 'settings'>('dashboard');
 
   // Visitor vs Data Entry (Editor) Mode State
   const [userMode, setUserMode] = useState<UserMode>(() => getUserMode());
@@ -56,7 +58,11 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'offline' | 'permission-denied'>('syncing');
   const [lastSyncedTime, setLastSyncedTime] = useState<string | null>(null);
   const [isSavingToCloud, setIsSavingToCloud] = useState(false);
+  const [isDoubleBackingUp, setIsDoubleBackingUp] = useState(false);
+  const [lastDoubleBackupTime, setLastDoubleBackupTime] = useState<string | null>(() => getAutoBackupConfig().lastDoubleBackupTime || null);
   const [isFetchingFromCloud, setIsFetchingFromCloud] = useState(false);
+  const [isFetchingFullHistory, setIsFetchingFullHistory] = useState(false);
+  const [isCached, setIsCached] = useState(true);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   
   // Modals
@@ -91,7 +97,7 @@ export default function App() {
     }, 4000);
   };
 
-  // Realtime load & Firestore subscription
+  // Realtime load & Firestore subscription (Optimized with Persistent Cache & Read limits)
   useEffect(() => {
     // 1. Initial fast local load from cache
     const loadedRolls = getStoredRolls();
@@ -123,14 +129,28 @@ export default function App() {
         } else {
           setSyncStatus('offline');
         }
+      },
+      {
+        onFromCache: (fromCache) => {
+          setIsCached(fromCache);
+        }
       }
     );
 
-    // 3. Realtime listener for Cut Records
+    // 3. Realtime listener for Cut Records (Optimized with 200 records window to minimize Read quota)
     const unsubRecords = subscribeToStockCutRecords(
       (firestoreRecords) => {
-        setRecords(firestoreRecords);
-        saveStoredCutRecords(firestoreRecords);
+        setRecords((prev) => {
+          const map = new Map<string, StockCutRecord>();
+          // Keep all existing historical records from local cache
+          prev.forEach((r) => map.set(r.id, r));
+          // Overlay updated recent records from Firestore
+          firestoreRecords.forEach((r) => map.set(r.id, r));
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+          saveStoredCutRecords(merged);
+          return merged;
+        });
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       },
@@ -138,6 +158,12 @@ export default function App() {
         console.warn('Stock cut records sync note:', err?.message || err);
         if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
           setSyncStatus('permission-denied');
+        }
+      },
+      {
+        limitCount: 200,
+        onFromCache: (fromCache) => {
+          setIsCached(fromCache);
         }
       }
     );
@@ -217,6 +243,50 @@ export default function App() {
     }
   };
 
+  // Perform Double Backup (Cloud Firestore + Local Snapshot + JSON File Download)
+  const handleDoubleBackup = async () => {
+    try {
+      setIsDoubleBackingUp(true);
+
+      // Layer 1: Local Snapshot Archive in Browser LocalStorage
+      createBackupSnapshot(rolls, records, 'double_backup');
+
+      // Layer 2: Cloud Firestore Remote Persistence
+      let cloudOk = false;
+      try {
+        setSyncStatus('syncing');
+        await uploadAllToFirestore(rolls, records);
+        setSyncStatus('connected');
+        setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+        cloudOk = true;
+      } catch (cErr: any) {
+        console.warn('Notice: Double backup cloud sync notice:', cErr);
+        if (cErr?.code === 'permission-denied') {
+          setSyncStatus('permission-denied');
+        }
+      }
+
+      // Physical File Export: Download Full JSON Backup
+      exportFullBackupJSON(rolls, records);
+
+      // Update configuration timestamp
+      const nowIso = new Date().toISOString();
+      const cfg = getAutoBackupConfig();
+      saveAutoBackupConfig({ ...cfg, lastDoubleBackupTime: nowIso });
+      setLastDoubleBackupTime(nowIso);
+
+      if (cloudOk) {
+        showToast(`สำรองข้อมูล 2 ชั้น (Double Backup) สำเร็จสมบูรณ์! ซิงค์ Cloud Firestore + เก็บ Local Snapshot + ดาวน์โหลดไฟล์สำรองเรียบร้อย`, 'success');
+      } else {
+        showToast(`สำรองข้อมูล 2 ชั้นสำเร็จในเครื่อง (Local Snapshot + ดาวน์โหลดไฟล์สำรอง) ส่วน Cloud อยู่ในคิวรอการเชื่อมต่อ`, 'info');
+      }
+    } catch (err: any) {
+      showToast('เกิดข้อผิดพลาดในการทำ Double Backup กรุณาลองใหม่อีกครั้ง', 'info');
+    } finally {
+      setIsDoubleBackingUp(false);
+    }
+  };
+
   // Manual fetch / refresh from Firebase Firestore
   const handleManualFetchFromCloud = async () => {
     try {
@@ -242,6 +312,30 @@ export default function App() {
       }
     } finally {
       setIsFetchingFromCloud(false);
+    }
+  };
+
+  // On-demand fetch of all historical records from Firestore
+  const handleFetchFullHistoryFromCloud = async () => {
+    try {
+      setIsFetchingFullHistory(true);
+      showToast('กำลังดึงประวัติการตัดสต๊อกทั้งหมดจาก Cloud...', 'info');
+      const allCloudRecords = await fetchAllCutRecordsFromFirestore();
+      setRecords((prev) => {
+        const map = new Map<string, StockCutRecord>();
+        prev.forEach((r) => map.set(r.id, r));
+        allCloudRecords.forEach((r) => map.set(r.id, r));
+        const merged = Array.from(map.values());
+        merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        saveStoredCutRecords(merged);
+        return merged;
+      });
+      showToast(`ดึงประวัติย้อนหลังทั้งหมดสำเร็จ (${allCloudRecords.length} รายการ)`, 'success');
+    } catch (err: any) {
+      console.warn('Full history fetch notice:', err?.message || err);
+      showToast('ไม่สามารถดึงประวัติทั้งหมดได้: ' + (err?.message || ''), 'info');
+    } finally {
+      setIsFetchingFullHistory(false);
     }
   };
 
@@ -610,6 +704,7 @@ export default function App() {
         recordsCount={records.length}
         projectId={firebaseConfig.projectId}
         isManagedTarget={activeTarget === 'managed'}
+        isCached={isCached}
         onOpenRulesModal={() => setIsRulesModalOpen(true)}
         onSwitchCloud={handleSwitchCloud}
         onNavigateToSettings={() => setActiveTab('settings')}
@@ -656,6 +751,10 @@ export default function App() {
             onViewAllHistory={() => setActiveTab('history')}
             onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
             onOpenBatchImport={() => requireEditorPermission(() => setIsBatchImportOpen(true))}
+            onDoubleBackup={handleDoubleBackup}
+            isDoubleBackingUp={isDoubleBackingUp}
+            lastDoubleBackupTime={lastDoubleBackupTime}
+            showToast={showToast}
           />
         )}
 
@@ -692,6 +791,21 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'flow' && (
+          <DailyProductionFlow
+            records={records}
+            rolls={rolls}
+            onOpenCutModal={() => {
+              requireEditorPermission(() => {
+                setPreselectedRollId(null);
+                setCutModalInitialMode('so');
+                setIsCutModalOpen(true);
+              });
+            }}
+            showToast={(msg, type) => showToast(msg, type === 'error' ? 'info' : type)}
+          />
+        )}
+
         {activeTab === 'settings' && (
           <SettingsBackupView
             rolls={rolls}
@@ -713,6 +827,12 @@ export default function App() {
             showToast={showToast}
             userMode={userMode}
             onRequestUnlock={() => requireEditorPermission(() => {})}
+            onDoubleBackup={() => requireEditorPermission(handleDoubleBackup)}
+            isDoubleBackingUp={isDoubleBackingUp}
+            lastDoubleBackupTime={lastDoubleBackupTime}
+            onFetchFullHistory={handleFetchFullHistoryFromCloud}
+            isFetchingFullHistory={isFetchingFullHistory}
+            isCached={isCached}
           />
         )}
       </main>

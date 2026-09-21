@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
+import { getPatternStyle } from '../utils/patternStyles';
 import { 
   Search, 
   Filter, 
@@ -79,6 +80,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }));
   };
 
+  const toggleAllGroups = (expand: boolean) => {
+    if (!groupedData) return;
+    const newState: Record<string, boolean> = {};
+    groupedData.forEach(g => {
+      newState[g.key] = !expand; // false = expanded, true = collapsed
+    });
+    setCollapsedGroups(newState);
+  };
+
   const filteredRolls = useMemo(() => {
     return rolls.filter((r) => {
       // Search filter by Lot Number, Roll Number, or All
@@ -151,8 +161,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
       const result: RollGroup[] = [];
       groupsMap.forEach((gRolls, w) => {
-        if (gRolls.length === 0 && selectedWidth !== 'all') return;
-        if (gRolls.length === 0 && rolls.filter(r => r.width === w).length === 0) return;
+        if (gRolls.length === 0) return;
 
         const totalRemaining = gRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
         const totalFull = gRolls.reduce((sum, r) => sum + r.totalMeters, 0);
@@ -191,8 +200,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
       const result: RollGroup[] = [];
       groupsMap.forEach((gRolls, pName) => {
-        if (gRolls.length === 0 && selectedPattern !== 'all') return;
-        if (gRolls.length === 0 && rolls.filter(r => r.pattern === pName).length === 0) return;
+        if (gRolls.length === 0) return;
 
         const totalRemaining = gRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
         const totalFull = gRolls.reduce((sum, r) => sum + r.totalMeters, 0);
@@ -241,6 +249,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
   // Render roll row helper
   const renderRollRow = (roll: FoilRoll) => {
+    const pStyle = getPatternStyle(roll.pattern);
     const isZeroed = Boolean(roll.isZeroedOut);
     const rem = roll.remainingMeters;
     const isDepleted = rem <= 0 && !isZeroed;
@@ -314,16 +323,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         {/* Pattern (ท้องฟอยล์) */}
         <td className="px-4 py-3.5">
           <div className="flex items-center gap-1.5">
-            <span className={`w-3 h-3 rounded-full border border-slate-300 shrink-0 ${
-              roll.pattern === 'ขาว' ? 'bg-white' :
-              roll.pattern === 'ดำ' ? 'bg-slate-900' :
-              roll.pattern === 'ไม้อ่อน' || (roll.pattern as string) === 'ลายไม่อ่อน' ? 'bg-amber-200' :
-              roll.pattern === 'ไม้เข้ม' || (roll.pattern as string) === 'ลายไม้เข้ม' ? 'bg-amber-800' :
-              roll.pattern === 'เทา' ? 'bg-slate-400' :
-              'bg-rose-300'
-            }`} />
+            <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${pStyle.dotClass}`} />
             <span className="font-medium text-slate-900 text-xs">
-              {roll.pattern}
+              {pStyle.name}
             </span>
           </div>
         </td>
@@ -559,20 +561,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center flex-wrap gap-2 shrink-0">
-            {onOpenBatchImport && (
-              <button
-                type="button"
-                onClick={onOpenBatchImport}
-                className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
-                title="อัปโหลดข้อมูลใบงาน SO ที่ใช้ตัดฟอยล์แบบเป็นชุด"
-              >
-                <Upload className="w-3.5 h-3.5 stroke-[2.2]" />
-                <span>อัปโหลด SO ตัดฟอยล์</span>
-              </button>
-            )}
-
-            {onOpenMonthlySummary && (
+          {onOpenMonthlySummary && (
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={onOpenMonthlySummary}
@@ -582,24 +572,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>สรุปรายเดือน</span>
               </button>
-            )}
-
-            <button
-              onClick={onExportRolls}
-              className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span>ส่งออก CSV</span>
-            </button>
-
-            <button
-              onClick={onOpenAddModal}
-              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5 text-amber-400" />
-              <span>เพิ่มฟอยล์ใหม่</span>
-            </button>
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Row 1.5: Quick Lot Number Chips for Faster Access */}
@@ -712,6 +686,26 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               ไม่แยกกลุ่ม
             </button>
           </div>
+
+          {groupBy !== 'none' && groupedData && groupedData.length > 0 && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg text-slate-600 font-medium">
+              <button
+                type="button"
+                onClick={() => toggleAllGroups(true)}
+                className="hover:text-amber-800 hover:underline cursor-pointer"
+              >
+                เปิดทั้งหมด
+              </button>
+              <span className="text-slate-300">|</span>
+              <button
+                type="button"
+                onClick={() => toggleAllGroups(false)}
+                className="hover:text-amber-800 hover:underline cursor-pointer"
+              >
+                ย่อทั้งหมด
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center gap-1 text-slate-500 mr-1 font-medium">
             <Filter className="w-3.5 h-3.5" />
@@ -857,27 +851,19 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                   className="px-4 sm:px-5 py-3.5 bg-slate-50 hover:bg-slate-100/80 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 cursor-pointer transition-colors select-none"
                 >
                   <div className="flex items-center gap-3">
-                    <button 
-                      type="button" 
-                      className="p-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-white transition-colors"
+                    <span 
+                      className="p-1 rounded-md text-slate-500 hover:text-slate-800 transition-colors pointer-events-none"
                     >
                       {isCollapsed ? (
                         <ChevronRight className="w-4 h-4" />
                       ) : (
                         <ChevronDown className="w-4 h-4" />
                       )}
-                    </button>
+                    </span>
 
                     {/* Group Icon / Dot */}
                     {group.pattern ? (
-                      <span className={`w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 ${
-                        group.pattern === 'ขาว' ? 'bg-white' :
-                        group.pattern === 'ดำ' ? 'bg-slate-900' :
-                        group.pattern === 'ไม้อ่อน' || (group.pattern as string) === 'ลายไม่อ่อน' ? 'bg-amber-200' :
-                        group.pattern === 'ลายไม้เข้ม' ? 'bg-amber-800' :
-                        group.pattern === 'เทา' ? 'bg-slate-400' :
-                        'bg-rose-300'
-                      }`} />
+                      <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${getPatternStyle(group.pattern).dotClass}`} />
                     ) : (
                       <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400">
                         {group.badge}

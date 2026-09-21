@@ -1,6 +1,6 @@
 import React from 'react';
 import { FoilRoll, StockCutRecord } from '../types';
-import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
+import { STANDARD_PATTERNS, STANDARD_WIDTHS, getCanonicalPatternStyle } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
 import { 
   Package, 
@@ -12,8 +12,11 @@ import {
   AlertTriangle, 
   ArrowRight,
   Sparkles,
-  BarChart2
+  BarChart2,
+  ShieldCheck,
+  RefreshCw
 } from 'lucide-react';
+import { MonthlyFoilUsageBarChart } from './MonthlyFoilUsageBarChart';
 
 interface DashboardOverviewProps {
   rolls: FoilRoll[];
@@ -24,6 +27,10 @@ interface DashboardOverviewProps {
   onViewAllHistory: () => void;
   onOpenMonthlySummary?: () => void;
   onOpenBatchImport?: () => void;
+  onDoubleBackup?: () => Promise<void> | void;
+  isDoubleBackingUp?: boolean;
+  lastDoubleBackupTime?: string | null;
+  showToast?: (text: string, type?: 'success' | 'info') => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -35,6 +42,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onViewAllHistory,
   onOpenMonthlySummary,
   onOpenBatchImport,
+  onDoubleBackup,
+  isDoubleBackingUp = false,
+  lastDoubleBackupTime,
+  showToast,
 }) => {
   // Aggregate KPIs
   const totalRemainingMeters = rolls.reduce((acc, r) => acc + r.remainingMeters, 0);
@@ -125,47 +136,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center flex-wrap gap-2 sm:self-center shrink-0">
-          {onOpenMonthlySummary && (
+        {onOpenMonthlySummary && (
+          <div className="flex items-center gap-2 sm:self-center shrink-0">
             <button
               type="button"
               onClick={onOpenMonthlySummary}
-              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
               title="เปิดหน้าต่างสรุปการใช้ฟอยล์รายเดือนและส่งออกรายงาน"
             >
               <BarChart2 className="w-4 h-4 text-emerald-400" />
               <span>สรุปรายเดือน</span>
             </button>
-          )}
-
-          {onOpenBatchImport && (
-            <button
-              type="button"
-              onClick={onOpenBatchImport}
-              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
-              title="อัปโหลด SO ตัดฟอยล์เป็นชุด"
-            >
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>อัปโหลด SO ตัดฟอยล์</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => onOpenCutModal()}
-            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <Scissors className="w-4 h-4 stroke-[2.5]" />
-            <span>ตัดสต๊อก</span>
-          </button>
-
-          <button
-            onClick={onOpenAddModal}
-            className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <Package className="w-4 h-4 text-amber-600" />
-            <span>+ รับเข้าม้วนใหม่</span>
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards Grid */}
@@ -276,6 +259,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
+      {/* Monthly Foil Usage Bar Chart (Recharts) */}
+      <MonthlyFoilUsageBarChart
+        records={records}
+        rolls={rolls}
+        onDoubleBackup={onDoubleBackup}
+        isDoubleBackingUp={isDoubleBackingUp}
+        lastDoubleBackupTime={lastDoubleBackupTime}
+        showToast={showToast}
+      />
+
       {/* Analytics Section: Breakdown by Pattern & Width */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -287,7 +280,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 สต๊อกคงเหลือแยกตามลาย
               </h3>
               <p className="text-xs text-slate-500">
-                ขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว
+                ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว
               </p>
             </div>
             <span className="text-xs font-semibold px-2 py-1 bg-slate-100 text-slate-700 rounded-lg">
@@ -296,48 +289,38 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
 
           <div className="space-y-3">
-            {patternStats.map((item) => (
-              <div key={item.name} className="p-3 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200 transition-colors">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0 ${
-                      item.name === 'ขาว' ? 'bg-white' :
-                      item.name === 'ดำ' ? 'bg-slate-900' :
-                      item.name === 'ไม้อ่อน' ? 'bg-amber-200' :
-                      item.name === 'ไม้เข้ม' ? 'bg-amber-800' :
-                      item.name === 'เทา' ? 'bg-slate-400' :
-                      'bg-rose-300'
-                    }`} />
-                    <span className="text-sm font-semibold text-slate-900">
-                      {item.label}
-                    </span>
-                    <span className="text-[11px] text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                      {item.count} ม้วน
-                    </span>
+            {patternStats.map((item) => {
+              const pStyle = getCanonicalPatternStyle(item.name);
+              return (
+                <div key={item.name} className="p-3 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200 transition-colors">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${pStyle.dotClass}`} />
+                      <span className="text-sm font-semibold text-slate-900">
+                        {pStyle.label}
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                        {item.count} ม้วน
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-bold font-mono text-slate-900">
+                        {formatMeters(item.remaining)} <span className="text-xs font-normal text-slate-500">ม.</span>
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-sm font-bold font-mono text-slate-900">
-                      {formatMeters(item.remaining)} <span className="text-xs font-normal text-slate-500">ม.</span>
-                    </span>
-                  </div>
-                </div>
 
-                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden flex">
-                  <div 
-                    className={`h-2 rounded-full transition-all duration-500 ${
-                      item.remaining === 0 ? 'bg-slate-300' :
-                      item.name === 'ดำ' ? 'bg-slate-800' :
-                      item.name === 'ไม้เข้ม' ? 'bg-amber-800' :
-                      item.name === 'ไม้อ่อน' ? 'bg-amber-500' :
-                      item.name === 'กลีบบัว' ? 'bg-rose-400' :
-                      item.name === 'เทา' ? 'bg-slate-500' :
-                      'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.max(item.total > 0 ? (item.remaining / item.total) * 100 : 0, item.remaining > 0 ? 4 : 0)}%` }}
-                  />
+                  <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden flex">
+                    <div 
+                      className={`h-2 rounded-full transition-all duration-500 ${
+                        item.remaining === 0 ? 'bg-slate-300' : pStyle.progressClass
+                      }`}
+                      style={{ width: `${Math.max(item.total > 0 ? (item.remaining / item.total) * 100 : 0, item.remaining > 0 ? 4 : 0)}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

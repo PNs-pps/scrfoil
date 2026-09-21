@@ -2,6 +2,8 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getFirestore, 
   initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc, 
   getDocFromServer, 
   collection, 
@@ -11,6 +13,7 @@ import {
   writeBatch, 
   getDocs,
   query,
+  limit,
   orderBy,
   Firestore
 } from 'firebase/firestore';
@@ -73,19 +76,23 @@ const appName = activeTarget === 'managed' ? 'pufoam-managed' : '[DEFAULT]';
 export const firebaseApp: FirebaseApp = getApps().find(a => a.name === appName) 
   || initializeApp(firebaseConfig, appName === '[DEFAULT]' ? undefined : appName);
 
-// Initialize Firestore
-// NOTE: ignoreUndefinedProperties is set as a safety net so that any stray
-// `undefined` field (e.g. an optional field left unset) is silently skipped
-// instead of throwing a client-side "Unsupported field value: undefined"
-// error that would abort an entire batch write.
+// Initialize Firestore with Persistent Local Cache (IndexedDB)
+// This dramatically reduces Firebase read quota by serving previously cached
+// documents straight from browser IndexedDB storage (0 network reads for unchanged docs)
 function createDb(): Firestore {
   try {
+    const firestoreSettings = {
+      ignoreUndefinedProperties: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    };
     return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-      ? initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true }, firebaseConfig.firestoreDatabaseId)
-      : initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true });
+      ? initializeFirestore(firebaseApp, firestoreSettings, firebaseConfig.firestoreDatabaseId)
+      : initializeFirestore(firebaseApp, firestoreSettings);
   } catch (err) {
     // initializeFirestore throws if Firestore was already initialized for this app
-    // (e.g. hot-reload); fall back to the existing instance in that case.
+    // (e.g. hot-reload or environment re-render); fall back to the existing instance.
     return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
       ? getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId)
       : getFirestore(firebaseApp);
@@ -102,10 +109,11 @@ signInAnonymously(auth).catch((err) => {
   console.warn('Anonymous auth notification (normal if not enabled on console):', err?.message || err);
 });
 
-// Test connection
+// Test connection (On-demand only - do NOT run automatically at module load to save reads)
 export async function testFirestoreConnection(): Promise<{ isConnected: boolean; error?: string }> {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    const q = query(collection(db, 'test'), limit(1));
+    await getDocs(q);
     return { isConnected: true };
   } catch (error: any) {
     if (error?.code === 'permission-denied') {
@@ -120,19 +128,22 @@ export async function testFirestoreConnection(): Promise<{ isConnected: boolean;
   }
 }
 
-// Initial test
-testFirestoreConnection();
-
 // Collection references
 const ROLLS_COLLECTION = 'foil_rolls';
 const RECORDS_COLLECTION = 'stock_cut_records';
+
+export interface SubscriptionOptions {
+  limitCount?: number;
+  onFromCache?: (isFromCache: boolean) => void;
+}
 
 /**
  * Realtime listener for Foil Rolls with gentle non-fatal error handling
  */
 export function subscribeToFoilRolls(
   onUpdate: (rolls: FoilRoll[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  options?: { onFromCache?: (isFromCache: boolean) => void }
 ): () => void {
   try {
     const q = query(collection(db, ROLLS_COLLECTION));
@@ -140,6 +151,7 @@ export function subscribeToFoilRolls(
     return onSnapshot(
       q,
       (snapshot) => {
+        options?.onFromCache?.(snapshot.metadata.fromCache);
         const rolls: FoilRoll[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as FoilRoll;
@@ -167,17 +179,22 @@ export function subscribeToFoilRolls(
 
 /**
  * Realtime listener for Stock Cut Records with gentle non-fatal error handling
+ * and intelligent limit to minimize read consumption
  */
 export function subscribeToStockCutRecords(
   onUpdate: (records: StockCutRecord[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  options?: SubscriptionOptions
 ): () => void {
   try {
-    const q = query(collection(db, RECORDS_COLLECTION));
+    const q = options?.limitCount
+      ? query(collection(db, RECORDS_COLLECTION), limit(options.limitCount))
+      : query(collection(db, RECORDS_COLLECTION));
 
     return onSnapshot(
       q,
       (snapshot) => {
+        options?.onFromCache?.(snapshot.metadata.fromCache);
         const records: StockCutRecord[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as StockCutRecord;
@@ -608,14 +625,35 @@ export async function uploadAllToFirestore(
 }
 
 /**
- * Check if the Firestore database has any existing rolls
+ * Check if the Firestore database has any existing rolls (Reads only 1 document to save quota)
  */
 export async function checkFirestoreHasData(): Promise<boolean> {
   try {
-    const snapshot = await getDocs(collection(db, ROLLS_COLLECTION));
+    const q = query(collection(db, ROLLS_COLLECTION), limit(1));
+    const snapshot = await getDocs(q);
     return !snapshot.empty;
   } catch (err: any) {
     console.warn('Notice: Error checking Firestore data:', err?.message || err);
     return false;
+  }
+}
+
+/**
+ * On-demand fetch of all Stock Cut Records from Firestore
+ * (Used only when the user explicitly requests a full historical sync)
+ */
+export async function fetchAllCutRecordsFromFirestore(): Promise<StockCutRecord[]> {
+  try {
+    const snapshot = await getDocs(collection(db, RECORDS_COLLECTION));
+    const records: StockCutRecord[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as StockCutRecord;
+      records.push({ ...data, pattern: normalizePattern(data.pattern) });
+    });
+    records.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return records;
+  } catch (err: any) {
+    console.warn('Notice: Could not fetch all cut records:', err?.message || err);
+    throw err;
   }
 }

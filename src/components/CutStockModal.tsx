@@ -23,6 +23,7 @@ interface CutOrderItem {
   cutType: 'so' | 'non_so';
   soNumber: string;
   isSilverSide?: boolean;
+  isWhiteSide?: boolean;
   nonSoReasonType: string;
   branchName: string;
   customNonSoReason: string;
@@ -73,6 +74,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     cutType: mode,
     soNumber: mode === 'so' ? defaultSoPrefix : '',
     isSilverSide: false,
+    isWhiteSide: false,
     nonSoReasonType: 'สาขายืม',
     branchName: '',
     customNonSoReason: '',
@@ -305,6 +307,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         width: currentRoll.width,
         pattern: currentRoll.pattern,
         isSilverSide: !!ord.isSilverSide,
+        isWhiteSide: !!ord.isWhiteSide,
         soNumber: calc.identifier,
         cutType: ord.cutType,
         nonSoReason: ord.cutType === 'non_so' ? (ord.notes.trim() || calc.identifier) : '',
@@ -585,17 +588,44 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         />
                       </div>
 
-                      {/* Checkbox: ใช้เป็นท้องเงิน */}
-                      <div className="flex items-center pt-0.5">
+                      {/* Checkboxes: ตัวเลือกใช้เป็นท้องเงิน หรือ ท้องขาว */}
+                      <div className="flex flex-wrap items-center gap-4 pt-1">
+                        <span className="text-xs font-semibold text-slate-500">ตัวเลือกท้อง:</span>
                         <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                           <input
                             type="checkbox"
                             checked={!!order.isSilverSide}
-                            onChange={(e) => handleUpdateOrder(order.id, { isSilverSide: e.target.checked })}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              handleUpdateOrder(order.id, { 
+                                isSilverSide: checked,
+                                isWhiteSide: checked ? false : order.isWhiteSide
+                              });
+                            }}
                             className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
                           />
-                          <span className="text-xs font-semibold text-slate-800">
-                            ใช้เป็นท้องเงิน
+                          <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-slate-300 to-zinc-200 border border-slate-400" />
+                            <span>ใช้เป็นท้องเงิน</span>
+                          </span>
+                        </label>
+
+                        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!order.isWhiteSide}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              handleUpdateOrder(order.id, { 
+                                isWhiteSide: checked,
+                                isSilverSide: checked ? false : order.isSilverSide
+                              });
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                          />
+                          <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400" />
+                            <span>ใช้เป็นท้องขาว</span>
                           </span>
                         </label>
                       </div>

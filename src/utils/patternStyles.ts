@@ -107,12 +107,26 @@ export function getPatternStyle(pattern: string = ''): PatternStyle {
   };
 }
 
+export function getPatternProgressBarColor(pattern: string = ''): string {
+  const norm = (pattern || '').trim().toLowerCase();
+  if (norm.includes('ดำ') || norm === 'black') return 'bg-slate-900';
+  if (norm.includes('ไม้เข้ม') || norm === 'dark_wood') return 'bg-[#78350f]';
+  if (norm.includes('ไม้อ่อน') || norm.includes('ไม้อ้อน') || norm === 'light_wood') return 'bg-amber-400';
+  if (norm.includes('กลีบบัว') || norm.includes('เงิน') || norm === 'silver') return 'bg-gradient-to-r from-slate-400 to-zinc-400';
+  if (norm.includes('เทา') || norm === 'gray' || norm === 'grey') return 'bg-slate-500';
+  if (norm.includes('ขาว') || norm === 'white') return 'bg-slate-400';
+  return 'bg-emerald-500';
+}
+
 export const PATTERN_LIST_OPTIONS = [
-  { value: 'ขาว', label: 'ขาว (สีขาว)', color: 'สีขาว' },
-  { value: 'ดำ', label: 'ดำ (สีดำ)', color: 'สีดำ' },
-  { value: 'ไม้อ่อน', label: 'ไม้อ่อน (สีเหลือง)', color: 'สีเหลือง' },
-  { value: 'ไม้เข้ม', label: 'ไม้เข้ม (สีน้ำตาล)', color: 'สีน้ำตาล' },
-  { value: 'เทา', label: 'เทา (สีเทา)', color: 'สีเทา' },
-  { value: 'กลีบบัว', label: 'กลีบบัว (สีเงิน)', color: 'สีเงิน' },
+  { value: 'ขาว', label: 'ขาว', color: 'สีขาว' },
+  { value: 'ดำ', label: 'ดำ', color: 'สีดำ' },
+  { value: 'ไม้อ่อน', label: 'ไม้อ่อน', color: 'สีเหลือง' },
+  { value: 'ไม้เข้ม', label: 'ไม้เข้ม', color: 'สีน้ำตาล' },
+  { value: 'เทา', label: 'เทา', color: 'สีเทา' },
+  { value: 'กลีบบัว', label: 'กลีบบัว', color: 'สีเงิน' },
 ];
+
+export { WIDTH_SPECIFICATIONS, getWidthLabel } from '../types';
+
 

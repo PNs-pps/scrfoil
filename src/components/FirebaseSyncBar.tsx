@@ -21,6 +21,7 @@ interface FirebaseSyncBarProps {
   recordsCount: number;
   projectId?: string;
   isManagedTarget?: boolean;
+  isCached?: boolean;
   onOpenRulesModal?: () => void;
   onSwitchCloud?: () => void;
   onNavigateToSettings?: () => void;
@@ -37,6 +38,7 @@ export const FirebaseSyncBar: React.FC<FirebaseSyncBarProps> = ({
   recordsCount,
   projectId = 'stock-foil',
   isManagedTarget = false,
+  isCached = false,
   onOpenRulesModal,
   onSwitchCloud,
   onNavigateToSettings,
@@ -69,6 +71,15 @@ export const FirebaseSyncBar: React.FC<FirebaseSyncBarProps> = ({
                   {isManagedTarget && (
                     <span className="bg-emerald-950 text-emerald-300 border border-emerald-700/50 text-[10px] px-1 rounded">
                       Cloud สำรอง
+                    </span>
+                  )}
+                  {isCached && (
+                    <span 
+                      className="bg-emerald-950/90 text-emerald-300 border border-emerald-600/50 text-[10px] px-1.5 py-0.5 rounded font-mono hidden sm:inline-flex items-center gap-1"
+                      title="Persistent IndexedDB Cache ทำงานอยู่: ข้อมูลอ่านจากแคชในเครื่องโดยไม่เปลืองโควตา Read บน Firestore"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      <span>Cache ประหยัด Read</span>
                     </span>
                   )}
                 </span>

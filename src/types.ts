@@ -60,6 +60,8 @@ export interface StockCutRecord {
   rollNumber: string;        // เบอร์
   width: FoilWidth;          // หน้ากว้าง
   pattern: FoilPattern;      // ท้อง
+  isSilverSide?: boolean;    // ตัวเลือกท้องเงิน
+  isWhiteSide?: boolean;     // ตัวเลือกท้องขาว
   soNumber: string;          // รหัส SO หรือ เหตุผลการเบิกกรณีไม่ใช้ SO เช่น 'สาขายืม', 'ซ่อมฟอยล์พ่นกาว'
   cutType?: 'so' | 'non_so'; // ชนิดการตัด: มี SO หรือ ไม่ใช้ SO
   nonSoReason?: string;      // เหตุผลเพิ่มเติมกรณีไม่ใช้ SO (เช่น สาขาพัทยายืม)
@@ -96,6 +98,8 @@ export interface CutHistoryItem {
   rollNumber?: string;
   width?: FoilWidth;
   pattern?: FoilPattern;
+  isSilverSide?: boolean;
+  isWhiteSide?: boolean;
   totalDeducted?: number;
   remainingBefore?: number;
   remainingAfter?: number;

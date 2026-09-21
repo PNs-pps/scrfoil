@@ -1,10 +1,10 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'rolls' | 'history' | 'settings';
-  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'settings') => void;
+  activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'settings') => void;
   onOpenAddModal: () => void;
   onOpenCutModal: (mode?: 'so' | 'non_so') => void;
   totalRemainingMeters: number;
@@ -38,62 +38,75 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between py-3 gap-3">
           
-          {/* Logo & Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
-              <Layers className="w-6 h-6 stroke-[2.2]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400 tracking-wider">
-                  หลังคาเย็นสยาม (ร่มเกล้า)
-                </span>
-                <span className="text-xs text-slate-500 hidden sm:inline font-mono">
-                  คลังฟอยล์ PU FOAM
-                </span>
+          {/* Top Row: Logo & Top Utilities */}
+          <div className="flex items-center justify-between gap-2">
+            {/* Logo & Title */}
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
+                <Layers className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
               </div>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
-                หลังคาเย็นสยาม (ร่มเกล้า)
-              </h1>
-              <p className="text-xs text-slate-500 hidden md:block">
-                ระบบจัดการสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 rounded bg-slate-900 text-amber-400 tracking-wider">
+                    หลังคาเย็นสยาม (ร่มเกล้า)
+                  </span>
+                  <span className="text-xs text-slate-500 hidden sm:inline font-mono">
+                    คลังฟอยล์ PU FOAM
+                  </span>
+                </div>
+                <h1 className="text-sm sm:text-lg font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
+                  หลังคาเย็นสยาม (ร่มเกล้า)
+                </h1>
+                <p className="text-xs text-slate-500 hidden md:block">
+                  ระบบจัดการสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
+                </p>
+              </div>
+            </div>
+
+            {/* Mode Switcher Pill & Quick Utility (Top Right) */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {userMode === 'visitor' ? (
+                <button
+                  type="button"
+                  onClick={onUnlockEditor}
+                  className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                  title="คลิกเพื่อใส่รหัสผ่านและปลดล็อคโหมดคีย์ข้อมูล"
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-700 group-hover:scale-110 transition-transform" />
+                  <span className="hidden sm:inline">ผู้เข้าชม</span>
+                  <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 text-[10px] font-bold">
+                    ปลดล็อค
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onLockVisitor}
+                  className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                  title="คลิกเพื่อล็อคกลับสู่โหมดผู้เข้าชม"
+                >
+                  <Unlock className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                  <span className="hidden sm:inline">คีย์ข้อมูล</span>
+                  <span className="px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-950 text-[10px] font-bold">
+                    ล็อค
+                  </span>
+                </button>
+              )}
+
+              {/* Utility / Export Button */}
+              <button
+                id="btn-export-options"
+                onClick={activeTab === 'history' ? onExportHistory : onExportRolls}
+                title="ส่งออกข้อมูล CSV"
+                className="p-1.5 sm:p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"
+              >
+                <Download className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          {/* Quick Metrics & Actions */}
-          <div className="flex items-center flex-wrap gap-2 sm:gap-3">
-            {/* Mode Switcher Pill */}
-            {userMode === 'visitor' ? (
-              <button
-                type="button"
-                onClick={onUnlockEditor}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
-                title="คลิกเพื่อใส่รหัสผ่านและปลดล็อคโหมดคีย์ข้อมูล"
-              >
-                <Lock className="w-3.5 h-3.5 text-amber-700 group-hover:scale-110 transition-transform" />
-                <span className="hidden sm:inline">โหมดผู้เข้าชม (ดูอย่างเดียว)</span>
-                <span className="sm:hidden">ผู้เข้าชม</span>
-                <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 text-[10px] font-bold ml-0.5">
-                  ปลดล็อค
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onLockVisitor}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
-                title="คลิกเพื่อล็อคกลับสู่โหมดผู้เข้าชม"
-              >
-                <Unlock className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
-                <span className="hidden sm:inline">โหมดคีย์ข้อมูล (เข้าสู่ระบบแล้ว)</span>
-                <span className="sm:hidden">คีย์ข้อมูล</span>
-                <span className="px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-950 text-[10px] font-bold ml-0.5">
-                  ล็อค
-                </span>
-              </button>
-            )}
-
+          {/* Action Row: Metrics + Main 2 Action Buttons (Side by Side on the Same Row) */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 w-full md:w-auto">
             <div className="hidden lg:flex items-center gap-3 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200 text-xs">
               <div>
                 <span className="text-slate-500 block">คงเหลือรวม</span>
@@ -110,114 +123,122 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <button
-              id="btn-add-foil"
-              onClick={onOpenAddModal}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-medium transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
-            >
-              {userMode === 'visitor' ? (
-                <Lock className="w-3.5 h-3.5 text-amber-400" />
-              ) : (
-                <Plus className="w-4 h-4 text-amber-400" />
-              )}
-              <span>เพิ่มฟอยล์รับเข้า</span>
-            </button>
-
-            <button
-              id="btn-cut-foil"
-              onClick={() => onOpenCutModal('so')}
-              title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
-            >
-              {userMode === 'visitor' ? (
-                <Lock className="w-3.5 h-3.5 stroke-[2.5]" />
-              ) : (
-                <Scissors className="w-4 h-4 stroke-[2.5]" />
-              )}
-              <span>ตัดสต็อกฟอยล์</span>
-            </button>
-
-            {/* Utility / Export Button */}
-            <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+            {/* Action Buttons: Prominent and on the Same Line */}
+            <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
               <button
-                id="btn-export-options"
-                onClick={activeTab === 'history' ? onExportHistory : onExportRolls}
-                title="ส่งออกข้อมูล CSV"
-                className="p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                id="btn-add-foil"
+                onClick={onOpenAddModal}
+                className="h-11 sm:h-10 px-3 sm:px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <Download className="w-4 h-4" />
+                {userMode === 'visitor' ? (
+                  <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                ) : (
+                  <Plus className="w-4 h-4 text-amber-400 stroke-[2.5] shrink-0" />
+                )}
+                <span className="whitespace-nowrap">เพิ่มฟอยล์รับเข้า</span>
+              </button>
+
+              <button
+                id="btn-cut-foil"
+                onClick={() => onOpenCutModal('so')}
+                title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
+                className="h-11 sm:h-10 px-3.5 sm:px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-amber-600/30"
+              >
+                {userMode === 'visitor' ? (
+                  <Lock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                ) : (
+                  <Scissors className="w-4 h-4 stroke-[2.5] shrink-0" />
+                )}
+                <span className="whitespace-nowrap">ตัดสต็อกฟอยล์</span>
               </button>
             </div>
           </div>
         </div>
 
-        {/* Navigation Tabs (Hidden on mobile as MobileBottomNav handles navigation) */}
-        {/* Uses short labels on tablet widths (md-lg) so 4 tabs never overflow/clip;
-            full descriptive labels appear on large desktop screens (lg+), which also
-            keeps the PC nav visually distinct from the icon-only mobile bottom bar. */}
-        <div className="hidden md:flex border-t border-slate-100 mt-1 gap-1 lg:gap-2 overflow-x-auto">
-          <button
-            id="tab-dashboard"
-            onClick={() => setActiveTab('dashboard')}
-            className={`inline-flex items-center gap-2 py-2.5 px-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'dashboard'
-                ? 'border-amber-500 text-slate-950 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span className="lg:hidden">แดชบอร์ด</span>
-            <span className="hidden lg:inline">แดชบอร์ดสรุปยอดคงเหลือ</span>
-          </button>
+        {/* Navigation Tabs for PC / Tablet (Distinct desktop navigation container) */}
+        <div className="hidden md:flex items-center border-t border-slate-100 pt-2.5 pb-1 overflow-x-auto">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/80 shadow-2xs">
+            <button
+              id="tab-dashboard"
+              onClick={() => setActiveTab('dashboard')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'dashboard'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 text-amber-600" />
+              <span className="lg:hidden">แดชบอร์ด</span>
+              <span className="hidden lg:inline">แดชบอร์ดภาพรวมสต๊อก</span>
+            </button>
 
-          <button
-            id="tab-rolls"
-            onClick={() => setActiveTab('rolls')}
-            className={`inline-flex items-center gap-2 py-2.5 px-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'rolls'
-                ? 'border-amber-500 text-slate-950 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Package className="w-4 h-4" />
-            <span className="lg:hidden">ม้วนฟอยล์</span>
-            <span className="hidden lg:inline">รายการม้วนฟอยล์ในสต๊อก</span>
-            <span className="text-xs px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded-full font-mono">
-              {activeRollsCount}
-            </span>
-          </button>
+            <button
+              id="tab-rolls"
+              onClick={() => setActiveTab('rolls')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'rolls'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Package className="w-4 h-4 text-amber-600" />
+              <span className="lg:hidden">ม้วนฟอยล์</span>
+              <span className="hidden lg:inline">คลังม้วนฟอยล์</span>
+              <span className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === 'rolls' ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {activeRollsCount}
+              </span>
+            </button>
 
-          <button
-            id="tab-history"
-            onClick={() => setActiveTab('history')}
-            className={`inline-flex items-center gap-2 py-2.5 px-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === 'history'
-                ? 'border-amber-500 text-slate-950 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span className="lg:hidden">ประวัติตัด</span>
-            <span className="hidden lg:inline">ประวัติการตัดสต๊อก (SO)</span>
-          </button>
+            <button
+              id="tab-history"
+              onClick={() => setActiveTab('history')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'history'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <History className="w-4 h-4 text-amber-600" />
+              <span className="lg:hidden">ประวัติตัด</span>
+              <span className="hidden lg:inline">ประวัติการตัดสต๊อก (SO)</span>
+            </button>
 
-          <button
-            id="tab-settings"
-            onClick={() => setActiveTab('settings')}
-            className={`inline-flex items-center gap-2 py-2.5 px-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap cursor-pointer relative ${
-              activeTab === 'settings'
-                ? 'border-amber-500 text-slate-950 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span className="lg:hidden">ตั้งค่า</span>
-            <span className="hidden lg:inline">ตั้งค่า & สำรองข้อมูล</span>
-            {hasPermissionNotice && (
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-            )}
-          </button>
+            <button
+              id="tab-flow"
+              onClick={() => setActiveTab('flow')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'flow'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Workflow className="w-4 h-4 text-amber-600" />
+              <span className="lg:hidden">Flow ผลิต</span>
+              <span className="hidden lg:inline">Flow Chart ผลการผลิตรายวัน</span>
+              <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Daily Flow
+              </span>
+            </button>
+
+            <button
+              id="tab-settings"
+              onClick={() => setActiveTab('settings')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer relative ${
+                activeTab === 'settings'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Settings className="w-4 h-4 text-slate-600" />
+              <span className="lg:hidden">ตั้งค่า</span>
+              <span className="hidden lg:inline">ตั้งค่า & สำรองข้อมูล</span>
+              {hasPermissionNotice && (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </header>

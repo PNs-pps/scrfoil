@@ -22,7 +22,9 @@ import {
   FolderOpen,
   Folder,
   FileText,
-  Lock
+  Lock,
+  RefreshCw,
+  Zap
 } from 'lucide-react';
 import { 
   AutoBackupConfig, 
@@ -62,6 +64,12 @@ interface SettingsBackupViewProps {
   showToast: (text: string, type?: 'success' | 'info') => void;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
+  onDoubleBackup?: () => Promise<void> | void;
+  isDoubleBackingUp?: boolean;
+  lastDoubleBackupTime?: string | null;
+  onFetchFullHistory?: () => Promise<void> | void;
+  isFetchingFullHistory?: boolean;
+  isCached?: boolean;
 }
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
@@ -79,6 +87,12 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   showToast,
   userMode = 'visitor',
   onRequestUnlock,
+  onDoubleBackup,
+  isDoubleBackingUp = false,
+  lastDoubleBackupTime,
+  onFetchFullHistory,
+  isFetchingFullHistory = false,
+  isCached = true,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile'>('backup');
   
@@ -375,6 +389,88 @@ service cloud.firestore {
                 </div>
               </div>
 
+              {/* Double Backup Action Card */}
+              {onDoubleBackup && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                      <ShieldCheck className="w-4 h-4 text-amber-600" />
+                      <span>สำรองข้อมูล 2 ชั้น (Double Backup)</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950">
+                      2 ชั้น ปลอดภัยสูง
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    บันทึกข้อมูลพร้อมกันทั้ง <strong>1) Cloud Firestore</strong>, <strong>2) Local Snapshot ในเบราว์เซอร์</strong> และ <strong>3) ดาวน์โหลดไฟล์ JSON</strong> สำหรับเก็บในคอมพิวเตอร์หรือแฟลชไดรฟ์
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onDoubleBackup()}
+                    disabled={isDoubleBackingUp}
+                    className="w-full py-2 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  >
+                    {isDoubleBackingUp ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>ทำ Double Backup ตอนนี้</span>
+                  </button>
+                  {lastDoubleBackupTime && (
+                    <div className="text-[10px] text-slate-500 text-center font-mono">
+                      ทำ Double Backup ล่าสุด: {new Date(lastDoubleBackupTime).toLocaleString('th-TH')}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Read Quota Optimization & Persistent Cache Status */}
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                    <Zap className="w-4 h-4 text-emerald-600" />
+                    <span>ระบบลดการใช้ Read (Firestore Optimization)</span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    {isCached ? 'แคชในเครื่องทำงาน' : 'เปิดใช้งานแล้ว'}
+                  </span>
+                </div>
+
+                <div className="space-y-1 text-[11px] text-slate-600 leading-relaxed">
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-emerald-600 font-bold shrink-0">•</span>
+                    <span><strong>IndexedDB Persistent Cache:</strong> ข้อมูลที่ไม่เปลี่ยนแปลงจะดึงจากเครื่องโดยตรง (0 Read สำหรับการรีเฟรชหรือเปิดหน้าซ้ำ)</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-emerald-600 font-bold shrink-0">•</span>
+                    <span><strong>Multi-Tab Sync:</strong> เปิดหลายแท็บพร้อมกันได้โดยใช้ Cache ร่วมกัน ไม่ดาวน์โหลดซ้ำ</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-emerald-600 font-bold shrink-0">•</span>
+                    <span><strong>Smart Realtime Window:</strong> ฟังประวัติล่าสุด 200 รายการ ช่วยประหยัด Read มหาศาลเมื่อเอกสารสะสมเยอะ</span>
+                  </div>
+                </div>
+
+                {onFetchFullHistory && (
+                  <button
+                    type="button"
+                    onClick={() => onFetchFullHistory()}
+                    disabled={isFetchingFullHistory}
+                    className="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    title="ดึงประวัติการตัดสต๊อกทั้งหมดที่มีใน Cloud Firestore ลงมาเก็บในแคชเครื่อง"
+                  >
+                    {isFetchingFullHistory ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Database className="w-3.5 h-3.5" />
+                    )}
+                    <span>ดึงประวัติย้อนหลังทั้งหมดจาก Cloud (Force Full Fetch)</span>
+                  </button>
+                )}
+              </div>
+
               {/* Export / Import File Actions */}
               <div className="pt-2 border-t border-slate-100 space-y-2">
                 <button
@@ -457,6 +553,7 @@ service cloud.firestore {
                   {snapshots.map((s, idx) => {
                     const date = new Date(s.timestamp);
                     const reasonLabel = 
+                      s.reason === 'double_backup' ? 'สำรอง 2 ชั้น (Double Backup)' :
                       s.reason === 'manual' ? 'สำรองด้วยตนเอง' :
                       s.reason === 'before_cut' ? 'อัตโนมัติก่อนตัดสต๊อก' :
                       s.reason === 'before_reset' ? 'ก่อนรีเซ็ต/กู้คืน' : 'อัตโนมัติตามรอบเวลา';
@@ -475,6 +572,7 @@ service cloud.firestore {
                                 {date.toLocaleDateString('th-TH')} {date.toLocaleTimeString('th-TH')}
                               </span>
                               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                s.reason === 'double_backup' ? 'bg-amber-100 text-amber-900 font-bold border border-amber-300' :
                                 s.reason === 'manual' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'
                               }`}>
                                 {reasonLabel}
@@ -773,72 +871,6 @@ service cloud.firestore {
               >
                 ทดสอบการเชื่อมต่อ
               </button>
-            </div>
-          </div>
-
-          {/* 3 Step Instruction */}
-          <div className="space-y-4">
-            <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center text-xs">1</span>
-              <span>ขั้นตอนการเปิดสิทธิ์ใน Firebase Console (ใช้เวลาเพียง 30 วินาที):</span>
-            </h4>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                <span className="font-bold text-slate-800 block">1. เข้าหน้า Rules</span>
-                <span className="text-slate-600 block leading-relaxed">
-                  ไปที่ Firebase Console &gt; เลือกโปรเจกต์ &gt; <strong>Firestore Database</strong> &gt; แท็บ <strong>Rules</strong>
-                </span>
-                <a
-                  href={`https://console.firebase.google.com/project/${projectId}/firestore/rules`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-amber-700 hover:text-amber-800 font-bold underline mt-1"
-                >
-                  <span>เปิดลิงก์หน้านี้ทันที</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                <span className="font-bold text-slate-800 block">2. วางโค้ดกฎ (Rules)</span>
-                <span className="text-slate-600 block leading-relaxed">
-                  ลบโค้ดเดิมทั้งหมดในกล่องข้อความ แล้ววางโค้ดด้านล่างนี้ลงไปแทนที่
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                <span className="font-bold text-slate-800 block">3. กดปุ่ม "Publish"</span>
-                <span className="text-slate-600 block leading-relaxed">
-                  กดปุ่มสีฟ้า <strong>Publish</strong> ด้านบน แล้วกลับมากดปุ่ม "ทดสอบการเชื่อมต่อ"
-                </span>
-              </div>
-            </div>
-
-            {/* Code Box with Copy */}
-            <div className="relative mt-2">
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-900 text-slate-300 text-xs rounded-t-xl font-mono">
-                <span>firestore.rules (กฎเปิดสิทธิ์ระบบสต๊อกฟอยล์)</span>
-                <button
-                  onClick={copyRulesCode}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer"
-                >
-                  {copiedRules ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedRules ? 'คัดลอกแล้ว!' : 'คัดลอกโค้ดนี้'}</span>
-                </button>
-              </div>
-              <pre className="p-4 bg-slate-950 text-amber-300 text-xs font-mono rounded-b-xl overflow-x-auto border-x border-b border-slate-800 leading-relaxed">
-{`rules_version = '2';
-
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // อนุญาตให้อ่านและเขียนข้อมูลสต๊อกฟอยล์สำหรับเครื่องในโรงงาน
-    match /{document=**} {
-      allow read, write: if true;
-    }
-  }
-}`}
-              </pre>
             </div>
           </div>
         </div>

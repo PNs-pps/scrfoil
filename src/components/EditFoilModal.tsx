@@ -53,7 +53,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
       let initialPattern: FoilPattern = 'ขาว';
       const rawP = (roll.pattern || '').trim();
       if (rawP === 'ดำ') initialPattern = 'ดำ';
-      else if (rawP === 'ไม้อ่อน'') initialPattern = 'ไม้อ่อน';
+      else if (rawP === 'ไม้อ่อน') initialPattern = 'ไม้อ่อน';
       else if (rawP === 'ไม้เข้ม') initialPattern = 'ไม้เข้ม';
       else if (rawP === 'เทา') initialPattern = 'เทา';
       else if (rawP === 'กลีบบัว') initialPattern = 'กลีบบัว';

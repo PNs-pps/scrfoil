@@ -107,6 +107,102 @@ export const STANDARD_PATTERNS = [
 
 export const STANDARD_WIDTHS = [830, 850, 880, 900] as const;
 
+export interface PatternStyleDef {
+  value: string;
+  label: string;
+  name: string;
+  dotClass: string;
+  badgeClass: string;
+  progressClass: string;
+}
+
+/**
+ * Provides canonical colors, dot markers, and badges for foil patterns
+ * ensuring absolute visual consistency across Dashboard, Roll List, SO History, and Flow Chart.
+ */
+export function getCanonicalPatternStyle(patternRaw: string): PatternStyleDef {
+  const p = normalizePattern(patternRaw);
+  switch (p) {
+    case 'ขาว':
+      return {
+        value: 'ขาว',
+        label: 'ขาว',
+        name: 'ขาว',
+        dotClass: 'bg-white border-2 border-slate-400 shadow-2xs',
+        badgeClass: 'bg-slate-100 text-slate-800 border border-slate-300',
+        progressClass: 'bg-slate-400',
+      };
+    case 'ดำ':
+      return {
+        value: 'ดำ',
+        label: 'ดำ',
+        name: 'ดำ',
+        dotClass: 'bg-slate-950 border border-slate-800 shadow-2xs',
+        badgeClass: 'bg-slate-900 text-white border border-slate-800',
+        progressClass: 'bg-slate-900',
+      };
+    case 'ไม้อ่อน':
+      return {
+        value: 'ไม้อ่อน',
+        label: 'ไม้อ่อน',
+        name: 'ไม้อ่อน',
+        dotClass: 'bg-amber-200 border border-amber-400 shadow-2xs',
+        badgeClass: 'bg-amber-100 text-amber-900 border border-amber-300',
+        progressClass: 'bg-amber-400',
+      };
+    case 'ไม้เข้ม':
+      return {
+        value: 'ไม้เข้ม',
+        label: 'ไม้เข้ม',
+        name: 'ไม้เข้ม',
+        dotClass: 'bg-amber-800 border border-amber-950 shadow-2xs',
+        badgeClass: 'bg-amber-800 text-amber-50 border border-amber-900',
+        progressClass: 'bg-amber-800',
+      };
+    case 'เทา':
+      return {
+        value: 'เทา',
+        label: 'เทา',
+        name: 'เทา',
+        dotClass: 'bg-slate-400 border border-slate-500 shadow-2xs',
+        badgeClass: 'bg-slate-200 text-slate-800 border border-slate-300',
+        progressClass: 'bg-slate-500',
+      };
+    case 'กลีบบัว':
+      return {
+        value: 'กลีบบัว',
+        label: 'กลีบบัว',
+        name: 'กลีบบัว',
+        dotClass: 'bg-rose-300 border border-rose-400 shadow-2xs',
+        badgeClass: 'bg-rose-100 text-rose-900 border border-rose-300',
+        progressClass: 'bg-rose-400',
+      };
+    default:
+      return {
+        value: p,
+        label: p,
+        name: p,
+        dotClass: 'bg-indigo-300 border border-indigo-400 shadow-2xs',
+        badgeClass: 'bg-indigo-100 text-indigo-900 border border-indigo-200',
+        progressClass: 'bg-indigo-400',
+      };
+  }
+}
+
+export const PATTERN_HEX_COLORS: Record<string, string> = {
+  'ขาว': '#64748b',    // Slate 500 (distinct and visible)
+  'ดำ': '#0f172a',     // Slate 900
+  'ไม้อ่อน': '#f59e0b', // Amber 500
+  'ไม้เข้ม': '#92400e', // Amber 800
+  'เทา': '#94a3b8',    // Slate 400
+  'กลีบบัว': '#f43f5e', // Rose 500
+};
+
+export function getPatternHexColor(pattern: string): string {
+  const norm = normalizePattern(pattern);
+  return PATTERN_HEX_COLORS[norm] || '#8b5cf6';
+}
+
 /**
  * Normalizes legacy / mis-typed pattern spellings to the current canonical
  * pattern names, so older saved data (local storage or Firestore) still

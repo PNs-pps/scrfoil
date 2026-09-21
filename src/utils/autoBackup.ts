@@ -7,6 +7,7 @@ export interface AutoBackupConfig {
   autoSyncCloud: boolean;
   saveLocalSnapshots: boolean;
   lastBackupTime: string | null;
+  lastDoubleBackupTime?: string | null;
 }
 
 export interface AutoBackupSnapshot {
@@ -15,7 +16,7 @@ export interface AutoBackupSnapshot {
   rollsCount: number;
   recordsCount: number;
   totalRemainingMeters: number;
-  reason: 'scheduled' | 'before_cut' | 'manual' | 'before_reset' | 'cloud_sync';
+  reason: 'scheduled' | 'before_cut' | 'manual' | 'before_reset' | 'cloud_sync' | 'double_backup';
   data: {
     rolls: FoilRoll[];
     records: StockCutRecord[];
