@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
-import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
+import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
 import { formatMeters, round2 } from '../utils/formatters';
 import { 
@@ -89,9 +89,14 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const recentOperators = getRecentOperators();
 
-  // Reset or initialize on open
+  const prevIsOpenRef = useRef(false);
+
+  // Reset or initialize on open - ensure background availableRolls updates do NOT reset user typing or jump rolls
   useEffect(() => {
-    if (isOpen) {
+    const isOpening = isOpen && !prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+
+    if (isOpening) {
       const initMode = initialCutMode === 'non_so' ? 'non_so' : 'so';
       const initialOrder = createEmptyOrder(1, initMode);
       setOrders([initialOrder]);
@@ -102,18 +107,18 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         if (found) {
           setSelectedFoilId(found.id);
           setFilterWidth(String(found.width));
-          setFilterPattern(found.pattern);
+          setFilterPattern(normalizePattern(found.pattern));
         }
       } else {
         const firstActive = availableRolls.find(r => r.remainingMeters > 0);
         if (firstActive) {
           setSelectedFoilId(firstActive.id);
           setFilterWidth(String(firstActive.width));
-          setFilterPattern(firstActive.pattern);
+          setFilterPattern(normalizePattern(firstActive.pattern));
         } else if (availableRolls.length > 0) {
           setSelectedFoilId(availableRolls[0].id);
           setFilterWidth(String(availableRolls[0].width));
-          setFilterPattern(availableRolls[0].pattern);
+          setFilterPattern(normalizePattern(availableRolls[0].pattern));
         }
       }
 
@@ -132,41 +137,65 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           el.setSelectionRange(len, len);
         }
       }, 150);
+    } else if (isOpen && preselectedRollId) {
+      const found = availableRolls.find(r => r.id === preselectedRollId);
+      if (found && selectedFoilId !== found.id) {
+        setSelectedFoilId(found.id);
+        setFilterWidth(String(found.width));
+        setFilterPattern(normalizePattern(found.pattern));
+      }
     }
-  }, [isOpen, preselectedRollId, availableRolls, initialCutMode]);
+  }, [isOpen, preselectedRollId, initialCutMode]);
 
   if (!isOpen) return null;
 
-  // Filter cascades
-  const availableWidths: FoilWidth[] = Array.from<FoilWidth>(new Set(availableRolls.map(r => r.width)))
+  // Filter cascades with robust normalization
+  const availableWidths: FoilWidth[] = Array.from<FoilWidth>(new Set(availableRolls.map(r => Number(r.width))))
     .sort((a, b) => Number(a) - Number(b));
 
   const rollsFilteredByWidth = availableRolls.filter(r => 
-    filterWidth === 'all' ? true : String(r.width) === filterWidth
+    filterWidth === 'all' ? true : String(r.width) === filterWidth || Number(r.width) === Number(filterWidth)
   );
-  const availablePatternsForSelectedWidth = Array.from(new Set(rollsFilteredByWidth.map(r => r.pattern)));
+  const availablePatternsForSelectedWidth = Array.from(new Set(rollsFilteredByWidth.map(r => normalizePattern(r.pattern))));
 
   const candidateRolls = rollsFilteredByWidth
-    .filter(r => filterPattern === 'all' ? true : r.pattern === filterPattern)
+    .filter(r => filterPattern === 'all' ? true : normalizePattern(r.pattern) === normalizePattern(filterPattern))
     .sort((a, b) => {
       const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
       if (lotComp !== 0) return lotComp;
       return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
     });
 
-  const currentRoll = availableRolls.find(r => r.id === selectedFoilId);
+  // Strict synchronization: Ensure selectedFoilId is never out of sync with candidateRolls
+  useEffect(() => {
+    if (isOpen && candidateRolls.length > 0) {
+      const isSelectedInCandidates = candidateRolls.some(r => r.id === selectedFoilId);
+      if (!isSelectedInCandidates) {
+        const current = availableRolls.find(r => r.id === selectedFoilId);
+        if (current) {
+          setFilterWidth(String(current.width));
+          setFilterPattern(normalizePattern(current.pattern));
+        } else {
+          const firstActive = candidateRolls.find(r => r.remainingMeters > 0) || candidateRolls[0];
+          setSelectedFoilId(firstActive.id);
+        }
+      }
+    }
+  }, [candidateRolls, selectedFoilId, isOpen, availableRolls]);
+
+  const currentRoll = availableRolls.find(r => r.id === selectedFoilId) || candidateRolls[0];
 
   // Handlers for step-by-step selection
   const handleWidthChange = (newWidth: string) => {
     setFilterWidth(newWidth);
-    const matchingRolls = availableRolls.filter(r => newWidth === 'all' || String(r.width) === newWidth);
-    const validPatterns = Array.from(new Set(matchingRolls.map(r => r.pattern)));
+    const matchingRolls = availableRolls.filter(r => newWidth === 'all' || String(r.width) === newWidth || Number(r.width) === Number(newWidth));
+    const validPatterns = Array.from(new Set(matchingRolls.map(r => normalizePattern(r.pattern))));
     let nextPattern = filterPattern;
     if (filterPattern !== 'all' && !validPatterns.includes(filterPattern)) {
       nextPattern = validPatterns[0] || 'all';
       setFilterPattern(nextPattern);
     }
-    const eligibleRolls = matchingRolls.filter(r => nextPattern === 'all' || r.pattern === nextPattern);
+    const eligibleRolls = matchingRolls.filter(r => nextPattern === 'all' || normalizePattern(r.pattern) === normalizePattern(nextPattern));
     const firstActive = eligibleRolls.find(r => r.remainingMeters > 0) || eligibleRolls[0];
     if (firstActive) {
       setSelectedFoilId(firstActive.id);
@@ -175,7 +204,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const handlePatternChange = (newPattern: string) => {
     setFilterPattern(newPattern);
-    const eligibleRolls = rollsFilteredByWidth.filter(r => newPattern === 'all' || r.pattern === newPattern);
+    const eligibleRolls = rollsFilteredByWidth.filter(r => newPattern === 'all' || normalizePattern(r.pattern) === normalizePattern(newPattern));
     const firstActive = eligibleRolls.find(r => r.remainingMeters > 0) || eligibleRolls[0];
     if (firstActive) {
       setSelectedFoilId(firstActive.id);

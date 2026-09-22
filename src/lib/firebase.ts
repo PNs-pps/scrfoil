@@ -18,7 +18,7 @@ import {
   Firestore
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
-import { FoilRoll, StockCutRecord, CutHistoryItem } from '../types';
+import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 
 // User's custom configuration as requested
@@ -657,3 +657,57 @@ export async function fetchAllCutRecordsFromFirestore(): Promise<StockCutRecord[
     throw err;
   }
 }
+
+// ----------------------------------------------------
+// PU Sandwich Cut Records (No Foil) Collection
+// ----------------------------------------------------
+export const PU_SANDWICH_COLLECTION = 'pu_sandwich_cuts';
+
+export function subscribeToPuSandwichCuts(
+  callback: (records: PuSandwichCutRecord[]) => void,
+  onError?: (error: any) => void
+): () => void {
+  try {
+    const q = query(collection(db, PU_SANDWICH_COLLECTION));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: PuSandwichCutRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          items.push(docSnap.data() as PuSandwichCutRecord);
+        });
+        items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        callback(items);
+      },
+      (error) => {
+        console.warn('Notice: PU Sandwich real-time sync snapshot error:', error?.message || error);
+        if (onError) onError(error);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Notice: Could not subscribe to pu_sandwich_cuts:', err);
+    return () => {};
+  }
+}
+
+export async function savePuSandwichCutToFirestore(record: PuSandwichCutRecord): Promise<void> {
+  try {
+    const docRef = doc(db, PU_SANDWICH_COLLECTION, record.id);
+    await setDoc(docRef, record, { merge: true });
+  } catch (err: any) {
+    console.warn('Notice: Failed to save PU sandwich cut to Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+export async function deletePuSandwichCutFromFirestore(recordId: string): Promise<void> {
+  try {
+    const docRef = doc(db, PU_SANDWICH_COLLECTION, recordId);
+    await deleteDoc(docRef);
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete PU sandwich cut from Firestore:', err?.message || err);
+    throw err;
+  }
+}
+

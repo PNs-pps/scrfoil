@@ -1,10 +1,11 @@
-import { FoilRoll, StockCutRecord } from '../types';
+import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
 import { INITIAL_FOIL_ROLLS, INITIAL_CUT_RECORDS } from '../data/initialData';
 import { normalizePattern } from './soFormatter';
 
 const STORAGE_KEYS = {
   ROLLS: 'pufoam_foil_rolls_v3',
   RECORDS: 'pufoam_cut_records_v3',
+  PU_SANDWICH: 'pufoam_pu_sandwich_records_v1',
   OPERATOR_NAMES: 'pufoam_operator_names_v3',
   CLEAN_INITIALIZED: 'pufoam_clean_v3_initialized',
 };
@@ -200,6 +201,72 @@ export function exportRollsToCSV(rolls: FoilRoll[]): void {
   const link = document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', `foil_inventory_summary_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+// ----------------------------------------------------
+// PU Sandwich Cut Records Storage & Export
+// ----------------------------------------------------
+export function getStoredPuSandwichRecords(): PuSandwichCutRecord[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.PU_SANDWICH);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn('Failed to load PU Sandwich records from storage', err);
+    return [];
+  }
+}
+
+export function saveStoredPuSandwichRecords(records: PuSandwichCutRecord[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.PU_SANDWICH, JSON.stringify(records));
+  } catch (err) {
+    console.warn('Failed to save PU Sandwich records to storage', err);
+  }
+}
+
+export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): void {
+  const headers = [
+    'รหัส SO',
+    'วันที่ผลิต',
+    'สีคอล์ย',
+    'ความหนา',
+    'เบอร์คอล์ย',
+    'ชนิดเหล็ก',
+    'น้ำหนักก่อนใช้ (กก.)',
+    'น้ำหนักหลังใช้ (กก.)',
+    'น้ำหนักใช้จริง (กก.)',
+    'ความยาวที่ผลิต (ม.)',
+    'ผู้บันทึก',
+    'หมายเหตุ',
+    'เวลาบันทึก'
+  ];
+
+  const rows = records.map(r => [
+    `"${r.soNumber}"`,
+    `"${r.productionDate || ''}"`,
+    `"${r.coilColor}"`,
+    `"${r.thickness}"`,
+    `"${r.coilNumber}"`,
+    `"${r.steelOrigin === 'อื่นๆ' && r.customSteelOrigin ? `${r.steelOrigin} (${r.customSteelOrigin})` : r.steelOrigin}"`,
+    r.weightBefore,
+    r.weightAfter,
+    r.weightUsed,
+    r.lengthMeters ?? '',
+    `"${(r.recordedBy || '').replace(/"/g, '""')}"`,
+    `"${(r.notes || '').replace(/"/g, '""')}"`,
+    `"${r.createdAt}"`
+  ]);
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `pu_sandwich_cuts_${new Date().toISOString().slice(0, 10)}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

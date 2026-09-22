@@ -1,12 +1,14 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'settings';
-  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'settings') => void;
+  activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings') => void;
   onOpenAddModal: () => void;
   onOpenCutModal: (mode?: 'so' | 'non_so') => void;
+  onOpenPuSandwichModal: () => void;
+  puSandwichCount?: number;
   totalRemainingMeters: number;
   activeRollsCount: number;
   onResetData: () => void;
@@ -23,6 +25,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   onOpenAddModal,
   onOpenCutModal,
+  onOpenPuSandwichModal,
+  puSandwichCount = 0,
   totalRemainingMeters,
   activeRollsCount,
   onResetData,
@@ -124,25 +128,25 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Action Buttons: Prominent and on the Same Line */}
-            <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
+            <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
               <button
                 id="btn-add-foil"
                 onClick={onOpenAddModal}
-                className="h-11 sm:h-10 px-3 sm:px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
+                className="h-10 px-2 sm:px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
               >
                 {userMode === 'visitor' ? (
                   <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 ) : (
                   <Plus className="w-4 h-4 text-amber-400 stroke-[2.5] shrink-0" />
                 )}
-                <span className="whitespace-nowrap">เพิ่มฟอยล์รับเข้า</span>
+                <span className="whitespace-nowrap">เพิ่มฟอยล์</span>
               </button>
 
               <button
                 id="btn-cut-foil"
                 onClick={() => onOpenCutModal('so')}
                 title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
-                className="h-11 sm:h-10 px-3.5 sm:px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-amber-600/30"
+                className="h-10 px-2 sm:px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-amber-600/30"
               >
                 {userMode === 'visitor' ? (
                   <Lock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
@@ -150,6 +154,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Scissors className="w-4 h-4 stroke-[2.5] shrink-0" />
                 )}
                 <span className="whitespace-nowrap">ตัดสต็อกฟอยล์</span>
+              </button>
+
+              <button
+                id="btn-cut-pu-sandwich"
+                onClick={onOpenPuSandwichModal}
+                title="ตัด SO ไม่ใช้ฟอยล์ ผลิต PU Sandwich"
+                className="h-10 px-2 sm:px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-700/40"
+              >
+                {userMode === 'visitor' ? (
+                  <Lock className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
+                ) : (
+                  <Factory className="w-4 h-4 text-emerald-200 stroke-[2.2] shrink-0" />
+                )}
+                <span className="whitespace-nowrap">ตัด SO แซนวิช</span>
               </button>
             </div>
           </div>
@@ -203,6 +221,25 @@ export const Navbar: React.FC<NavbarProps> = ({
               <History className="w-4 h-4 text-amber-600" />
               <span className="lg:hidden">ประวัติตัด</span>
               <span className="hidden lg:inline">ประวัติการตัดสต๊อก (SO)</span>
+            </button>
+
+            <button
+              id="tab-sandwich"
+              onClick={() => setActiveTab('sandwich')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'sandwich'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Factory className="w-4 h-4 text-emerald-600" />
+              <span className="lg:hidden">PU แซนวิช</span>
+              <span className="hidden lg:inline">ตัด SO แซนวิช (ไม่ใช้ฟอยล์)</span>
+              <span className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === 'sandwich' ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {puSandwichCount}
+              </span>
             </button>
 
             <button

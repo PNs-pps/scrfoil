@@ -1,17 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { FoilRoll, StockCutRecord } from './types';
+import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from './types';
 import { 
   getStoredRolls, 
   saveStoredRolls, 
   getStoredCutRecords, 
   saveStoredCutRecords, 
+  getStoredPuSandwichRecords,
+  saveStoredPuSandwichRecords,
   resetAllDataToDefault,
   exportRollsToCSV,
-  exportCutRecordsToCSV
+  exportCutRecordsToCSV,
+  exportPuSandwichRecordsToCSV
 } from './utils/storage';
 import { 
   subscribeToFoilRolls, 
   subscribeToStockCutRecords, 
+  subscribeToPuSandwichCuts,
+  savePuSandwichCutToFirestore,
+  deletePuSandwichCutFromFirestore,
   saveFoilRollToFirestore, 
   deleteFoilRollFromFirestore, 
   executeCutBatchInFirestore, 
@@ -37,6 +43,8 @@ import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
 import { MonthlySummaryModal } from './components/MonthlySummaryModal';
 import { SOBatchImportModal } from './components/SOBatchImportModal';
 import { SettingsBackupView } from './components/SettingsBackupView';
+import { PuSandwichModal } from './components/PuSandwichModal';
+import { PuSandwichView } from './components/PuSandwichView';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
@@ -47,7 +55,8 @@ import { CheckCircle2, AlertCircle, Sparkles, X } from 'lucide-react';
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history' | 'flow' | 'settings'>('dashboard');
+  const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings'>('dashboard');
 
   // Visitor vs Data Entry (Editor) Mode State
   const [userMode, setUserMode] = useState<UserMode>(() => getUserMode());
@@ -68,6 +77,7 @@ export default function App() {
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isCutModalOpen, setIsCutModalOpen] = useState(false);
+  const [isPuSandwichModalOpen, setIsPuSandwichModalOpen] = useState(false);
   const [cutModalInitialMode, setCutModalInitialMode] = useState<'so' | 'non_so'>('so');
   const [preselectedRollId, setPreselectedRollId] = useState<string | null>(null);
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
@@ -102,8 +112,10 @@ export default function App() {
     // 1. Initial fast local load from cache
     const loadedRolls = getStoredRolls();
     const loadedRecords = getStoredCutRecords();
+    const loadedPuSandwich = getStoredPuSandwichRecords();
     setRolls(loadedRolls);
     setRecords(loadedRecords);
+    setPuSandwichRecords(loadedPuSandwich);
 
     // 2. Realtime listener for Foil Rolls
     let isInitialRollsFetch = true;
@@ -168,9 +180,28 @@ export default function App() {
       }
     );
 
+    // 4. Realtime listener for PU Sandwich Cuts (ไม่ใช้ฟอยล์)
+    const unsubSandwich = subscribeToPuSandwichCuts(
+      (firestoreSandwich) => {
+        setPuSandwichRecords((prev) => {
+          const map = new Map<string, PuSandwichCutRecord>();
+          prev.forEach((r) => map.set(r.id, r));
+          firestoreSandwich.forEach((r) => map.set(r.id, r));
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+          saveStoredPuSandwichRecords(merged);
+          return merged;
+        });
+      },
+      (err: any) => {
+        console.warn('PU Sandwich cuts sync note:', err?.message || err);
+      }
+    );
+
     return () => {
       unsubRolls();
       unsubRecords();
+      unsubSandwich();
     };
   }, []);
 
@@ -557,6 +588,36 @@ export default function App() {
     await handleConfirmCutBatch([cutData]);
   };
 
+  // PU Sandwich Cut Handlers (ไม่ใช้ฟอยล์)
+  const handleSavePuSandwichCut = async (record: PuSandwichCutRecord) => {
+    const updated = [record, ...puSandwichRecords];
+    setPuSandwichRecords(updated);
+    saveStoredPuSandwichRecords(updated);
+
+    try {
+      await savePuSandwichCutToFirestore(record);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+      showToast(`บันทึกตัด SO แซนวิช ${record.soNumber} (คอล์ย ${record.coilNumber} ใช้ ${record.weightUsed} กก.) สำเร็จ! [ซิงค์ Cloud]`);
+    } catch (err: any) {
+      console.warn('Notice: PU Sandwich cloud sync pending/offline:', err?.message || err);
+      showToast(`บันทึกตัด SO แซนวิช ${record.soNumber} ในเครื่องเรียบร้อย (รอซิงค์ Cloud เมื่อออนไลน์)`, 'info');
+    }
+  };
+
+  const handleDeletePuSandwichCut = async (id: string) => {
+    const updated = puSandwichRecords.filter((r) => r.id !== id);
+    setPuSandwichRecords(updated);
+    saveStoredPuSandwichRecords(updated);
+
+    try {
+      await deletePuSandwichCutFromFirestore(id);
+      showToast('ลบรายการตัด SO แซนวิชเรียบร้อย');
+    } catch (err: any) {
+      console.warn('Notice: PU Sandwich deletion pending in cloud:', err?.message || err);
+    }
+  };
+
   // Toggle zero out for low stock rolls (<= 50m)
   const handleToggleZeroOut = (rollId: string, zeroOut: boolean) => {
     const targetRoll = rolls.find(r => r.id === rollId);
@@ -722,6 +783,8 @@ export default function App() {
             setIsCutModalOpen(true);
           });
         }}
+        onOpenPuSandwichModal={() => requireEditorPermission(() => setIsPuSandwichModalOpen(true))}
+        puSandwichCount={puSandwichRecords.length}
         totalRemainingMeters={totalRemainingMeters}
         activeRollsCount={activeRollsCount}
         onResetData={() => requireEditorPermission(handleResetData)}
@@ -791,6 +854,16 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'sandwich' && (
+          <PuSandwichView
+            records={puSandwichRecords}
+            onOpenCreateModal={() => requireEditorPermission(() => setIsPuSandwichModalOpen(true))}
+            onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
+            userMode={userMode}
+            onUnlockEditor={() => requireEditorPermission(() => {})}
+          />
+        )}
+
         {activeTab === 'flow' && (
           <DailyProductionFlow
             records={records}
@@ -857,6 +930,12 @@ export default function App() {
         onClose={() => setIsAddModalOpen(false)}
         onAddFoil={handleAddFoil}
         onAddMultipleFoils={handleAddMultipleFoils}
+      />
+
+      <PuSandwichModal
+        isOpen={isPuSandwichModalOpen}
+        onClose={() => setIsPuSandwichModalOpen(false)}
+        onSaveCut={handleSavePuSandwichCut}
       />
 
       <CutStockModal

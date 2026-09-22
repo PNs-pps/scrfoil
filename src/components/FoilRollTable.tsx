@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
-import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
+import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 import { 
@@ -108,11 +108,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         }
       }
 
-      // Width
-      const matchWidth = selectedWidth === 'all' || String(r.width) === selectedWidth;
+      // Width with numeric and string normalization
+      const matchWidth = selectedWidth === 'all' || String(r.width) === selectedWidth || Number(r.width) === Number(selectedWidth);
 
-      // Pattern
-      const matchPattern = selectedPattern === 'all' || r.pattern === selectedPattern;
+      // Pattern with canonical normalization (e.g. ท้องขาว vs ขาว)
+      const matchPattern = selectedPattern === 'all' || normalizePattern(r.pattern) === normalizePattern(selectedPattern);
 
       // Status
       const matchStatus = 
@@ -151,12 +151,13 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       const groupsMap = new Map<number, FoilRoll[]>();
       
       // Keep standard widths in order first
-      STANDARD_WIDTHS.forEach(w => groupsMap.set(w, []));
+      STANDARD_WIDTHS.forEach(w => groupsMap.set(Number(w), []));
 
       filteredRolls.forEach(roll => {
-        const list = groupsMap.get(roll.width) || [];
+        const numW = Number(roll.width);
+        const list = groupsMap.get(numW) || [];
         list.push(roll);
-        groupsMap.set(roll.width, list);
+        groupsMap.set(numW, list);
       });
 
       const result: RollGroup[] = [];
@@ -186,16 +187,17 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }
 
     if (groupBy === 'pattern') {
-      // Group by Pattern (ขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว)
+      // Group by Pattern (ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว)
       const groupsMap = new Map<string, FoilRoll[]>();
       
       // Standard patterns first
-      STANDARD_PATTERNS.forEach(p => groupsMap.set(p.value, []));
+      STANDARD_PATTERNS.forEach(p => groupsMap.set(normalizePattern(p.value), []));
 
       filteredRolls.forEach(roll => {
-        const list = groupsMap.get(roll.pattern) || [];
+        const normP = normalizePattern(roll.pattern);
+        const list = groupsMap.get(normP) || [];
         list.push(roll);
-        groupsMap.set(roll.pattern, list);
+        groupsMap.set(normP, list);
       });
 
       const result: RollGroup[] = [];

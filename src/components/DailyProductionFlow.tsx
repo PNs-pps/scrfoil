@@ -328,10 +328,10 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               <span className="text-[11px] font-mono text-amber-700 font-semibold">Lamination</span>
             </div>
             <h4 className="font-bold text-slate-900 text-sm">
-              ฉีดโฟม PU & รีดฟอยล์
+              Production  
             </h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              เดินเครื่องจักรฉีดโฟม PU พร้อมรีดประกบฟอยล์ใต้แผ่นหลังคาตามความยาวคำสั่งผลิต
+              Machine Running
             </p>
             <div className="pt-1 text-[11px] font-mono text-amber-900 font-bold">
               • ผลิตได้วันนี้: {stats.totalUsed.toLocaleString()} ม.
