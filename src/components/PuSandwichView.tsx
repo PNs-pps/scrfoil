@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { 
   Factory, 
-  Plus, 
   Search, 
   Download, 
   Trash2, 
@@ -21,7 +20,7 @@ import { UserMode } from '../utils/auth';
 
 interface PuSandwichViewProps {
   records?: PuSandwichCutRecord[];
-  onOpenCreateModal: () => void;
+  onOpenCreateModal?: () => void;
   onDeleteRecord?: (id: string) => Promise<void> | void;
   userMode: UserMode;
   onUnlockEditor?: () => void;
@@ -29,7 +28,6 @@ interface PuSandwichViewProps {
 
 export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   records = [],
-  onOpenCreateModal,
   onDeleteRecord,
   userMode,
   onUnlockEditor,
@@ -141,15 +139,6 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={onOpenCreateModal}
-              className="px-5 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2 active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-4 h-4 stroke-[3]" />
-              คีย์ตัด SO แซนวิชใหม่
-            </button>
-
             <button
               type="button"
               onClick={() => exportPuSandwichRecordsToCSV(records)}
@@ -340,18 +329,8 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             <p className="text-xs text-slate-500 max-w-md mx-auto">
               {onlyWithNg
                 ? 'ไม่มีรายการที่มีของเสีย หรือลองปิดตัวกรอง "เฉพาะมี NG"'
-                : 'เมื่อมีการผลิตแซนวิชโดยไม่ใช้ฟอยล์ สามารถกดปุ่ม "คีย์ตัด SO แซนวิชใหม่" เพื่อบันทึกน้ำหนักคอล์ยเหล็กและสถิติการใช้งาน'}
+                : 'เมื่อมีการผลิตแซนวิชโดยไม่ใช้ฟอยล์ สามารถบันทึกน้ำหนักคอล์ยเหล็ก ความยาวตามใบงาน SO และระบบจะคำนวณยอด NG ให้อัตโนมัติ'}
             </p>
-            {!onlyWithNg && (
-              <button
-                type="button"
-                onClick={onOpenCreateModal}
-                className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                เริ่มบันทึกรายการแรก
-              </button>
-            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -367,6 +346,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                   <th className="py-3 px-3.5 text-right">4. น้ำหนักก่อนใช้</th>
                   <th className="py-3 px-3.5 text-right">5. น้ำหนักหลังใช้</th>
                   <th className="py-3 px-3.5 text-right font-black text-emerald-800">ใช้จริง (กก.)</th>
+                  <th className="py-3 px-3.5 text-right font-bold text-teal-800">งาน SO (ม.)</th>
                   <th className="py-3 px-3.5 text-right text-rose-700 font-bold">ยอด NG (กก.)</th>
                   <th className="py-3 px-3.5 text-right text-rose-700 font-bold">ยอด NG (ม.)</th>
                   <th className="py-3 px-3.5">ผู้บันทึก</th>
@@ -419,11 +399,25 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                     <td className="py-3 px-3.5 text-right font-black text-emerald-700 text-sm">
                       {r.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                     </td>
+                    <td className="py-3 px-3.5 text-right font-bold text-teal-700">
+                      {r.soLengthMeters ? (
+                        <span>{r.soLengthMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.</span>
+                      ) : (
+                        <span className="text-slate-400 font-normal">-</span>
+                      )}
+                    </td>
                     <td className="py-3 px-3.5 text-right">
                       {(r.ngKg || 0) > 0 ? (
-                        <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
-                          {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                            {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </span>
+                          {r.soLengthMeters ? (
+                            <span className="text-[10px] text-slate-400 mt-0.5 font-sans">
+                              (หักงาน {r.soLengthMeters}ม.)
+                            </span>
+                          ) : null}
+                        </div>
                       ) : (
                         <span className="text-slate-400 font-normal">0.00</span>
                       )}

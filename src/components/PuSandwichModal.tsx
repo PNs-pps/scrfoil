@@ -19,7 +19,10 @@ import {
   Hash,
   Palette,
   Gauge,
-  Factory
+  Factory,
+  Ruler,
+  RotateCcw,
+  Sparkles
 } from 'lucide-react';
 
 interface PuSandwichModalProps {
@@ -50,6 +53,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   // Form State
   const [soNumber, setSoNumber] = useState('');
   const [productionDate, setProductionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [soLengthMeters, setSoLengthMeters] = useState<string>('');
   const [coilColor, setCoilColor] = useState('');
   const [thickness, setThickness] = useState('');
   const [coilNumber, setCoilNumber] = useState('');
@@ -64,6 +68,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isNgManuallyEdited, setIsNgManuallyEdited] = useState(false);
+  const [customKgPerMeter, setCustomKgPerMeter] = useState<string>('');
+  const [showCustomFactor, setShowCustomFactor] = useState(false);
 
   // History search state
   const [historySearch, setHistorySearch] = useState('');
@@ -78,6 +85,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setSoNumber(`so${yy}${mm}`);
       setNgKg('0');
       setNgMeters('0');
+      setSoLengthMeters('');
+      setIsNgManuallyEdited(false);
+      setCustomKgPerMeter('');
+      setShowCustomFactor(false);
       setError(null);
       if (!recordedBy && recentOperators.length > 0) {
         setRecordedBy(recentOperators[0]);
@@ -85,14 +96,50 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   }, [isOpen, initialMode]);
 
-  if (!isOpen) return null;
+  // Weight per meter from thickness (density of steel 7.85 kg/m²/mm, standard sheet width 0.914 m)
+  // formula: width (0.914m) * thickness (mm) * 7.85 = thickness * 7.1749 kg/m
+  const numThickness = parseFloat(thickness) || 0;
+  const standardKgPerMeter = numThickness > 0
+    ? Math.round(numThickness * 7.175 * 100) / 100
+    : 2.50; // standard default for 0.35mm roofing sheet
 
-  // Real-time calculation of used weight
+  const effectiveKgPerMeter = parseFloat(customKgPerMeter) > 0
+    ? parseFloat(customKgPerMeter)
+    : standardKgPerMeter;
+
+  const numSoLength = parseFloat(soLengthMeters) || 0;
+
+  // Real-time calculation of used weight (น้ำหนักขึ้น - ลง)
   const numBefore = parseFloat(weightBefore) || 0;
   const numAfter = parseFloat(weightAfter) || 0;
   const calculatedUsed = (weightBefore !== '' && weightAfter !== '')
     ? Math.max(0, Math.round((numBefore - numAfter) * 100) / 100)
     : 0;
+
+  // Auto-calculated theoretical SO steel weight (กก.)
+  const theoreticalSoWeight = numSoLength > 0
+    ? Math.round(numSoLength * effectiveKgPerMeter * 100) / 100
+    : 0;
+
+  // Auto-calculated NG (กก.) = น้ำหนักขึ้น-ลง - น้ำหนักงาน SO
+  const autoCalculatedNgKg = (calculatedUsed > 0 && numSoLength > 0)
+    ? Math.max(0, Math.round((calculatedUsed - theoreticalSoWeight) * 100) / 100)
+    : 0;
+
+  // Auto-calculated NG (เมตร) = autoCalculatedNgKg / effectiveKgPerMeter
+  const autoCalculatedNgMeters = (effectiveKgPerMeter > 0 && autoCalculatedNgKg > 0)
+    ? Math.max(0, Math.round((autoCalculatedNgKg / effectiveKgPerMeter) * 10) / 10)
+    : 0;
+
+  // Automatically update ngKg & ngMeters fields when weight or SO length changes unless manually overridden
+  useEffect(() => {
+    if (!isNgManuallyEdited && calculatedUsed > 0 && numSoLength > 0) {
+      setNgKg(autoCalculatedNgKg.toFixed(2));
+      setNgMeters(autoCalculatedNgMeters.toFixed(1));
+    }
+  }, [calculatedUsed, numSoLength, effectiveKgPerMeter, autoCalculatedNgKg, autoCalculatedNgMeters, isNgManuallyEdited]);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +148,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     // Validations
     if (!soNumber.trim()) {
       setError('กรุณาระบุรหัส SO');
+      return;
+    }
+    if (soLengthMeters === '' || numSoLength <= 0) {
+      setError('กรุณาระบุความยาวตามใบงาน SO (เมตร) ให้ถูกต้องมากกว่า 0');
       return;
     }
     if (!coilColor.trim()) {
@@ -153,7 +204,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         saveRecentOperator(recordedBy.trim());
       }
 
-      const recordPayload = {
+      const cleanPayload: any = {
         soNumber: soNumber.trim(),
         productionDate,
         coilColor: coilColor.trim(),
@@ -165,19 +216,21 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         ngKg: numNgKg,
         ngMeters: numNgMeters,
         steelOrigin,
-        customSteelOrigin: steelOrigin === 'อื่นๆ' ? customSteelOrigin.trim() : undefined,
-        lengthMeters: lengthMeters ? parseFloat(lengthMeters) : undefined,
         recordedBy: recordedBy.trim() || 'ช่างคุมเครื่อง PU',
-        notes: notes.trim() || undefined,
+        createdAt: new Date().toISOString(),
       };
 
+      if (numSoLength > 0) cleanPayload.soLengthMeters = numSoLength;
+      if (steelOrigin === 'อื่นๆ' && customSteelOrigin.trim()) cleanPayload.customSteelOrigin = customSteelOrigin.trim();
+      if (lengthMeters && parseFloat(lengthMeters) > 0) cleanPayload.lengthMeters = parseFloat(lengthMeters);
+      if (notes.trim()) cleanPayload.notes = notes.trim();
+
       if (onSaveRecord) {
-        await onSaveRecord(recordPayload);
+        await onSaveRecord(cleanPayload);
       } else if (onSaveCut) {
         await onSaveCut({
-          ...recordPayload,
+          ...cleanPayload,
           id: `pusw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          createdAt: new Date().toISOString(),
         });
       }
 
@@ -187,11 +240,15 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setSoNumber(`so${yy}${mm}`);
       setWeightBefore('');
       setWeightAfter('');
+      setSoLengthMeters('');
       setNgKg('0');
       setNgMeters('0');
+      setIsNgManuallyEdited(false);
+      setCustomKgPerMeter('');
+      setShowCustomFactor(false);
       setNotes('');
       setLengthMeters('');
-      // Switch to history or stay
+      // Switch to history
       setActiveTab('history');
     } catch (err: any) {
       setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
@@ -295,8 +352,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 </div>
               )}
 
-              {/* Top Row: SO Number & Production Date */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
+              {/* Top Row: SO Number, Production Date & SO Length */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
                     <Hash className="w-3.5 h-3.5 text-emerald-600" />
@@ -311,7 +368,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     required
                   />
                   <span className="text-[11px] text-slate-400 mt-1 block">
-                    รูปแบบมาตรฐาน: so + ปี พ.ศ. 2 หลัก + เดือน 2 หลัก + ลำดับ
+                    รูปแบบ: so + ปี พ.ศ. + เดือน + ลำดับ
                   </span>
                 </div>
 
@@ -327,6 +384,54 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
                     required
                   />
+                  <span className="text-[11px] text-slate-400 mt-1 block">
+                    วันที่ดำเนินการผลิตแผ่นแซนวิช
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Ruler className="w-3.5 h-3.5 text-emerald-600" />
+                      ความยาวตามใบงาน SO (ม.) <span className="text-rose-500">*</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      ใช้คำนวณ NG
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={soLengthMeters}
+                    onChange={(e) => {
+                      setSoLengthMeters(e.target.value);
+                      setIsNgManuallyEdited(false);
+                    }}
+                    placeholder="เช่น 120.00 หรือ 250"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                    required
+                  />
+                  {/* Quick Chips for SO Length */}
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {['50', '100', '120', '150', '200', '300'].map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => {
+                          setSoLengthMeters(chip);
+                          setIsNgManuallyEdited(false);
+                        }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded-md border cursor-pointer transition-colors ${
+                          soLengthMeters === chip
+                            ? 'bg-emerald-600 text-white border-emerald-600 font-bold'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {chip}ม.
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -484,41 +589,158 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   </div>
                 </div>
 
-                {/* ยอด NG ของ PU Sandwich: NG (กก.) และ NG (เมตร) */}
-                <div className="p-4 bg-rose-50/70 rounded-2xl border border-rose-200/90 mt-3">
-                  <div className="flex items-center justify-between mb-3 border-b border-rose-200/70 pb-2">
+                {/* ยอด NG ของ PU Sandwich: คำนวณอัตโนมัติจาก (น้ำหนักขึ้น-ลง ลบงาน SO เป็นเมตร) */}
+                <div className="p-4 bg-rose-50/80 rounded-2xl border border-rose-200 mt-3 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-200/80 pb-2.5">
                     <div className="flex items-center gap-2">
                       <span className="w-6 h-6 rounded-lg bg-rose-600 text-white flex items-center justify-center text-xs font-black shadow-2xs">
                         NG
                       </span>
-                      <h4 className="text-xs sm:text-sm font-bold text-rose-950 flex items-center gap-1.5">
-                        <AlertTriangle className="w-4 h-4 text-rose-600" />
-                        ยอด NG ของ PU Sandwich (ของเสีย/เศษหัวท้าย)
-                      </h4>
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold text-rose-950 flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-rose-600" />
+                          ยอด NG ของ PU Sandwich (คำนวณอัตโนมัติ)
+                        </h4>
+                        <span className="text-[11px] text-rose-700">
+                          คำนวณจาก: น้ำหนักขึ้น-ลง (กก.) ลบงาน SO เป็นเมตร
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-[11px] text-rose-700 font-medium">
-                      ถ้าไม่มีของเสีย ให้ใส่ 0
-                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      {!isNgManuallyEdited && (calculatedUsed > 0 && numSoLength > 0) && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                          <Sparkles className="w-3 h-3 text-emerald-600" />
+                          ระบบคำนวณให้อัตโนมัติ
+                        </span>
+                      )}
+                      {isNgManuallyEdited && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsNgManuallyEdited(false);
+                            setNgKg(autoCalculatedNgKg.toFixed(2));
+                            setNgMeters(autoCalculatedNgMeters.toFixed(1));
+                          }}
+                          className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 cursor-pointer shadow-2xs flex items-center gap-1 transition-colors"
+                          title="คลิกเพื่อนำค่าคำนวณอัตโนมัติกลับมาใส่"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          ดึงค่าคำนวณอัตโนมัติกลับมา
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Auto-calculation breakdown card */}
+                  <div className="bg-white p-3 sm:p-4 rounded-xl border border-rose-200/90 shadow-2xs space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-[10px] font-semibold text-slate-500 block">1. น้ำหนักขึ้น-ลง (ใช้จริง)</span>
+                        <div className="font-mono font-bold text-slate-900 text-base">
+                          {calculatedUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-500">กก.</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono block truncate">
+                          ({numBefore.toLocaleString()} - {numAfter.toLocaleString()})
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-semibold text-slate-500 block">2. งาน SO เป็นเมตร</span>
+                          <button
+                            type="button"
+                            onClick={() => setShowCustomFactor(!showCustomFactor)}
+                            className="text-[9px] text-emerald-700 hover:underline cursor-pointer font-sans"
+                            title="คลิกเพื่อตรวจสอบหรือปรับอัตรา กก./ม."
+                          >
+                            {effectiveKgPerMeter.toFixed(2)} กก./ม.
+                          </button>
+                        </div>
+                        <div className="font-mono font-bold text-slate-900 text-base">
+                          {numSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 })} <span className="text-xs font-normal text-slate-500">ม.</span>
+                        </div>
+                        <span className="text-[10px] text-emerald-700 font-mono block truncate">
+                          ≈ {theoreticalSoWeight.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (เหล็ก {thickness || '0.35'} มม.)
+                        </span>
+                      </div>
+
+                      <div className="bg-rose-50/90 p-2.5 rounded-xl border border-rose-300">
+                        <span className="text-[10px] font-bold text-rose-900 block">3. ยอด NG คำนวณได้</span>
+                        <div className="font-mono font-black text-rose-700 text-base">
+                          {autoCalculatedNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
+                          <span className="text-xs font-bold text-rose-600">กก.</span>
+                        </div>
+                        <span className="text-[10px] text-rose-800 font-mono block truncate">
+                          ≈ {autoCalculatedNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} เมตรของเสีย
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Fine-tune factor option */}
+                    {showCustomFactor && (
+                      <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs space-y-1.5 animate-in fade-in">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-emerald-900 text-[11px]">
+                            อัตราน้ำหนักเหล็กต่อเมตร (กก./เมตร):
+                          </span>
+                          <span className="text-[10px] text-emerald-700">
+                            มาตรฐานความหนา {thickness || '0.35'} มม. = {standardKgPerMeter.toFixed(2)} กก./ม.
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.1"
+                            value={customKgPerMeter}
+                            onChange={(e) => setCustomKgPerMeter(e.target.value)}
+                            placeholder={standardKgPerMeter.toFixed(2)}
+                            className="w-28 px-2 py-1 bg-white border border-emerald-300 rounded-lg text-xs font-mono font-bold"
+                          />
+                          <span className="text-xs text-slate-600">กก./ม.</span>
+                          {customKgPerMeter && (
+                            <button
+                              type="button"
+                              onClick={() => setCustomKgPerMeter('')}
+                              className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
+                            >
+                              รีเซ็ตค่ามาตรฐาน
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {numSoLength === 0 && (
+                      <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                        <span>กรุณาระบุ <strong>ความยาวตามใบงาน SO (เมตร)</strong> ด้านบนเพื่อเปิดใช้งานการคำนวณอัตโนมัติ</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                     {/* ยอด NG (กก.) */}
                     <div>
                       <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                          ยอด NG (กก.)
+                          ยอด NG (กก.) <span className="text-emerald-700 text-[10px] font-bold">[คำนวณอัตโนมัติ]</span>
                         </span>
-                        <span className="text-[10px] text-slate-500 font-normal">เศษเหล็ก/โฟมเสีย</span>
+                        <span className="text-[10px] text-slate-500 font-normal">แก้ไขเพิ่มเติมได้</span>
                       </label>
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         value={ngKg}
-                        onChange={(e) => setNgKg(e.target.value)}
+                        onChange={(e) => {
+                          setNgKg(e.target.value);
+                          setIsNgManuallyEdited(true);
+                        }}
                         placeholder="0.00"
-                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all"
+                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs"
                       />
                       {/* Quick Chips for NG กก. */}
                       <div className="flex flex-wrap gap-1 mt-2">
@@ -526,7 +748,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <button
                             key={chip}
                             type="button"
-                            onClick={() => setNgKg(chip)}
+                            onClick={() => {
+                              setNgKg(chip);
+                              setIsNgManuallyEdited(true);
+                            }}
                             className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
                               ngKg === chip
                                 ? 'bg-rose-600 text-white border-rose-600 font-bold'
@@ -544,7 +769,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                          ยอด NG (เมตร)
+                          ยอด NG (เมตร) <span className="text-emerald-700 text-[10px] font-bold">[คำนวณอัตโนมัติ]</span>
                         </span>
                         <span className="text-[10px] text-slate-500 font-normal">ความยาวแผ่นที่เสีย</span>
                       </label>
@@ -553,9 +778,12 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                         step="0.1"
                         min="0"
                         value={ngMeters}
-                        onChange={(e) => setNgMeters(e.target.value)}
+                        onChange={(e) => {
+                          setNgMeters(e.target.value);
+                          setIsNgManuallyEdited(true);
+                        }}
                         placeholder="0.0"
-                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all"
+                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs"
                       />
                       {/* Quick Chips for NG เมตร */}
                       <div className="flex flex-wrap gap-1 mt-2">
@@ -563,7 +791,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <button
                             key={chip}
                             type="button"
-                            onClick={() => setNgMeters(chip)}
+                            onClick={() => {
+                              setNgMeters(chip);
+                              setIsNgManuallyEdited(true);
+                            }}
                             className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
                               ngMeters === chip
                                 ? 'bg-rose-600 text-white border-rose-600 font-bold'
@@ -821,6 +1052,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <th className="py-2.5 px-3 text-right">ก่อนใช้ (กก.)</th>
                           <th className="py-2.5 px-3 text-right">หลังใช้ (กก.)</th>
                           <th className="py-2.5 px-3 text-right font-bold text-emerald-800">ใช้จริง (กก.)</th>
+                          <th className="py-2.5 px-3 text-right font-bold text-teal-800">งาน SO (ม.)</th>
                           <th className="py-2.5 px-3 text-right text-rose-700 font-bold">NG (กก.)</th>
                           <th className="py-2.5 px-3 text-right text-rose-700 font-bold">NG (ม.)</th>
                           <th className="py-2.5 px-3">ผู้บันทึก</th>
@@ -861,6 +1093,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                             </td>
                             <td className="py-2.5 px-3 text-right font-black text-emerald-600">
                               {rec.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold text-teal-700">
+                              {rec.soLengthMeters ? `${rec.soLengthMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.` : '-'}
                             </td>
                             <td className="py-2.5 px-3 text-right">
                               {(rec.ngKg || 0) > 0 ? (
