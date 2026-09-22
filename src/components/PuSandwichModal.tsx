@@ -11,6 +11,7 @@ import {
   Scale, 
   CheckCircle2, 
   AlertCircle, 
+  AlertTriangle,
   History, 
   Download, 
   Trash2, 
@@ -24,8 +25,9 @@ import {
 interface PuSandwichModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSaveRecord: (record: Omit<PuSandwichCutRecord, 'id' | 'createdAt'>) => Promise<void> | void;
-  records: PuSandwichCutRecord[];
+  onSaveRecord?: (record: Omit<PuSandwichCutRecord, 'id' | 'createdAt'>) => Promise<void> | void;
+  onSaveCut?: (record: PuSandwichCutRecord) => Promise<void> | void;
+  records?: PuSandwichCutRecord[];
   onDeleteRecord?: (recordId: string) => Promise<void> | void;
   initialMode?: 'create' | 'history';
 }
@@ -37,7 +39,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   isOpen,
   onClose,
   onSaveRecord,
-  records,
+  onSaveCut,
+  records = [],
   onDeleteRecord,
   initialMode = 'create'
 }) => {
@@ -52,6 +55,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const [coilNumber, setCoilNumber] = useState('');
   const [weightBefore, setWeightBefore] = useState<string>('');
   const [weightAfter, setWeightAfter] = useState<string>('');
+  const [ngKg, setNgKg] = useState<string>('0');
+  const [ngMeters, setNgMeters] = useState<string>('0');
   const [steelOrigin, setSteelOrigin] = useState<SteelOriginType>('เหล็กนอก');
   const [customSteelOrigin, setCustomSteelOrigin] = useState('');
   const [lengthMeters, setLengthMeters] = useState<string>('');
@@ -71,6 +76,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       const yy = getCurrentThaiYearBE2Digits();
       const mm = getCurrentMonth2Digits();
       setSoNumber(`so${yy}${mm}`);
+      setNgKg('0');
+      setNgMeters('0');
       setError(null);
       if (!recordedBy && recentOperators.length > 0) {
         setRecordedBy(recentOperators[0]);
@@ -125,13 +132,28 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       return;
     }
 
+    const numNgKg = parseFloat(ngKg) || 0;
+    const numNgMeters = parseFloat(ngMeters) || 0;
+    if (numNgKg < 0) {
+      setError('ยอด NG (กก.) ต้องไม่ติดลบ');
+      return;
+    }
+    if (numNgMeters < 0) {
+      setError('ยอด NG (เมตร) ต้องไม่ติดลบ');
+      return;
+    }
+    if (numNgKg > calculatedUsed && calculatedUsed > 0) {
+      setError('ยอด NG (กก.) ต้องไม่เกินน้ำหนักเหล็กที่ใช้จริง');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       if (recordedBy.trim()) {
         saveRecentOperator(recordedBy.trim());
       }
 
-      await onSaveRecord({
+      const recordPayload = {
         soNumber: soNumber.trim(),
         productionDate,
         coilColor: coilColor.trim(),
@@ -140,12 +162,24 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         weightBefore: numBefore,
         weightAfter: numAfter,
         weightUsed: calculatedUsed,
+        ngKg: numNgKg,
+        ngMeters: numNgMeters,
         steelOrigin,
         customSteelOrigin: steelOrigin === 'อื่นๆ' ? customSteelOrigin.trim() : undefined,
         lengthMeters: lengthMeters ? parseFloat(lengthMeters) : undefined,
         recordedBy: recordedBy.trim() || 'ช่างคุมเครื่อง PU',
         notes: notes.trim() || undefined,
-      });
+      };
+
+      if (onSaveRecord) {
+        await onSaveRecord(recordPayload);
+      } else if (onSaveCut) {
+        await onSaveCut({
+          ...recordPayload,
+          id: `pusw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          createdAt: new Date().toISOString(),
+        });
+      }
 
       // Reset for next entry
       const yy = getCurrentThaiYearBE2Digits();
@@ -153,6 +187,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setSoNumber(`so${yy}${mm}`);
       setWeightBefore('');
       setWeightAfter('');
+      setNgKg('0');
+      setNgMeters('0');
       setNotes('');
       setLengthMeters('');
       // Switch to history or stay
@@ -164,8 +200,11 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   };
 
+  // Safe records array
+  const safeRecords = Array.isArray(records) ? records : [];
+
   // Filtered History
-  const filteredHistory = records.filter(r => {
+  const filteredHistory = safeRecords.filter(r => {
     const matchesSearch = 
       !historySearch ||
       r.soNumber.toLowerCase().includes(historySearch.toLowerCase()) ||
@@ -177,7 +216,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     return matchesSearch && matchesSteel;
   });
 
-  const totalWeightUsedAll = records.reduce((sum, r) => sum + (r.weightUsed || 0), 0);
+  const totalWeightUsedAll = safeRecords.reduce((sum, r) => sum + (r.weightUsed || 0), 0);
+  const totalNgKgAll = safeRecords.reduce((sum, r) => sum + (r.ngKg || 0), 0);
+  const totalNgMetersAll = safeRecords.reduce((sum, r) => sum + (r.ngMeters || 0), 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
@@ -442,6 +483,100 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* ยอด NG ของ PU Sandwich: NG (กก.) และ NG (เมตร) */}
+                <div className="p-4 bg-rose-50/70 rounded-2xl border border-rose-200/90 mt-3">
+                  <div className="flex items-center justify-between mb-3 border-b border-rose-200/70 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-lg bg-rose-600 text-white flex items-center justify-center text-xs font-black shadow-2xs">
+                        NG
+                      </span>
+                      <h4 className="text-xs sm:text-sm font-bold text-rose-950 flex items-center gap-1.5">
+                        <AlertTriangle className="w-4 h-4 text-rose-600" />
+                        ยอด NG ของ PU Sandwich (ของเสีย/เศษหัวท้าย)
+                      </h4>
+                    </div>
+                    <span className="text-[11px] text-rose-700 font-medium">
+                      ถ้าไม่มีของเสีย ให้ใส่ 0
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* ยอด NG (กก.) */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                          ยอด NG (กก.)
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-normal">เศษเหล็ก/โฟมเสีย</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={ngKg}
+                        onChange={(e) => setNgKg(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all"
+                      />
+                      {/* Quick Chips for NG กก. */}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {['0', '5', '10', '15', '20', '30'].map((chip) => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => setNgKg(chip)}
+                            className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
+                              ngKg === chip
+                                ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                                : 'bg-white text-slate-600 border-rose-200 hover:bg-rose-100'
+                            }`}
+                          >
+                            {chip} กก.
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* ยอด NG (เมตร) */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                          ยอด NG (เมตร)
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-normal">ความยาวแผ่นที่เสีย</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={ngMeters}
+                        onChange={(e) => setNgMeters(e.target.value)}
+                        placeholder="0.0"
+                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all"
+                      />
+                      {/* Quick Chips for NG เมตร */}
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {['0', '1', '2', '3', '5', '10'].map((chip) => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => setNgMeters(chip)}
+                            className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
+                              ngMeters === chip
+                                ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                                : 'bg-white text-slate-600 border-rose-200 hover:bg-rose-100'
+                            }`}
+                          >
+                            {chip} ม.
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* 1 Choice / Selection Field: 1. เหล็กนอก, 2. เหล็กBlue Scope, 3. อื่นๆ */}
@@ -633,12 +768,24 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   </select>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <div className="px-3 py-1.5 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-mono">
                     <span className="text-slate-500">รวมใช้น้ำหนัก: </span>
                     <strong className="text-emerald-700 font-bold">
                       {totalWeightUsedAll.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.
                     </strong>
+                  </div>
+
+                  <div className="px-3 py-1.5 bg-rose-50 rounded-xl border border-rose-200 text-xs font-mono">
+                    <span className="text-rose-600 font-semibold">รวม NG: </span>
+                    <strong className="text-rose-700 font-bold">
+                      {totalNgKgAll.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.
+                    </strong>
+                    {totalNgMetersAll > 0 && (
+                      <span className="text-rose-600 text-[11px] ml-1">
+                        ({totalNgMetersAll.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.)
+                      </span>
+                    )}
                   </div>
 
                   <button
@@ -674,6 +821,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <th className="py-2.5 px-3 text-right">ก่อนใช้ (กก.)</th>
                           <th className="py-2.5 px-3 text-right">หลังใช้ (กก.)</th>
                           <th className="py-2.5 px-3 text-right font-bold text-emerald-800">ใช้จริง (กก.)</th>
+                          <th className="py-2.5 px-3 text-right text-rose-700 font-bold">NG (กก.)</th>
+                          <th className="py-2.5 px-3 text-right text-rose-700 font-bold">NG (ม.)</th>
                           <th className="py-2.5 px-3">ผู้บันทึก</th>
                           <th className="py-2.5 px-3 text-center">จัดการ</th>
                         </tr>
@@ -712,6 +861,24 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                             </td>
                             <td className="py-2.5 px-3 text-right font-black text-emerald-600">
                               {rec.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              {(rec.ngKg || 0) > 0 ? (
+                                <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[11px]">
+                                  {rec.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">0.00</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              {(rec.ngMeters || 0) > 0 ? (
+                                <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[11px]">
+                                  {rec.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 1 })}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">0.0</span>
+                              )}
                             </td>
                             <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px]">
                               {rec.recordedBy}

@@ -935,7 +935,9 @@ export default function App() {
       <PuSandwichModal
         isOpen={isPuSandwichModalOpen}
         onClose={() => setIsPuSandwichModalOpen(false)}
+        records={puSandwichRecords}
         onSaveCut={handleSavePuSandwichCut}
+        onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
       />
 
       <CutStockModal

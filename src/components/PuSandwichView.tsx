@@ -13,13 +13,14 @@ import {
   User,
   Filter,
   CheckCircle2,
-  ChevronDown
+  ChevronDown,
+  AlertTriangle
 } from 'lucide-react';
 import { exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { UserMode } from '../utils/auth';
 
 interface PuSandwichViewProps {
-  records: PuSandwichCutRecord[];
+  records?: PuSandwichCutRecord[];
   onOpenCreateModal: () => void;
   onDeleteRecord?: (id: string) => Promise<void> | void;
   userMode: UserMode;
@@ -27,7 +28,7 @@ interface PuSandwichViewProps {
 }
 
 export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
-  records,
+  records = [],
   onOpenCreateModal,
   onDeleteRecord,
   userMode,
@@ -36,18 +37,21 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [steelFilter, setSteelFilter] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [onlyWithNg, setOnlyWithNg] = useState<boolean>(false);
+
+  const safeRecords = Array.isArray(records) ? records : [];
 
   // Available months from records
   const availableMonths = useMemo(() => {
     const set = new Set<string>();
-    records.forEach((r) => {
+    safeRecords.forEach((r) => {
       const d = r.productionDate || (r.createdAt ? r.createdAt.slice(0, 10) : '');
       if (d && d.length >= 7) {
         set.add(d.slice(0, 7)); // YYYY-MM
       }
     });
     return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [records]);
+  }, [safeRecords]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -55,28 +59,45 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
     let externalSteelKg = 0;
     let blueScopeKg = 0;
     let otherSteelKg = 0;
+    let totalNgKg = 0;
+    let totalNgMeters = 0;
+    let ngRecordCount = 0;
 
-    records.forEach((r) => {
+    safeRecords.forEach((r) => {
       const w = Number(r.weightUsed) || 0;
       totalKg += w;
       if (r.steelOrigin === 'เหล็กนอก') externalSteelKg += w;
       else if (r.steelOrigin === 'เหล็กBlue Scope') blueScopeKg += w;
       else otherSteelKg += w;
+
+      const ngK = Number(r.ngKg) || 0;
+      const ngM = Number(r.ngMeters) || 0;
+      totalNgKg += ngK;
+      totalNgMeters += ngM;
+      if (ngK > 0 || ngM > 0) {
+        ngRecordCount += 1;
+      }
     });
 
+    const ngPercent = totalKg > 0 ? (totalNgKg / totalKg) * 100 : 0;
+
     return {
-      totalCount: records.length,
+      totalCount: safeRecords.length,
       totalKg: Math.round(totalKg * 100) / 100,
       totalTons: Math.round((totalKg / 1000) * 100) / 100,
       externalSteelKg: Math.round(externalSteelKg * 100) / 100,
       blueScopeKg: Math.round(blueScopeKg * 100) / 100,
       otherSteelKg: Math.round(otherSteelKg * 100) / 100,
+      totalNgKg: Math.round(totalNgKg * 100) / 100,
+      totalNgMeters: Math.round(totalNgMeters * 10) / 10,
+      ngPercent: Math.round(ngPercent * 100) / 100,
+      ngRecordCount,
     };
-  }, [records]);
+  }, [safeRecords]);
 
   // Filtered records
   const filteredRecords = useMemo(() => {
-    return records.filter((r) => {
+    return safeRecords.filter((r) => {
       const matchesSearch =
         !searchTerm ||
         r.soNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -90,9 +111,11 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       const dateStr = r.productionDate || (r.createdAt ? r.createdAt.slice(0, 10) : '');
       const matchesMonth = selectedMonth === 'all' || dateStr.startsWith(selectedMonth);
 
-      return matchesSearch && matchesSteel && matchesMonth;
+      const matchesNg = !onlyWithNg || (Number(r.ngKg) > 0 || Number(r.ngMeters) > 0);
+
+      return matchesSearch && matchesSteel && matchesMonth && matchesNg;
     });
-  }, [records, searchTerm, steelFilter, selectedMonth]);
+  }, [safeRecords, searchTerm, steelFilter, selectedMonth, onlyWithNg]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
@@ -142,7 +165,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       </div>
 
       {/* KPI Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Total Weight Used */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
           <div className="flex items-center justify-between text-slate-500">
@@ -210,6 +233,26 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             Blue Scope: {stats.blueScopeKg.toLocaleString('th-TH')} กก. | อื่นๆ: {stats.otherSteelKg.toLocaleString('th-TH')} กก.
           </div>
         </div>
+
+        {/* Total NG Scrap Card */}
+        <div className="bg-white p-5 rounded-2xl border border-rose-200/90 shadow-2xs space-y-2">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-semibold text-rose-900">ยอด NG เสียหายสะสม</span>
+            <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black font-mono text-rose-700">
+            {stats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
+            <span className="text-xs font-normal text-slate-500">กก.</span>
+          </div>
+          <div className="text-xs text-rose-800 font-medium flex items-center justify-between">
+            <span>เสีย: <strong className="font-mono">{stats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })}</strong> ม.</span>
+            <span className="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700">
+              {stats.ngPercent.toFixed(2)}% NG
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Search & Filter Toolbar */}
@@ -262,6 +305,21 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
               </select>
             </div>
           )}
+
+          {/* NG Filter Button */}
+          <button
+            type="button"
+            onClick={() => setOnlyWithNg(!onlyWithNg)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition-colors ${
+              onlyWithNg
+                ? 'bg-rose-600 text-white border-rose-600 font-bold shadow-xs'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+            title="กรองเฉพาะรายการที่มียอด NG"
+          >
+            <AlertTriangle className={`w-3.5 h-3.5 ${onlyWithNg ? 'text-white' : 'text-rose-600'}`} />
+            เฉพาะมี NG {stats.ngRecordCount > 0 ? `(${stats.ngRecordCount})` : ''}
+          </button>
         </div>
 
         <div className="text-xs text-slate-500 font-mono">
@@ -276,18 +334,24 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
               <Factory className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-bold text-slate-800">ยังไม่มีรายการตัด SO ผลิต PU Sandwich</h3>
+            <h3 className="text-sm font-bold text-slate-800">
+              {onlyWithNg ? 'ไม่พบรายการที่มียอด NG' : 'ยังไม่มีรายการตัด SO ผลิต PU Sandwich'}
+            </h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto">
-              เมื่อมีการผลิตแซนวิชโดยไม่ใช้ฟอยล์ สามารถกดปุ่ม &quot;คีย์ตัด SO แซนวิชใหม่&quot; เพื่อบันทึกน้ำหนักคอล์ยเหล็กและสถิติการใช้งาน
+              {onlyWithNg
+                ? 'ไม่มีรายการที่มีของเสีย หรือลองปิดตัวกรอง "เฉพาะมี NG"'
+                : 'เมื่อมีการผลิตแซนวิชโดยไม่ใช้ฟอยล์ สามารถกดปุ่ม "คีย์ตัด SO แซนวิชใหม่" เพื่อบันทึกน้ำหนักคอล์ยเหล็กและสถิติการใช้งาน'}
             </p>
-            <button
-              type="button"
-              onClick={onOpenCreateModal}
-              className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              เริ่มบันทึกรายการแรก
-            </button>
+            {!onlyWithNg && (
+              <button
+                type="button"
+                onClick={onOpenCreateModal}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-xs"
+              >
+                <Plus className="w-4 h-4" />
+                เริ่มบันทึกรายการแรก
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -303,6 +367,8 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                   <th className="py-3 px-3.5 text-right">4. น้ำหนักก่อนใช้</th>
                   <th className="py-3 px-3.5 text-right">5. น้ำหนักหลังใช้</th>
                   <th className="py-3 px-3.5 text-right font-black text-emerald-800">ใช้จริง (กก.)</th>
+                  <th className="py-3 px-3.5 text-right text-rose-700 font-bold">ยอด NG (กก.)</th>
+                  <th className="py-3 px-3.5 text-right text-rose-700 font-bold">ยอด NG (ม.)</th>
                   <th className="py-3 px-3.5">ผู้บันทึก</th>
                   <th className="py-3 px-3.5">หมายเหตุ</th>
                   <th className="py-3 px-3.5 text-center">จัดการ</th>
@@ -352,6 +418,24 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                     </td>
                     <td className="py-3 px-3.5 text-right font-black text-emerald-700 text-sm">
                       {r.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-3 px-3.5 text-right">
+                      {(r.ngKg || 0) > 0 ? (
+                        <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                          {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-normal">0.00</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3.5 text-right">
+                      {(r.ngMeters || 0) > 0 ? (
+                        <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                          {r.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 1 })}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-normal">0.0</span>
+                      )}
                     </td>
                     <td className="py-3 px-3.5 font-sans text-slate-600 whitespace-nowrap">
                       {r.recordedBy}

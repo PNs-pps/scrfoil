@@ -135,6 +135,9 @@ export interface PuSandwichCutRecord {
   customSteelOrigin?: string;     // ระบุรายละเอียดกรณีเลือก "อื่นๆ"
   // คำนวณอัตโนมัติ:
   weightUsed: number;             // น้ำหนักที่ใช้จริง = weightBefore - weightAfter (กก.)
+  // ยอด NG (ของเสีย):
+  ngKg?: number;                  // ยอด NG เสียหาย (กก.)
+  ngMeters?: number;              // ยอด NG เสียหาย (เมตร)
   // ข้อมูลเสริม:
   lengthMeters?: number;          // ความยาวที่ผลิต (ม.)
   recordedBy?: string;            // ผู้บันทึก
