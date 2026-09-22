@@ -33,7 +33,7 @@ export interface FoilRoll {
   usedMeters: number;        // จำนวนเมตรที่ตัดใช้สะสม
   ngMeters: number;          // จำนวนเมตร NG เสียสะสม
   dateReceived: string;      // วันที่รับเข้า YYYY-MM-DD
-  status: 'active' | 'depleted' | 'out_of_stock'; // สถานะ (out_of_stock เมื่อเหลือ <= 0)
+  status: 'active' | 'depleted'; // สถานะ (depleted เมื่อเหลือ <= 0)
   notes?: string;
   isZeroedOut?: boolean;     // ติ๊กตัดสต๊อกเป็น 0 (กรณีเหลือสีแดง <= 50 เมตร)
   manualZeroedOriginalMeters?: number; // เก็บค่าเมตรก่อนติ๊กเป็น 0 เพื่อนำกลับมาใช้ใหม่ได้
@@ -135,6 +135,8 @@ export interface PuSandwichCutRecord {
   customSteelOrigin?: string;     // ระบุรายละเอียดกรณีเลือก "อื่นๆ"
   // คำนวณอัตโนมัติ:
   weightUsed: number;             // น้ำหนักที่ใช้จริง = weightBefore - weightAfter (กก.)
+  // ความยาวตามใบงาน SO:
+  soLengthMeters?: number;        // ความยาวตามใบงาน SO (เมตร)
   // ยอด NG (ของเสีย):
   ngKg?: number;                  // ยอด NG เสียหาย (กก.)
   ngMeters?: number;              // ยอด NG เสียหาย (เมตร)
