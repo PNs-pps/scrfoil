@@ -293,7 +293,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               รับคำสั่งผลิต SO
             </h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              ระบุรหัส SO ตรวจสอบชนิดลายฟอยล์ (ขาว/ดำ/ไม้อ่อน/ไม้เข้ม/เทา/กลีบบัว) และตัวเลือกท้อง (เงิน/ขาว)
+              ตรวจสอบความถูกต้องของใบงาน SO  (ขาว/เงิน/ดำ/ไม้อ่อน/ไม้เข้ม/เทา/กกลีบบัว)
             </p>
             <div className="pt-1 text-[11px] font-mono text-amber-800 font-medium">
               • กว้าง 830, 850, 880, 900 มม.
@@ -312,7 +312,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               เบิกจ่ายม้วนฟอยล์
             </h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              จัดม้วนฟอยล์ตามหลัก FIFO ตรวจสอบเบอร์ม้วน ล็อต และยอดเมตรคงเหลือก่อนนำเข้าเครื่อง
+              ตรวจสอบเบอร์ม้วน ล็อต และยอดเมตรคงเหลือก่อนนำเข้าเครื่อง
             </p>
             <div className="pt-1 text-[11px] font-mono text-blue-800 font-medium">
               • ม้วนที่เปิดใช้วันนี้: {stats.rollCount} ม้วน
@@ -328,10 +328,10 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               <span className="text-[11px] font-mono text-amber-700 font-semibold">Lamination</span>
             </div>
             <h4 className="font-bold text-slate-900 text-sm">
-              Production  
+              Processing (ดำเนินการผลิต) 
             </h4>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Machine Running
+              เดินเครื่อง PU Foam ตามใบคำสั่งซื้อ SO
             </p>
             <div className="pt-1 text-[11px] font-mono text-amber-900 font-bold">
               • ผลิตได้วันนี้: {stats.totalUsed.toLocaleString()} ม.
