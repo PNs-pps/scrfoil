@@ -524,7 +524,7 @@ export default function App() {
           remainingMeters: newRemaining,
           usedMeters: newUsed,
           ngMeters: newNg,
-          status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+          status: newRemaining <= 0 ? ('out_of_stock' as const) : ('active' as const),
         };
         updatedRollsList.push(rollObj);
         return rollObj;
@@ -681,9 +681,6 @@ export default function App() {
           usedMeters: restoredUsed,
           ngMeters: restoredNg,
           status: restoredRemaining > 0 ? ('active' as const) : ('depleted' as const),
-          // Also drop the voided cut from the embedded recentCuts list so the roll's
-          // history view doesn't keep showing a cut that no longer exists.
-          recentCuts: (r.recentCuts || []).filter((c) => c.id !== recordId),
         };
         updatedTargetRoll = rollObj;
         return rollObj;
