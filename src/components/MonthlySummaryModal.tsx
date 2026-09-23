@@ -96,7 +96,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
       cutCount: number;
       currentRemaining: number;
       totalMeters: number;
-      status: 'active' | 'depleted' | 'out_of_stock';
+      status: 'active' | 'depleted';
       isZeroedOut?: boolean;
     }>();
 
