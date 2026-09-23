@@ -14,8 +14,6 @@ export interface SteelThicknessSpec {
   label: string;
 }
 
-export const COMMON_THICKNESSES = ['0.30', '0.35', '0.40', '0.47', '0.51'];
-
 export const FACTORY_THICKNESS_SPECS: SteelThicknessSpec[] = [
   { value: '0.30', rate: 2.1, label: '0.30 มม. (2.1 กก./ม.)' },
   { value: '0.35', rate: 2.3, label: '0.35 มม. (2.3 กก./ม.)' },
