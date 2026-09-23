@@ -878,7 +878,9 @@ export default function App() {
             projectId={firebaseConfig.projectId}
             isManagedTarget={activeTarget === 'managed'}
             onSwitchCloud={handleSwitchCloud}
-            onManualSaveToCloud={() => requireEditorPermission(handleManualSaveToCloud)}
+            onManualSaveToCloud={async () => {
+              requireEditorPermission(handleManualSaveToCloud);
+            }}
             onManualFetchFromCloud={handleManualFetchFromCloud}
             onRestoreData={(newRolls, newRecords) => {
               requireEditorPermission(() => {
@@ -944,12 +946,14 @@ export default function App() {
       />
 
       {/* Comprehensive Roll Usage History Modal */}
-      <RollUsageHistoryModal
-        roll={detailRoll ? (rolls.find((r) => r.id === detailRoll.id) || detailRoll) : null}
-        records={records}
-        onClose={() => setDetailRoll(null)}
-        onOpenCutForThisRoll={handleOpenCutForRoll}
-      />
+      {detailRoll && (
+        <RollUsageHistoryModal
+          roll={rolls.find((r) => r.id === detailRoll.id) || detailRoll}
+          records={records}
+          onClose={() => setDetailRoll(null)}
+          onOpenCutForThisRoll={handleOpenCutForRoll}
+        />
+      )}
 
       {/* Monthly Summary Report Modal */}
       <MonthlySummaryModal

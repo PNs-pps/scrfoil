@@ -8,6 +8,7 @@ interface AddFoilModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddFoil: (newRoll: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>) => void;
+  onAddMultipleFoils?: (rollsData: any[]) => Promise<void>;
 }
 
 export const AddFoilModal: React.FC<AddFoilModalProps> = ({

@@ -147,8 +147,6 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   }, [isOpen, preselectedRollId, initialCutMode]);
 
-  if (!isOpen) return null;
-
   // Filter cascades with robust normalization
   const availableWidths: FoilWidth[] = Array.from<FoilWidth>(new Set(availableRolls.map(r => Number(r.width))))
     .sort((a, b) => Number(a) - Number(b));
@@ -386,6 +384,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">

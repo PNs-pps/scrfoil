@@ -32,10 +32,9 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   onClose,
   onOpenCutForThisRoll,
 }) => {
-  if (!roll) return null;
-
   // Initialize with in-memory or embedded data first for instant render
   const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
+    if (!roll) return [];
     if (roll.recentCuts && roll.recentCuts.length > 0) {
       return roll.recentCuts.map((c) => ({
         id: c.id,
@@ -209,6 +208,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     link.click();
     document.body.removeChild(link);
   };
+
+  if (!roll) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs">

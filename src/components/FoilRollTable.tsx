@@ -41,6 +41,9 @@ interface FoilRollTableProps {
   onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
   onOpenBatchImport?: () => void;
   onOpenMonthlySummary?: () => void;
+  userMode?: 'visitor' | 'editor';
+  onUpdateRoll?: (updatedRoll: FoilRoll) => void;
+  onRequestUnlock?: () => void;
 }
 
 type GroupByCategory = 'none' | 'width' | 'pattern';
