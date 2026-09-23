@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
@@ -147,8 +147,6 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   }, [isOpen, preselectedRollId, initialCutMode]);
 
-  if (!isOpen) return null;
-
   // Filter cascades with robust normalization
   const availableWidths: FoilWidth[] = Array.from<FoilWidth>(new Set(availableRolls.map(r => Number(r.width))))
     .sort((a, b) => Number(a) - Number(b));
@@ -158,32 +156,48 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   );
   const availablePatternsForSelectedWidth = Array.from(new Set(rollsFilteredByWidth.map(r => normalizePattern(r.pattern))));
 
-  const candidateRolls = rollsFilteredByWidth
-    .filter(r => filterPattern === 'all' ? true : normalizePattern(r.pattern) === normalizePattern(filterPattern))
-    .sort((a, b) => {
-      const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
-      if (lotComp !== 0) return lotComp;
-      return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
-    });
+  const candidateRolls = useMemo(() => {
+    return rollsFilteredByWidth
+      .filter(r => filterPattern === 'all' ? true : normalizePattern(r.pattern) === normalizePattern(filterPattern))
+      .sort((a, b) => {
+        const lotA = (a.lotNumber || '').trim();
+        const lotB = (b.lotNumber || '').trim();
+        const lotComp = lotA.localeCompare(lotB, undefined, { numeric: true, sensitivity: 'base' });
+        if (lotComp !== 0) return lotComp;
+        const rollA = (a.rollNumber || '').trim();
+        const rollB = (b.rollNumber || '').trim();
+        return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+      });
+  }, [rollsFilteredByWidth, filterPattern]);
 
-  // Strict synchronization: Ensure selectedFoilId is never out of sync with candidateRolls
-  useEffect(() => {
-    if (isOpen && candidateRolls.length > 0) {
-      const isSelectedInCandidates = candidateRolls.some(r => r.id === selectedFoilId);
-      if (!isSelectedInCandidates) {
-        const current = availableRolls.find(r => r.id === selectedFoilId);
-        if (current) {
-          setFilterWidth(String(current.width));
-          setFilterPattern(normalizePattern(current.pattern));
-        } else {
-          const firstActive = candidateRolls.find(r => r.remainingMeters > 0) || candidateRolls[0];
-          setSelectedFoilId(firstActive.id);
-        }
-      }
+  // Current selected roll: always resolves to selectedFoilId if valid, or preselectedRollId, or candidate roll
+  const currentRoll = useMemo(() => {
+    if (selectedFoilId) {
+      const found = availableRolls.find(r => r.id === selectedFoilId);
+      if (found) return found;
     }
-  }, [candidateRolls, selectedFoilId, isOpen, availableRolls]);
+    if (preselectedRollId) {
+      const found = availableRolls.find(r => r.id === preselectedRollId);
+      if (found) return found;
+    }
+    return candidateRolls.find(r => r.remainingMeters > 0) || candidateRolls[0] || availableRolls[0] || null;
+  }, [selectedFoilId, preselectedRollId, availableRolls, candidateRolls]);
 
-  const currentRoll = availableRolls.find(r => r.id === selectedFoilId) || candidateRolls[0];
+  // Ensure current roll is always included in the roll dropdown options
+  const displayedRolls = useMemo(() => {
+    if (!currentRoll) return candidateRolls;
+    if (candidateRolls.some(r => r.id === currentRoll.id)) return candidateRolls;
+    return [currentRoll, ...candidateRolls];
+  }, [candidateRolls, currentRoll]);
+
+  const handleSelectRoll = (rollId: string) => {
+    setSelectedFoilId(rollId);
+    const r = availableRolls.find(roll => roll.id === rollId);
+    if (r) {
+      setFilterWidth(String(r.width));
+      setFilterPattern(normalizePattern(r.pattern));
+    }
+  };
 
   // Handlers for step-by-step selection
   const handleWidthChange = (newWidth: string) => {
@@ -247,7 +261,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
     let identifier = '';
     if (order.cutType === 'so') {
-      identifier = order.soNumber.trim().toLowerCase();
+      identifier = order.soNumber.trim();
     } else {
       if (order.nonSoReasonType === 'สาขายืม') {
         const branch = order.branchName.trim() || 'สาขา';
@@ -371,6 +385,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
       <div 
@@ -463,15 +479,15 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 </label>
                 <select
                   id="select-foil-roll"
-                  value={selectedFoilId}
-                  onChange={(e) => setSelectedFoilId(e.target.value)}
+                  value={currentRoll?.id || selectedFoilId}
+                  onChange={(e) => handleSelectRoll(e.target.value)}
                   required
                   className="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold font-mono text-slate-900 focus:border-amber-500 cursor-pointer"
                 >
-                  {candidateRolls.length === 0 ? (
+                  {displayedRolls.length === 0 ? (
                     <option value="">ไม่มีม้วนฟอยล์ที่ตรงเงื่อนไข</option>
                   ) : (
-                    candidateRolls.map((r) => (
+                    displayedRolls.map((r) => (
                       <option 
                         key={r.id} 
                         value={r.id}
@@ -601,7 +617,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           type="text"
                           tabIndex={1}
                           value={order.soNumber}
-                          onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value.toLowerCase() })}
+                          onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value })}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();

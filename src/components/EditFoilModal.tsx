@@ -72,10 +72,9 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
     }
   }, [roll, isOpen]);
 
-  if (!isOpen || !roll) return null;
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!roll) return;
     setError(null);
 
     if (!lotNumber.trim()) {
@@ -133,6 +132,8 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
     onSave(updatedRoll);
     onClose();
   };
+
+  if (!isOpen || !roll) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs animate-in fade-in duration-150">

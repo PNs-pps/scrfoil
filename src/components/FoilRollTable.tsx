@@ -17,6 +17,8 @@ import {
   LayoutGrid,
   List,
   FolderTree,
+  Folder,
+  FolderOpen,
   ChevronDown,
   ChevronRight,
   RotateCcw,
@@ -26,7 +28,8 @@ import {
   Tag,
   Hash,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Edit2
 } from 'lucide-react';
 
 interface FoilRollTableProps {
@@ -39,6 +42,10 @@ interface FoilRollTableProps {
   onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
   onOpenBatchImport?: () => void;
   onOpenMonthlySummary?: () => void;
+  userMode?: 'visitor' | 'editor';
+  onUpdateRoll?: (updatedRoll: FoilRoll) => void;
+  onEditRoll?: (roll: FoilRoll) => void;
+  onRequestUnlock?: () => void;
 }
 
 type GroupByCategory = 'none' | 'width' | 'pattern';
@@ -53,6 +60,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   onToggleZeroOut,
   onOpenBatchImport,
   onOpenMonthlySummary,
+  onEditRoll,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
@@ -61,6 +69,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'depleted'>('all');
   const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [collapsedSubGroups, setCollapsedSubGroups] = useState<Record<string, boolean>>({});
 
   // Unique lots for quick 1-click filter chips
   const uniqueLots = useMemo(() => {
@@ -80,13 +89,26 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }));
   };
 
+  const toggleSubGroup = (key: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setCollapsedSubGroups(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
   const toggleAllGroups = (expand: boolean) => {
     if (!groupedData) return;
     const newState: Record<string, boolean> = {};
+    const newSubState: Record<string, boolean> = {};
     groupedData.forEach(g => {
       newState[g.key] = !expand; // false = expanded, true = collapsed
+      g.subGroups?.forEach(sub => {
+        newSubState[`${g.key}-${sub.key}`] = !expand;
+      });
     });
     setCollapsedGroups(newState);
+    setCollapsedSubGroups(newSubState);
   };
 
   const filteredRolls = useMemo(() => {
@@ -127,12 +149,25 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
 
   // Grouped Rolls computation
+  interface SubGroup {
+    key: string;
+    title: string;
+    badge?: string;
+    rolls: FoilRoll[];
+    totalRemaining: number;
+    activeCount: number;
+    depletedCount: number;
+    pattern?: string;
+    width?: number;
+  }
+
   interface RollGroup {
     key: string;
     title: string;
     subTitle?: string;
     badge: string;
     rolls: FoilRoll[];
+    subGroups?: SubGroup[];
     totalRemaining: number;
     totalFull: number;
     activeCount: number;
@@ -169,12 +204,54 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         const activeCount = gRolls.filter(r => r.remainingMeters > 0).length;
         const depletedCount = gRolls.filter(r => r.remainingMeters <= 0).length;
 
+        // Sub-partition by Pattern inside this width folder (แยกลายฟอยล์ เรียงตามล็อต เบอร์)
+        const pSubMap = new Map<string, FoilRoll[]>();
+        STANDARD_PATTERNS.forEach(p => pSubMap.set(normalizePattern(p.value), []));
+
+        gRolls.forEach(r => {
+          const normP = normalizePattern(r.pattern);
+          const list = pSubMap.get(normP) || [];
+          list.push(r);
+          pSubMap.set(normP, list);
+        });
+
+        const subGroups: SubGroup[] = [];
+        pSubMap.forEach((pRolls, pName) => {
+          if (pRolls.length === 0) return;
+
+          // Natural sort: Lot Number then Roll Number (เรียงตามล็อต เบอร์)
+          const sorted = [...pRolls].sort((a, b) => {
+            const lotA = (a.lotNumber || '').trim();
+            const lotB = (b.lotNumber || '').trim();
+            const lotComp = lotA.localeCompare(lotB, undefined, { numeric: true, sensitivity: 'base' });
+            if (lotComp !== 0) return lotComp;
+            const rollA = (a.rollNumber || '').trim();
+            const rollB = (b.rollNumber || '').trim();
+            return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
+          });
+
+          const subRemaining = sorted.reduce((sum, r) => sum + r.remainingMeters, 0);
+          const subActive = sorted.filter(r => r.remainingMeters > 0).length;
+          const subDepleted = sorted.filter(r => r.remainingMeters <= 0).length;
+
+          subGroups.push({
+            key: `p-${pName}`,
+            title: pName,
+            pattern: pName,
+            rolls: sorted,
+            totalRemaining: subRemaining,
+            activeCount: subActive,
+            depletedCount: subDepleted,
+          });
+        });
+
         result.push({
           key: `width-${w}`,
           title: `หน้ากว้าง ${w} มม.`,
-          subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้)`,
+          subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้ • ${subGroups.length} ลาย)`,
           badge: `${w} mm`,
           rolls: gRolls,
+          subGroups,
           totalRemaining,
           totalFull,
           activeCount,
@@ -209,12 +286,51 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         const activeCount = gRolls.filter(r => r.remainingMeters > 0).length;
         const depletedCount = gRolls.filter(r => r.remainingMeters <= 0).length;
 
+        // Sub-partition by Width inside this pattern folder
+        const wSubMap = new Map<number, FoilRoll[]>();
+        STANDARD_WIDTHS.forEach(w => wSubMap.set(Number(w), []));
+
+        gRolls.forEach(r => {
+          const numW = Number(r.width);
+          const list = wSubMap.get(numW) || [];
+          list.push(r);
+          wSubMap.set(numW, list);
+        });
+
+        const subGroups: SubGroup[] = [];
+        wSubMap.forEach((wRolls, wNum) => {
+          if (wRolls.length === 0) return;
+
+          // Natural sort: Lot Number then Roll Number
+          const sorted = [...wRolls].sort((a, b) => {
+            const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
+            if (lotComp !== 0) return lotComp;
+            return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+          });
+
+          const subRemaining = sorted.reduce((sum, r) => sum + r.remainingMeters, 0);
+          const subActive = sorted.filter(r => r.remainingMeters > 0).length;
+          const subDepleted = sorted.filter(r => r.remainingMeters <= 0).length;
+
+          subGroups.push({
+            key: `w-${wNum}`,
+            title: `หน้ากว้าง ${wNum} มม.`,
+            badge: `${wNum} mm`,
+            width: wNum,
+            rolls: sorted,
+            totalRemaining: subRemaining,
+            activeCount: subActive,
+            depletedCount: subDepleted,
+          });
+        });
+
         result.push({
           key: `pattern-${pName}`,
           title: `ลาย${pName}`,
-          subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้)`,
+          subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้ • ${subGroups.length} ขนาดหน้ากว้าง)`,
           badge: pName,
           rolls: gRolls,
+          subGroups,
           totalRemaining,
           totalFull,
           activeCount,
@@ -458,8 +574,19 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               className="px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors cursor-pointer"
             >
               <History className="w-3.5 h-3.5 text-amber-600" />
-              <span className="hidden xl:inline">ประวัติใบงาน</span>
+              <span className="hidden xl:inline">ประวัติ</span>
             </button>
+
+            {onEditRoll && (
+              <button
+                onClick={() => onEditRoll(roll)}
+                title="แก้ไขข้อมูลม้วนฟอยล์ (ล็อต, เบอร์, หน้ากว้าง, ลาย, ยอดคงเหลือ)"
+                className="px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 hover:border-blue-300 transition-colors cursor-pointer"
+              >
+                <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                <span className="hidden xl:inline">แก้ไข</span>
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -854,6 +981,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <span 
+                      className="p-1.5 rounded-lg text-amber-600 bg-amber-50 border border-amber-200/80 transition-colors pointer-events-none shrink-0"
+                    >
+                      {isCollapsed ? (
+                        <Folder className="w-5 h-5 fill-amber-300/80 text-amber-600" />
+                      ) : (
+                        <FolderOpen className="w-5 h-5 fill-amber-300 text-amber-600" />
+                      )}
+                    </span>
+
+                    <span 
                       className="p-1 rounded-md text-slate-500 hover:text-slate-800 transition-colors pointer-events-none"
                     >
                       {isCollapsed ? (
@@ -912,11 +1049,106 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                   </div>
                 </div>
 
-                {/* Group Content (Roll Table) */}
+                {/* Group Content (Roll Table or Sub-groups) */}
                 {!isCollapsed && (
                   group.rolls.length === 0 ? (
                     <div className="p-6 text-center text-slate-400 text-xs font-mono">
                       ไม่มีรายการม้วนฟอยล์ในหมวดนี้ที่ตรงกับเงื่อนไขการกรอง
+                    </div>
+                  ) : group.subGroups && group.subGroups.length > 0 ? (
+                    /* Hierarchical Sub-groups: Folders separated by pattern, sorted by lot & roll */
+                    <div className="divide-y divide-slate-200">
+                      {group.subGroups.map((sub) => {
+                        const subKey = `${group.key}-${sub.key}`;
+                        const isSubCollapsed = searchQuery.trim() ? false : !!collapsedSubGroups[subKey];
+                        const pStyle = sub.pattern ? getPatternStyle(sub.pattern) : null;
+
+                        return (
+                          <div key={sub.key} className="bg-slate-50/40">
+                            {/* Subgroup Header */}
+                            <div
+                              onClick={(e) => toggleSubGroup(subKey, e)}
+                              className="px-4 sm:px-5 py-2.5 bg-slate-100/90 hover:bg-slate-200/80 border-b border-slate-200/90 flex flex-wrap items-center justify-between gap-2 cursor-pointer transition-colors select-none"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <span className="p-0.5 text-slate-500 hover:text-slate-800">
+                                  {isSubCollapsed ? (
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  )}
+                                </span>
+
+                                <span className="p-1 rounded text-sky-700 bg-sky-50 border border-sky-200/80 shrink-0">
+                                  {isSubCollapsed ? (
+                                    <Folder className="w-3.5 h-3.5 fill-sky-200 text-sky-600" />
+                                  ) : (
+                                    <FolderOpen className="w-3.5 h-3.5 fill-sky-200 text-sky-600" />
+                                  )}
+                                </span>
+
+                                {pStyle && (
+                                  <span className={`w-3 h-3 rounded-full shrink-0 ${pStyle.dotClass}`} />
+                                )}
+                                {sub.badge && (
+                                  <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300">
+                                    {sub.badge}
+                                  </span>
+                                )}
+
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-bold text-xs sm:text-sm text-slate-800">
+                                    {sub.pattern ? `ลาย${sub.title}` : sub.title}
+                                  </h4>
+                                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-slate-200 font-mono text-slate-700 font-semibold shadow-2xs">
+                                    {sub.rolls.length} ม้วน
+                                  </span>
+                                  <span className="text-[11px] text-slate-500 hidden md:inline font-mono">
+                                    (เรียงตามล็อต & เบอร์ม้วน)
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3 font-mono text-xs">
+                                <span className="text-slate-500 text-[11px]">
+                                  {sub.activeCount} พร้อมใช้ • {sub.depletedCount} หมด
+                                </span>
+                                <span className="text-slate-300">|</span>
+                                <div>
+                                  <span className="text-slate-400 text-[11px] mr-1">คงเหลือ:</span>
+                                  <span className="font-bold text-emerald-700">
+                                    {formatMeters(sub.totalRemaining)} <span className="font-normal text-slate-500 text-[10px]">ม.</span>
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Subgroup Rolls Table */}
+                            {!isSubCollapsed && (
+                              <div className="overflow-x-auto bg-white">
+                                <table className="w-full text-left text-sm">
+                                  <thead className="bg-slate-50/70 text-slate-500 text-[11px] uppercase border-b border-slate-200 font-semibold">
+                                    <tr>
+                                      <th className="px-4 py-2.5">ล็อต & เบอร์</th>
+                                      <th className="px-4 py-2.5">หน้ากว้าง</th>
+                                      <th className="px-4 py-2.5">ท้องฟอยล์</th>
+                                      <th className="px-4 py-2.5 text-right">ลูกเต็ม</th>
+                                      <th className="px-4 py-2.5 text-right w-48">คงเหลือปัจจุบัน</th>
+                                      <th className="px-4 py-2.5 text-right">ตัดใช้</th>
+                                      <th className="px-4 py-2.5 text-right">NG เสีย</th>
+                                      <th className="px-4 py-2.5 text-center">สถานะ</th>
+                                      <th className="px-4 py-2.5 text-center">จัดการ</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {sub.rolls.map(renderRollRow)}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="overflow-x-auto">

@@ -25,6 +25,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { 
+  COMMON_THICKNESSES,
   FACTORY_THICKNESS_SPECS, 
   getSteelKgPerMeter 
 } from '../utils/steelCalculations';

@@ -14,7 +14,8 @@ import {
   ArrowRight,
   Printer,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Edit2
 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
 import { subscribeToRollCutHistory } from '../lib/firebase';
@@ -24,6 +25,7 @@ interface RollUsageHistoryModalProps {
   records: StockCutRecord[];
   onClose: () => void;
   onOpenCutForThisRoll: (rollId: string) => void;
+  onEditRoll?: (roll: FoilRoll) => void;
 }
 
 export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
@@ -31,11 +33,11 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   records,
   onClose,
   onOpenCutForThisRoll,
+  onEditRoll,
 }) => {
-  if (!roll) return null;
-
   // Initialize with in-memory or embedded data first for instant render
   const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
+    if (!roll) return [];
     if (roll.recentCuts && roll.recentCuts.length > 0) {
       return roll.recentCuts.map((c) => ({
         id: c.id,
@@ -210,6 +212,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     document.body.removeChild(link);
   };
 
+  if (!roll) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
       <div 
@@ -291,6 +295,21 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2 self-start lg:self-center shrink-0">
+                {onEditRoll && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onEditRoll(roll);
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-800 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="แก้ไขข้อมูลล็อต, เบอร์, หรือยอดคงเหลือของม้วนนี้"
+                  >
+                    <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                    <span>แก้ไขม้วนนี้</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={handleExportThisRoll}

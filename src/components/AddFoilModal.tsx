@@ -1,49 +1,173 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
-import { round2 } from '../utils/formatters';
-import { X, PlusCircle, Layers, Calendar, Hash, FileText } from 'lucide-react';
+import { round2, formatMeters } from '../utils/formatters';
+import { 
+  X, 
+  PlusCircle, 
+  Layers, 
+  Calendar, 
+  Hash, 
+  FileText, 
+  ListPlus, 
+  Sparkles, 
+  Trash2, 
+  Plus, 
+  CheckCircle2,
+  PackagePlus
+} from 'lucide-react';
+
+interface BatchRollItem {
+  id: string;
+  rollNumber: string;
+  totalMeters: number;
+}
 
 interface AddFoilModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddFoil: (newRoll: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>) => void;
+  onAddMultipleFoils?: (rollsData: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>[]) => Promise<void>;
 }
 
 export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   isOpen,
   onClose,
   onAddFoil,
+  onAddMultipleFoils,
 }) => {
   const today = new Date().toISOString().slice(0, 10);
 
+  // Tab mode: 'single' (1 ลูก) vs 'batch' (หลายลูกในล็อตเดียว)
+  const [entryMode, setEntryMode] = useState<'single' | 'batch'>('batch');
+
+  // Common shared fields
   const [lotNumber, setLotNumber] = useState('');
-  const [rollNumber, setRollNumber] = useState('01');
   const [width, setWidth] = useState<FoilWidth>(850);
   const [isCustomWidth, setIsCustomWidth] = useState(false);
   const [customWidthVal, setCustomWidthVal] = useState('');
-
   const [pattern, setPattern] = useState<FoilPattern>('ขาว');
   const [isCustomPattern, setIsCustomPattern] = useState(false);
   const [customPatternVal, setCustomPatternVal] = useState('');
-
-  const [totalMeters, setTotalMeters] = useState<number | ''>(1000);
   const [dateReceived, setDateReceived] = useState(today);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (!isOpen) return null;
+  // Single roll mode fields
+  const [singleRollNumber, setSingleRollNumber] = useState('01');
+  const [singleTotalMeters, setSingleTotalMeters] = useState<number | ''>(1000);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Batch mode fields
+  const [defaultMeters, setDefaultMeters] = useState<number | ''>(1000);
+  const [startRangeNum, setStartRangeNum] = useState<number | ''>(1);
+  const [endRangeNum, setEndRangeNum] = useState<number | ''>(10);
+  const [padDigits, setPadDigits] = useState<number>(2); // 2 -> "01", 3 -> "001"
+  const [quickCommaInput, setQuickCommaInput] = useState('');
+
+  // Generated batch items
+  const [batchItems, setBatchItems] = useState<BatchRollItem[]>([
+    { id: '1', rollNumber: '01', totalMeters: 1000 },
+    { id: '2', rollNumber: '02', totalMeters: 1000 },
+    { id: '3', rollNumber: '03', totalMeters: 1000 },
+    { id: '4', rollNumber: '04', totalMeters: 1000 },
+    { id: '5', rollNumber: '05', totalMeters: 1000 },
+  ]);
+
+  // Batch summary metrics
+  const totalBatchMeters = useMemo(() => {
+    return batchItems.reduce((sum, item) => sum + (Number(item.totalMeters) || 0), 0);
+  }, [batchItems]);
+
+  // Helper to generate range
+  const handleGenerateRange = () => {
+    setError(null);
+    const start = Number(startRangeNum);
+    const end = Number(endRangeNum);
+    const defM = Number(defaultMeters) || 1000;
+
+    if (isNaN(start) || isNaN(end) || start <= 0 || end <= 0) {
+      setError('กรุณาระบุช่วงเบอร์เริ่มต้นและสิ้นสุดเป็นตัวเลขที่ถูกต้อง');
+      return;
+    }
+
+    if (start > end) {
+      setError('เบอร์เริ่มต้นต้องน้อยกว่าหรือเท่ากับเบอร์สิ้นสุด');
+      return;
+    }
+
+    if (end - start + 1 > 100) {
+      setError('สามารถสร้างได้สูงสุดครั้งละ 100 ม้วนเพื่อความเสถียรของระบบ');
+      return;
+    }
+
+    const items: BatchRollItem[] = [];
+    for (let i = start; i <= end; i++) {
+      const formattedNum = String(i).padStart(padDigits, '0');
+      items.push({
+        id: `range-${i}-${Date.now()}`,
+        rollNumber: formattedNum,
+        totalMeters: defM,
+      });
+    }
+
+    setBatchItems(items);
+  };
+
+  // Helper to parse comma / space separated roll numbers
+  const handleParseCommaList = () => {
+    if (!quickCommaInput.trim()) return;
+    setError(null);
+    const defM = Number(defaultMeters) || 1000;
+    const parts = quickCommaInput.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+
+    if (parts.length === 0) return;
+
+    const newItems: BatchRollItem[] = parts.map((numStr, idx) => ({
+      id: `comma-${idx}-${Date.now()}`,
+      rollNumber: numStr,
+      totalMeters: defM,
+    }));
+
+    setBatchItems(newItems);
+  };
+
+  const handleAddSingleBatchItem = () => {
+    const nextIdx = batchItems.length + 1;
+    const defM = Number(defaultMeters) || 1000;
+    const padded = String(nextIdx).padStart(padDigits, '0');
+    setBatchItems(prev => [
+      ...prev,
+      {
+        id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        rollNumber: padded,
+        totalMeters: defM,
+      }
+    ]);
+  };
+
+  const handleRemoveBatchItem = (id: string) => {
+    setBatchItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleUpdateBatchItem = (id: string, updates: Partial<BatchRollItem>) => {
+    setBatchItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
+  };
+
+  const handleResetForm = () => {
+    setLotNumber('');
+    setSingleRollNumber('01');
+    setSingleTotalMeters(1000);
+    setNotes('');
+    setError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (!lotNumber.trim()) {
-      setError('กรุณาระบุเลขล็อต');
-      return;
-    }
-    if (!rollNumber.trim()) {
-      setError('กรุณาระบุเบอร์ม้วน');
+      setError('กรุณาระบุเลขล็อต (Lot Number)');
       return;
     }
 
@@ -59,286 +183,587 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
       return;
     }
 
-    const finalMeters = round2(Number(totalMeters));
-    if (!finalMeters || finalMeters <= 0) {
-      setError('กรุณาระบุจำนวนเมตรลูกเต็มให้ถูกต้อง (มากกว่า 0)');
-      return;
+    const trimmedLot = lotNumber.trim().toUpperCase();
+
+    if (entryMode === 'single') {
+      // Single roll submit
+      if (!singleRollNumber.trim()) {
+        setError('กรุณาระบุเบอร์ม้วน');
+        return;
+      }
+
+      const finalMeters = round2(Number(singleTotalMeters));
+      if (!finalMeters || finalMeters <= 0) {
+        setError('กรุณาระบุจำนวนเมตรลูกเต็มให้ถูกต้อง (มากกว่า 0)');
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
+        onAddFoil({
+          lotNumber: trimmedLot,
+          rollNumber: singleRollNumber.trim(),
+          width: finalWidth,
+          pattern: finalPattern,
+          totalMeters: finalMeters,
+          dateReceived: dateReceived || today,
+          notes: notes.trim(),
+        });
+        handleResetForm();
+        onClose();
+      } catch (err: any) {
+        setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึก');
+      } finally {
+        setIsSubmitting(false);
+      }
+    } else {
+      // Multiple / Batch rolls submit
+      if (batchItems.length === 0) {
+        setError('กรุณาระบุอย่างน้อย 1 ม้วนฟอยล์ในรายการ');
+        return;
+      }
+
+      // Check duplicates and empty roll numbers
+      const rollNumbersSeen = new Set<string>();
+      for (const item of batchItems) {
+        const rNum = (item.rollNumber || '').trim();
+        if (!rNum) {
+          setError('มีบางม้วนที่ยังไม่ได้ระบุเบอร์ม้วน กรุณาตรวจสอบ');
+          return;
+        }
+        if (rollNumbersSeen.has(rNum)) {
+          setError(`พบเบอร์ม้วนซ้ำกัน: เบอร์ #${rNum} ในล็อตเดียวกัน กรุณาแก้ไข`);
+          return;
+        }
+        rollNumbersSeen.add(rNum);
+
+        const m = Number(item.totalMeters);
+        if (isNaN(m) || m <= 0) {
+          setError(`ม้วนเบอร์ #${rNum} มีความยาวเมตรไม่ถูกต้อง (ต้องมากกว่า 0)`);
+          return;
+        }
+      }
+
+      const rollsPayload = batchItems.map(item => ({
+        lotNumber: trimmedLot,
+        rollNumber: item.rollNumber.trim(),
+        width: finalWidth,
+        pattern: finalPattern,
+        totalMeters: round2(Number(item.totalMeters)),
+        dateReceived: dateReceived || today,
+        notes: notes.trim(),
+      }));
+
+      setIsSubmitting(true);
+      try {
+        if (onAddMultipleFoils) {
+          await onAddMultipleFoils(rollsPayload);
+        } else {
+          // Fallback sequential
+          for (const r of rollsPayload) {
+            onAddFoil(r);
+          }
+        }
+        handleResetForm();
+        onClose();
+      } catch (err: any) {
+        setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกชุดม้วนฟอยล์');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
-
-    onAddFoil({
-      lotNumber: lotNumber.trim().toUpperCase(),
-      rollNumber: rollNumber.trim(),
-      width: finalWidth,
-      pattern: finalPattern,
-      totalMeters: finalMeters,
-      dateReceived: dateReceived || today,
-      notes: notes.trim(),
-    });
-
-    // Reset form
-    setLotNumber('');
-    setRollNumber('01');
-    setTotalMeters(1000);
-    setNotes('');
-    onClose();
   };
 
+  // Only check isOpen right before returning JSX
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150">
       <div 
         id="modal-add-foil"
-        className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <PlusCircle className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
+              <PackagePlus className="w-5 h-5 stroke-[2.3]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white leading-tight">
-                เพิ่มฟอยล์รับเข้าสต๊อก
+              <h2 className="text-base sm:text-lg font-bold text-white leading-tight">
+                รับม้วนฟอยล์เข้าสต๊อก
               </h2>
               <p className="text-xs text-slate-300">
-                บันทึกม้วนฟอยล์ลูกเต็มสำหรับหลังคา PU Foam เมทัลชีท
+                ระบบจัดการสต๊อกฟอยล์ PU Foam หลังคาเหล็กเมทัลชีท
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Tab Selector: Single vs Multiple/Batch */}
+        <div className="px-6 pt-3 pb-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEntryMode('batch')}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              entryMode === 'batch'
+                ? 'bg-amber-500 text-slate-950 shadow-sm border border-amber-600/20'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <ListPlus className="w-4 h-4" />
+            <span>รับทีละหลายลูก (ชุดล็อต)</span>
+            <span className="text-[11px] bg-slate-900/10 px-1.5 py-0.2 rounded-md font-mono">
+              แนะนำ
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setEntryMode('single')}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              entryMode === 'single'
+                ? 'bg-amber-500 text-slate-950 shadow-sm border border-amber-600/20'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>รับทีละ 1 ม้วน (ม้วนเดี่ยว)</span>
+          </button>
+        </div>
+
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-sm flex-1">
           {error && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
               {error}
             </div>
           )}
 
-          {/* Row 1: Lot & Roll Number */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="input-lot-number" className="block text-xs font-semibold text-slate-700 mb-1">
-                เลขล็อต (Lot Number) <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
+          {/* Shared Specs Card: Lot, Width, Pattern */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 sm:p-4 space-y-3.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+              <Layers className="w-4 h-4 text-amber-600" />
+              <span>ข้อมูลสเปกล็อตฟอยล์ที่รับเข้า</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Lot Number */}
+              <div>
+                <label htmlFor="input-lot-number" className="block text-xs font-semibold text-slate-700 mb-1">
+                  เลขล็อต (Lot Number) <span className="text-rose-500">*</span>
+                </label>
                 <input
                   id="input-lot-number"
                   type="text"
                   required
                   value={lotNumber}
                   onChange={(e) => setLotNumber(e.target.value)}
-                  placeholder="เช่น LOT-6909-C1"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm font-mono uppercase"
+                  placeholder="เช่น LOT-2609-A"
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm font-mono uppercase font-bold"
                 />
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="input-roll-number" className="block text-xs font-semibold text-slate-700 mb-1">
-                เบอร์ม้วน (Roll No.) <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  id="input-roll-number"
-                  type="text"
-                  required
-                  value={rollNumber}
-                  onChange={(e) => setRollNumber(e.target.value)}
-                  placeholder="เช่น 01, 02 หรือ R-10"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm font-mono"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Row 2: Width Selection */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-slate-700">
-                หน้ากว้าง (Width มม.) <span className="text-rose-500">*</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => setIsCustomWidth(!isCustomWidth)}
-                className="text-xs text-amber-700 hover:text-amber-800 underline cursor-pointer"
-              >
-                {isCustomWidth ? 'เลือกขนาดมาตรฐาน' : 'ระบุขนาดอื่น'}
-              </button>
-            </div>
-
-            {!isCustomWidth ? (
-              <div className="grid grid-cols-4 gap-2">
-                {STANDARD_WIDTHS.map((w) => (
-                  <button
-                    key={w}
-                    type="button"
-                    onClick={() => setWidth(w)}
-                    className={`py-2 px-3 rounded-lg border text-sm font-semibold transition-all cursor-pointer font-mono text-center ${
-                      width === w
-                        ? 'border-amber-500 bg-amber-50 text-slate-950 ring-1 ring-amber-500'
-                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                    }`}
+              {/* Width */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  หน้ากว้าง (มม.) <span className="text-rose-500">*</span>
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={isCustomWidth ? 'custom' : width}
+                    onChange={(e) => {
+                      if (e.target.value === 'custom') {
+                        setIsCustomWidth(true);
+                      } else {
+                        setIsCustomWidth(false);
+                        setWidth(Number(e.target.value) as FoilWidth);
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 text-sm font-mono font-bold"
                   >
-                    {w} มม.
-                  </button>
-                ))}
+                    {STANDARD_WIDTHS.map((w) => (
+                      <option key={w} value={w}>
+                        {w} มม.
+                      </option>
+                    ))}
+                    <option value="custom">กำหนดเอง...</option>
+                  </select>
+                  {isCustomWidth && (
+                    <input
+                      type="number"
+                      value={customWidthVal}
+                      onChange={(e) => setCustomWidthVal(e.target.value)}
+                      placeholder="กว้าง"
+                      className="w-20 px-2 py-2 bg-white rounded-lg border border-slate-300 text-sm font-mono font-bold"
+                    />
+                  )}
+                </div>
               </div>
-            ) : (
-              <input
-                type="number"
-                value={customWidthVal}
-                onChange={(e) => setCustomWidthVal(e.target.value)}
-                placeholder="ระบุหน้ากว้าง เช่น 920"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm font-mono"
-              />
-            )}
+
+              {/* Pattern */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ลายฟอยล์ (ท้องฟอยล์) <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={isCustomPattern ? 'custom' : pattern}
+                  onChange={(e) => {
+                    if (e.target.value === 'custom') {
+                      setIsCustomPattern(true);
+                    } else {
+                      setIsCustomPattern(false);
+                      setPattern(e.target.value as FoilPattern);
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 text-sm font-semibold"
+                >
+                  {STANDARD_PATTERNS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                  <option value="custom">กำหนดลายเอง...</option>
+                </select>
+                {isCustomPattern && (
+                  <input
+                    type="text"
+                    value={customPatternVal}
+                    onChange={(e) => setCustomPatternVal(e.target.value)}
+                    placeholder="ระบุลายใหม่..."
+                    className="w-full mt-1.5 px-2.5 py-1.5 bg-white rounded-lg border border-slate-300 text-xs font-medium"
+                  />
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Row 3: Pattern Selection */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-slate-700">
-                ลายฟอยล์ (Pattern) <span className="text-rose-500">*</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => setIsCustomPattern(!isCustomPattern)}
-                className="text-xs text-amber-700 hover:text-amber-800 underline cursor-pointer"
-              >
-                {isCustomPattern ? 'เลือกลายมาตรฐาน' : 'ระบุลายอื่น'}
-              </button>
-            </div>
+          {/* MODE 1: Single Roll Mode */}
+          {entryMode === 'single' ? (
+            <div className="bg-amber-50/50 border border-amber-200/70 rounded-xl p-4 space-y-3.5">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                <Hash className="w-4 h-4 text-amber-600" />
+                <span>ระบุเบอร์ม้วนและเมตรลูกเต็ม</span>
+              </div>
 
-            {!isCustomPattern ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {STANDARD_PATTERNS.map((p) => {
-                  const isSelected = pattern === p.value;
-                  return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label htmlFor="input-single-roll" className="block text-xs font-semibold text-slate-700 mb-1">
+                    เบอร์ม้วน (Roll No.) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="input-single-roll"
+                    type="text"
+                    required
+                    value={singleRollNumber}
+                    onChange={(e) => setSingleRollNumber(e.target.value)}
+                    placeholder="เช่น 01, 02 หรือ R-10"
+                    className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 text-sm font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="input-single-meters" className="block text-xs font-semibold text-slate-700 mb-1">
+                    ความยาวเมตรเต็มม้วน (เมตร) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="input-single-meters"
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    required
+                    value={singleTotalMeters}
+                    onChange={(e) => setSingleTotalMeters(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 text-sm font-mono font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* MODE 2: Multiple / Batch Rolls Mode */
+            <div className="space-y-3.5">
+              {/* Range & Comma Generator Box */}
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 sm:p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-950">
+                    <Sparkles className="w-4 h-4 text-amber-600" />
+                    <span>สร้างเบอร์ม้วนอัตโนมัติ (เลือกวิธีที่สะดวก)</span>
+                  </div>
+
+                  {/* Default Meters for Batch */}
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="font-semibold text-slate-700">เมตรเริ่มต้น/ลูก:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={defaultMeters}
+                      onChange={(e) => setDefaultMeters(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-20 px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-center text-xs"
+                    />
+                    <span className="text-slate-500">ม.</span>
+                  </div>
+                </div>
+
+                {/* Method 1: Range Generator (e.g. 01 ถึง 10) */}
+                <div className="bg-white p-3 rounded-lg border border-amber-200/80 space-y-2">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                    <span>วิธีที่ 1: กำหนดช่วงตัวเลข (เช่น เบอร์ 01 ถึง 10)</span>
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono">
+                      <span>รูปแบบ:</span>
+                      <button
+                        type="button"
+                        onClick={() => setPadDigits(2)}
+                        className={`px-1.5 py-0.5 rounded cursor-pointer ${
+                          padDigits === 2 ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        01, 02
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPadDigits(3)}
+                        className={`px-1.5 py-0.5 rounded cursor-pointer ${
+                          padDigits === 3 ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        001, 002
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPadDigits(1)}
+                        className={`px-1.5 py-0.5 rounded cursor-pointer ${
+                          padDigits === 1 ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        1, 2
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">จากเบอร์:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={startRangeNum}
+                      onChange={(e) => setStartRangeNum(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-16 px-2 py-1.5 bg-slate-50 border border-slate-300 rounded font-mono font-bold text-center text-xs"
+                    />
+                    <span className="text-xs text-slate-500">ถึงเบอร์:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={endRangeNum}
+                      onChange={(e) => setEndRangeNum(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-16 px-2 py-1.5 bg-slate-50 border border-slate-300 rounded font-mono font-bold text-center text-xs"
+                    />
                     <button
-                      key={p.value}
                       type="button"
-                      onClick={() => setPattern(p.value)}
-                      className={`p-2 rounded-lg border text-xs font-medium text-left flex items-center justify-between transition-all cursor-pointer ${
-                        isSelected
-                          ? 'border-amber-500 bg-amber-50 text-slate-950 font-semibold ring-1 ring-amber-500 shadow-xs'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
+                      onClick={handleGenerateRange}
+                      className="ml-auto px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
                     >
-                      <div className="flex items-center gap-2 truncate">
-                        <span className={`w-3 h-3 rounded-full border border-slate-300 shrink-0 ${
-                          p.value === 'ขาว' ? 'bg-white' :
-                          p.value === 'ดำ' ? 'bg-slate-900' :
-                          p.value === 'ลายไม่อ่อน' ? 'bg-amber-200' :
-                          p.value === 'ลายไม้เข้ม' ? 'bg-amber-800' :
-                          p.value === 'เทา' ? 'bg-slate-400' :
-                          'bg-rose-300'
-                        }`} />
-                        <span className="truncate">{p.label}</span>
-                      </div>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>สร้างรายการม้วน</span>
                     </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <input
-                type="text"
-                value={customPatternVal}
-                onChange={(e) => setCustomPatternVal(e.target.value)}
-                placeholder="ระบุลายฟอยล์ เช่น ลายหินอ่อน, เงินเงา"
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm"
-              />
-            )}
-            <p className="text-[11px] text-slate-500 mt-1">
-              * ลายมาตรฐาน: ขาว, ดำ, ลายไม่อ่อน, ลายไม้เข้ม (ลายไม่เข้า), เทา, กลับบัว (กลีบบัว)
-            </p>
-          </div>
+                  </div>
+                </div>
 
-          {/* Row 4: Total Meters & Date */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="input-total-meters" className="block text-xs font-semibold text-slate-700 mb-1">
-                จำนวนเมตรลูกเต็ม (เมตร) <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  id="input-total-meters"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  required
-                  value={totalMeters}
-                  onChange={(e) => setTotalMeters(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="1000"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-base font-bold font-mono text-slate-900"
-                />
-                <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-medium">เมตร</span>
-              </div>
-              <div className="flex gap-1 mt-1.5">
-                {[1000, 2000, 2500, 3000].map(m => (
+                {/* Method 2: Comma list */}
+                <div className="flex items-center gap-2 text-xs">
+                  <input
+                    type="text"
+                    value={quickCommaInput}
+                    onChange={(e) => setQuickCommaInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleParseCommaList();
+                      }
+                    }}
+                    placeholder="วิธีที่ 2: หรือพิมพ์เบอร์คั่นด้วยจุลภาค เช่น 01, 02, 05, 08"
+                    className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                  />
                   <button
-                    key={m}
                     type="button"
-                    onClick={() => setTotalMeters(m)}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-mono cursor-pointer"
+                    onClick={handleParseCommaList}
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg cursor-pointer whitespace-nowrap"
                   >
-                    {m}ม.
+                    แยกเบอร์
                   </button>
-                ))}
+                </div>
+              </div>
+
+              {/* Batch Rolls List Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 font-bold text-slate-800">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>รายการม้วนที่จะเพิ่มเข้าสต๊อก ({batchItems.length} ลูก)</span>
+                  </div>
+
+                  <div className="font-mono text-slate-700 text-xs">
+                    ความยาวรวม: <strong className="text-amber-900 font-bold text-sm">{formatMeters(totalBatchMeters)}</strong> เมตร
+                  </div>
+                </div>
+
+                <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 bg-white">
+                  {batchItems.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-400">
+                      ยังไม่มีรายการม้วนฟอยล์ กรุณากด "สร้างรายการม้วน" ด้านบน หรือกด "+ เพิ่มอีก 1 ลูก"
+                    </div>
+                  ) : (
+                    batchItems.map((item, index) => (
+                      <div key={item.id} className="px-3.5 py-2 flex items-center gap-2.5 text-xs hover:bg-slate-50/80">
+                        <span className="w-6 text-center font-mono font-bold text-slate-400 text-[11px]">
+                          {index + 1}.
+                        </span>
+
+                        {/* Roll Number Input */}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-500 font-mono">เบอร์ #</span>
+                          <input
+                            type="text"
+                            value={item.rollNumber}
+                            onChange={(e) => handleUpdateBatchItem(item.id, { rollNumber: e.target.value })}
+                            className="w-20 px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-center text-xs focus:border-amber-500"
+                          />
+                        </div>
+
+                        {/* Length per Roll */}
+                        <div className="flex items-center gap-1.5 ml-2">
+                          <span className="text-slate-500">ความยาว:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            value={item.totalMeters}
+                            onChange={(e) => handleUpdateBatchItem(item.id, { totalMeters: Number(e.target.value) || 0 })}
+                            className="w-24 px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-right text-xs focus:border-amber-500"
+                          />
+                          <span className="text-slate-500 font-mono text-[11px]">ม.</span>
+                        </div>
+
+                        {/* Preview Tag */}
+                        <div className="hidden sm:flex items-center gap-1 ml-auto font-mono text-[11px] text-slate-500">
+                          <span>ล็อต {lotNumber || '...'}</span>
+                          <span>•</span>
+                          <span>{isCustomWidth ? customWidthVal : width} มม.</span>
+                        </div>
+
+                        {/* Delete button */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBatchItem(item.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors ml-auto sm:ml-2 cursor-pointer"
+                          title="ลบม้วนนี้ออกจากชุด"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="p-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handleAddSingleBatchItem}
+                    className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-amber-600" />
+                    <span>+ เพิ่มอีก 1 ลูก</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBatchItems([])}
+                    className="text-[11px] text-rose-600 hover:underline cursor-pointer"
+                  >
+                    ล้างรายการทั้งหมด
+                  </button>
+                </div>
               </div>
             </div>
+          )}
 
+          {/* Row 4: Date Received & Notes */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <div>
               <label htmlFor="input-date-received" className="block text-xs font-semibold text-slate-700 mb-1">
                 วันที่รับเข้าสต๊อก
               </label>
-              <div className="relative">
-                <input
-                  id="input-date-received"
-                  type="date"
-                  value={dateReceived}
-                  onChange={(e) => setDateReceived(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm font-mono"
-                />
-              </div>
+              <input
+                id="input-date-received"
+                type="date"
+                value={dateReceived}
+                onChange={(e) => setDateReceived(e.target.value)}
+                className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 text-sm font-mono"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="input-add-notes" className="block text-xs font-semibold text-slate-700 mb-1">
+                หมายเหตุเพิ่มเติม (ซัพพลายเออร์, ความหนาโฟม)
+              </label>
+              <input
+                id="input-add-notes"
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="เช่น ฟอยล์ทนความร้อนสูง, ล็อตเข้าใหม่"
+                className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 text-sm"
+              />
             </div>
           </div>
 
-          {/* Row 5: Notes */}
-          <div>
-            <label htmlFor="input-add-notes" className="block text-xs font-semibold text-slate-700 mb-1">
-              หมายเหตุ / ข้อมูลเพิ่มเติม (อุปกรณ์, ความหนาโฟม, ซัพพลายเออร์)
-            </label>
-            <input
-              id="input-add-notes"
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="เช่น ฟอยล์ทนความร้อนสูง สำหรับ PU 25-50มม."
-              className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm"
-            />
-          </div>
-
           {/* Footer Action Buttons */}
-          <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm font-medium transition-colors cursor-pointer"
-            >
-              ยกเลิก
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-amber-300 text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer"
-            >
-              + บันทึกเพิ่มฟอยล์
-            </button>
+          <div className="pt-4 border-t border-slate-200 flex items-center justify-between gap-3">
+            <div className="text-xs text-slate-500">
+              {entryMode === 'batch' ? (
+                <span>
+                  จะบันทึกพร้อมกัน <strong className="text-slate-900 font-bold">{batchItems.length}</strong> ม้วน
+                </span>
+              ) : (
+                <span>บันทึก 1 ม้วนฟอยล์</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || (entryMode === 'batch' && batchItems.length === 0)}
+                className="px-5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer flex items-center gap-2 disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <span>กำลังบันทึก...</span>
+                ) : entryMode === 'batch' ? (
+                  <>
+                    <PackagePlus className="w-4 h-4" />
+                    <span>+ บันทึกรับเข้า {batchItems.length} ลูก</span>
+                  </>
+                ) : (
+                  <>
+                    <PlusCircle className="w-4 h-4" />
+                    <span>+ บันทึกเพิ่มฟอยล์</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>
