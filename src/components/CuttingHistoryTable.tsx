@@ -572,17 +572,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
               <Download className="w-3.5 h-3.5 text-slate-500" />
               <span className="hidden sm:inline">ส่งออก CSV</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => handleActionGuarded(onOpenCutModal)}
-              className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-            >
-              {userMode === 'visitor' ? (
-                <Lock className="w-3.5 h-3.5 text-slate-900" />
-              ) : null}
-              <span>+ บันทึกตัดสต๊อก</span>
-            </button>
           </div>
         </div>
 

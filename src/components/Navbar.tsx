@@ -1,12 +1,14 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'settings';
-  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'settings') => void;
+  activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings') => void;
   onOpenAddModal: () => void;
   onOpenCutModal: (mode?: 'so' | 'non_so') => void;
+  onOpenPuSandwichModal: () => void;
+  puSandwichCount?: number;
   totalRemainingMeters: number;
   activeRollsCount: number;
   onResetData: () => void;
@@ -23,6 +25,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   onOpenAddModal,
   onOpenCutModal,
+  onOpenPuSandwichModal,
+  puSandwichCount = 0,
   totalRemainingMeters,
   activeRollsCount,
   onResetData,
@@ -38,62 +42,75 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between py-3 gap-3">
           
-          {/* Logo & Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
-              <Layers className="w-6 h-6 stroke-[2.2]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400 tracking-wider">
-                  หลังคาเย็นสยาม (ร่มเกล้า)
-                </span>
-                <span className="text-xs text-slate-500 hidden sm:inline font-mono">
-                  คลังฟอยล์ PU FOAM
-                </span>
+          {/* Top Row: Logo & Top Utilities */}
+          <div className="flex items-center justify-between gap-2">
+            {/* Logo & Title */}
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
+                <Layers className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
               </div>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
-                หลังคาเย็นสยาม (ร่มเกล้า)
-              </h1>
-              <p className="text-xs text-slate-500 hidden md:block">
-                ระบบจัดการสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 rounded bg-slate-900 text-amber-400 tracking-wider">
+                    หลังคาเย็นสยาม (ร่มเกล้า)
+                  </span>
+                  <span className="text-xs text-slate-500 hidden sm:inline font-mono">
+                    คลังฟอยล์ PU FOAM
+                  </span>
+                </div>
+                <h1 className="text-sm sm:text-lg font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
+                  หลังคาเย็นสยาม (ร่มเกล้า)
+                </h1>
+                <p className="text-xs text-slate-500 hidden md:block">
+                  ระบบจัดการสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
+                </p>
+              </div>
+            </div>
+
+            {/* Mode Switcher Pill & Quick Utility (Top Right) */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {userMode === 'visitor' ? (
+                <button
+                  type="button"
+                  onClick={onUnlockEditor}
+                  className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                  title="คลิกเพื่อใส่รหัสผ่านและปลดล็อคโหมดคีย์ข้อมูล"
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-700 group-hover:scale-110 transition-transform" />
+                  <span className="hidden sm:inline">ผู้เข้าชม</span>
+                  <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 text-[10px] font-bold">
+                    ปลดล็อค
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onLockVisitor}
+                  className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                  title="คลิกเพื่อล็อคกลับสู่โหมดผู้เข้าชม"
+                >
+                  <Unlock className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                  <span className="hidden sm:inline">คีย์ข้อมูล</span>
+                  <span className="px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-950 text-[10px] font-bold">
+                    ล็อค
+                  </span>
+                </button>
+              )}
+
+              {/* Utility / Export Button */}
+              <button
+                id="btn-export-options"
+                onClick={activeTab === 'history' ? onExportHistory : onExportRolls}
+                title="ส่งออกข้อมูล CSV"
+                className="p-1.5 sm:p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"
+              >
+                <Download className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          {/* Quick Metrics & Actions */}
-          <div className="flex items-center flex-wrap gap-2 sm:gap-3">
-            {/* Mode Switcher Pill */}
-            {userMode === 'visitor' ? (
-              <button
-                type="button"
-                onClick={onUnlockEditor}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
-                title="คลิกเพื่อใส่รหัสผ่านและปลดล็อคโหมดคีย์ข้อมูล"
-              >
-                <Lock className="w-3.5 h-3.5 text-amber-700 group-hover:scale-110 transition-transform" />
-                <span className="hidden sm:inline">โหมดผู้เข้าชม (ดูอย่างเดียว)</span>
-                <span className="sm:hidden">ผู้เข้าชม</span>
-                <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 text-[10px] font-bold ml-0.5">
-                  ปลดล็อค
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onLockVisitor}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
-                title="คลิกเพื่อล็อคกลับสู่โหมดผู้เข้าชม"
-              >
-                <Unlock className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
-                <span className="hidden sm:inline">โหมดคีย์ข้อมูล (เข้าสู่ระบบแล้ว)</span>
-                <span className="sm:hidden">คีย์ข้อมูล</span>
-                <span className="px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-950 text-[10px] font-bold ml-0.5">
-                  ล็อค
-                </span>
-              </button>
-            )}
-
+          {/* Action Row: Metrics + Main 2 Action Buttons (Side by Side on the Same Row) */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 w-full md:w-auto">
             <div className="hidden lg:flex items-center gap-3 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200 text-xs">
               <div>
                 <span className="text-slate-500 block">คงเหลือรวม</span>
@@ -110,43 +127,47 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <button
-              id="btn-add-foil"
-              onClick={onOpenAddModal}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-medium transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
-            >
-              {userMode === 'visitor' ? (
-                <Lock className="w-3.5 h-3.5 text-amber-400" />
-              ) : (
-                <Plus className="w-4 h-4 text-amber-400" />
-              )}
-              <span>เพิ่มฟอยล์รับเข้า</span>
-            </button>
-
-            <button
-              id="btn-cut-foil"
-              onClick={() => onOpenCutModal('so')}
-              title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
-            >
-              {userMode === 'visitor' ? (
-                <Lock className="w-3.5 h-3.5 stroke-[2.5]" />
-              ) : (
-                <Scissors className="w-4 h-4 stroke-[2.5]" />
-              )}
-              <span>ตัดสต็อกฟอยล์</span>
-            </button>
-
-            {/* Utility / Export Button */}
-            <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+            {/* Action Buttons: Prominent and on the Same Line */}
+            <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
               <button
-                id="btn-export-options"
-                onClick={activeTab === 'history' ? onExportHistory : onExportRolls}
-                title="ส่งออกข้อมูล CSV"
-                className="p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                id="btn-add-foil"
+                onClick={onOpenAddModal}
+                className="h-10 px-2 sm:px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <Download className="w-4 h-4" />
+                {userMode === 'visitor' ? (
+                  <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                ) : (
+                  <Plus className="w-4 h-4 text-amber-400 stroke-[2.5] shrink-0" />
+                )}
+                <span className="whitespace-nowrap">เพิ่มฟอยล์</span>
+              </button>
+
+              <button
+                id="btn-cut-foil"
+                onClick={() => onOpenCutModal('so')}
+                title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
+                className="h-10 px-2 sm:px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-amber-600/30"
+              >
+                {userMode === 'visitor' ? (
+                  <Lock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                ) : (
+                  <Scissors className="w-4 h-4 stroke-[2.5] shrink-0" />
+                )}
+                <span className="whitespace-nowrap">ตัดสต็อกฟอยล์</span>
+              </button>
+
+              <button
+                id="btn-cut-pu-sandwich"
+                onClick={onOpenPuSandwichModal}
+                title="ตัด SO ไม่ใช้ฟอยล์ ผลิต PU Sandwich"
+                className="h-10 px-2 sm:px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-700/40"
+              >
+                {userMode === 'visitor' ? (
+                  <Lock className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
+                ) : (
+                  <Factory className="w-4 h-4 text-emerald-200 stroke-[2.2] shrink-0" />
+                )}
+                <span className="whitespace-nowrap">ตัด SO แซนวิช</span>
               </button>
             </div>
           </div>
@@ -200,6 +221,25 @@ export const Navbar: React.FC<NavbarProps> = ({
               <History className="w-4 h-4 text-amber-600" />
               <span className="lg:hidden">ประวัติตัด</span>
               <span className="hidden lg:inline">ประวัติการตัดสต๊อก (SO)</span>
+            </button>
+
+            <button
+              id="tab-sandwich"
+              onClick={() => setActiveTab('sandwich')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'sandwich'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Factory className="w-4 h-4 text-emerald-600" />
+              <span className="lg:hidden">PU แซนวิช</span>
+              <span className="hidden lg:inline">ตัด SO แซนวิช (ไม่ใช้ฟอยล์)</span>
+              <span className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === 'sandwich' ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {puSandwichCount}
+              </span>
             </button>
 
             <button

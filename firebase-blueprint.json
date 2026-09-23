@@ -152,6 +152,67 @@
         }
       },
       "required": ["id", "foilId", "soNumber", "usedMeters", "totalDeducted", "remainingAfter", "recordedBy"]
+    },
+    "PuSandwichCutRecord": {
+      "title": "PuSandwichCutRecord",
+      "description": "Production cut record for PU Sandwich without foil",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "soNumber": {
+          "type": "string",
+          "description": "SO Number"
+        },
+        "productionDate": {
+          "type": "string"
+        },
+        "coilColor": {
+          "type": "string",
+          "description": "Coil color"
+        },
+        "thickness": {
+          "type": "string",
+          "description": "Thickness e.g. 0.35, 0.40"
+        },
+        "coilNumber": {
+          "type": "string",
+          "description": "Coil number identifier"
+        },
+        "weightBefore": {
+          "type": "number",
+          "description": "Weight before use in kg"
+        },
+        "weightAfter": {
+          "type": "number",
+          "description": "Weight after use in kg"
+        },
+        "weightUsed": {
+          "type": "number",
+          "description": "Actual weight used in kg"
+        },
+        "steelOrigin": {
+          "type": "string",
+          "enum": ["เหล็กนอก", "เหล็กBlue Scope", "อื่นๆ"]
+        },
+        "customSteelOrigin": {
+          "type": "string"
+        },
+        "lengthMeters": {
+          "type": "number"
+        },
+        "recordedBy": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "soNumber", "coilColor", "thickness", "coilNumber", "weightBefore", "weightAfter", "steelOrigin"]
     }
   },
   "firestore": {
@@ -166,6 +227,12 @@
         "$ref": "#/entities/StockCutRecord"
       },
       "description": "Collection of all stock cut history records"
+    },
+    "/pu_sandwich_cuts/{recordId}": {
+      "schema": {
+        "$ref": "#/entities/PuSandwichCutRecord"
+      },
+      "description": "Collection of PU Sandwich cuts without foil"
     }
   }
 }
