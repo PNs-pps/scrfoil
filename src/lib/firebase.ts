@@ -217,12 +217,30 @@ export function subscribeToStockCutRecords(
 }
 
 /**
+ * Deep sanitization to ensure no `undefined` values are ever passed to Firestore WriteBatch/setDoc
+ */
+export function sanitizeForFirestore<T>(obj: T): T {
+  if (obj === undefined) return '' as any;
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeForFirestore) as any;
+  }
+  const clean: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      clean[key] = sanitizeForFirestore(value);
+    }
+  }
+  return clean;
+}
+
+/**
  * Save or update a single Foil Roll in Firestore
  */
 export async function saveFoilRollToFirestore(roll: FoilRoll): Promise<void> {
   try {
     const ref = doc(db, ROLLS_COLLECTION, roll.id);
-    await setDoc(ref, roll, { merge: true });
+    await setDoc(ref, sanitizeForFirestore(roll), { merge: true });
   } catch (err: any) {
     console.warn('Notice: Could not write roll to Firestore:', err?.message || err);
     throw err;
@@ -256,16 +274,16 @@ export async function executeCutBatchInFirestore(
     const rollCuts = [
       ...batchRecords.map((r) => ({
         id: r.id,
-        soNumber: r.soNumber,
-        cutType: r.cutType,
+        soNumber: r.soNumber || '',
+        cutType: r.cutType || 'so',
         usedMeters: Math.abs(Number(r.usedMeters || 0)),
         ngMeters: Math.abs(Number(r.ngMeters || 0)),
         totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
         remainingAfter: Math.max(0, Number(r.remainingAfter ?? 0)),
-        usageDate: r.usageDate,
-        recordedDate: r.recordedDate,
-        recordedBy: r.recordedBy,
-        notes: r.notes,
+        usageDate: r.usageDate || new Date().toISOString().split('T')[0],
+        recordedDate: r.recordedDate || new Date().toISOString().split('T')[0],
+        recordedBy: r.recordedBy || '',
+        notes: r.notes || '',
       })),
       ...(updatedRoll.recentCuts || []),
     ].slice(0, 50); // keep up to 50 most recent SOs embedded in roll
@@ -280,7 +298,7 @@ export async function executeCutBatchInFirestore(
 
     // 1. Update the Foil Roll in foil_rolls
     const rollRef = doc(db, ROLLS_COLLECTION, finalRoll.id);
-    batch.set(rollRef, finalRoll, { merge: true });
+    batch.set(rollRef, sanitizeForFirestore(finalRoll), { merge: true });
 
     // 2. Insert all new Cut Records in root collection and subcollection `cut_history`
     batchRecords.forEach((record) => {
@@ -298,16 +316,20 @@ export async function executeCutBatchInFirestore(
         totalDeducted: safeTotalDeducted,
         remainingBefore: safeRemainingBefore,
         remainingAfter: safeRemainingAfter,
+        notes: record.notes || '',
+        recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
+        usageDate: record.usageDate || new Date().toISOString().split('T')[0],
+        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
       };
 
       // Root collection for global search & yearly summaries
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
-      batch.set(recordRef, safeRecord);
+      batch.set(recordRef, sanitizeForFirestore(safeRecord));
 
       // Subcollection `cut_history` per requirement: foil_rolls/{rollId}/cut_history
       const historyItem: CutHistoryItem = {
         id: record.id,
-        soNumber: record.soNumber,
+        soNumber: record.soNumber || '',
         cutMeters: safeCutMeters,
         usedMeters: safeCutMeters,
         ngMeters: safeNgMeters,
@@ -330,11 +352,11 @@ export async function executeCutBatchInFirestore(
       };
 
       const historyRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cut_history', record.id);
-      batch.set(historyRef, historyItem);
+      batch.set(historyRef, sanitizeForFirestore(historyItem));
 
       // Also maintain legacy cuts subcollection for backwards compatibility
       const cutsRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cuts', record.id);
-      batch.set(cutsRef, historyItem);
+      batch.set(cutsRef, sanitizeForFirestore(historyItem));
     });
 
     await batch.commit();
@@ -376,11 +398,11 @@ export async function executeMultiRollCutBatchInFirestore(
         };
 
         const recordRef = doc(db, RECORDS_COLLECTION, rec.id);
-        batch.set(recordRef, safeRecord);
+        batch.set(recordRef, sanitizeForFirestore(safeRecord));
 
         const historyItem: CutHistoryItem = {
           id: rec.id,
-          soNumber: rec.soNumber,
+          soNumber: rec.soNumber || '',
           cutMeters: safeCutMeters,
           usedMeters: safeCutMeters,
           ngMeters: safeNgMeters,
@@ -403,10 +425,10 @@ export async function executeMultiRollCutBatchInFirestore(
         };
 
         const subHistoryRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cut_history', rec.id);
-        batch.set(subHistoryRef, historyItem);
+        batch.set(subHistoryRef, sanitizeForFirestore(historyItem));
 
         const subCutsRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cuts', rec.id);
-        batch.set(subCutsRef, historyItem);
+        batch.set(subCutsRef, sanitizeForFirestore(historyItem));
       });
 
       // Add affected rolls in this chunk
@@ -420,7 +442,7 @@ export async function executeMultiRollCutBatchInFirestore(
           ngMeters: Math.max(0, Number(r.ngMeters || 0)),
         };
         const rollRef = doc(db, ROLLS_COLLECTION, r.id);
-        batch.set(rollRef, safeRoll, { merge: true });
+        batch.set(rollRef, sanitizeForFirestore(safeRoll), { merge: true });
       });
 
       await batch.commit();
