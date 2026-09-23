@@ -24,6 +24,10 @@ import {
   RotateCcw,
   Sparkles
 } from 'lucide-react';
+import { 
+  FACTORY_THICKNESS_SPECS, 
+  getSteelKgPerMeter 
+} from '../utils/steelCalculations';
 
 interface PuSandwichModalProps {
   isOpen: boolean;
@@ -36,7 +40,6 @@ interface PuSandwichModalProps {
 }
 
 const COMMON_COIL_COLORS = ['สีขาว', 'สีดำ', 'สีน้ำตาล', 'สีเขียว', 'สีฟ้า', 'สีเทา', 'อลูซิงค์ (ซิงค์)'];
-const COMMON_THICKNESSES = ['0.28', '0.30', '0.35', '0.40', '0.45', '0.50'];
 
 export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   isOpen,
@@ -55,7 +58,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const [productionDate, setProductionDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [soLengthMeters, setSoLengthMeters] = useState<string>('');
   const [coilColor, setCoilColor] = useState('');
-  const [thickness, setThickness] = useState('');
+  const [thickness, setThickness] = useState('0.35');
   const [coilNumber, setCoilNumber] = useState('');
   const [weightBefore, setWeightBefore] = useState<string>('');
   const [weightAfter, setWeightAfter] = useState<string>('');
@@ -86,6 +89,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setNgKg('0');
       setNgMeters('0');
       setSoLengthMeters('');
+      setThickness('0.35');
       setIsNgManuallyEdited(false);
       setCustomKgPerMeter('');
       setShowCustomFactor(false);
@@ -96,12 +100,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   }, [isOpen, initialMode]);
 
-  // Weight per meter from thickness (density of steel 7.85 kg/m²/mm, standard sheet width 0.914 m)
-  // formula: width (0.914m) * thickness (mm) * 7.85 = thickness * 7.1749 kg/m
-  const numThickness = parseFloat(thickness) || 0;
-  const standardKgPerMeter = numThickness > 0
-    ? Math.round(numThickness * 7.175 * 100) / 100
-    : 2.50; // standard default for 0.35mm roofing sheet
+  // Weight per meter from thickness according to factory standards:
+  // 0.30 -> 2.1 kg/m, 0.35 -> 2.3 kg/m, 0.40 -> 2.7 kg/m, 0.47 -> 3.1 kg/m, 0.51 -> 3.2 kg/m
+  const standardKgPerMeter = getSteelKgPerMeter(thickness || '0.35');
 
   const effectiveKgPerMeter = parseFloat(customKgPerMeter) > 0
     ? parseFloat(customKgPerMeter)
