@@ -873,6 +873,72 @@ service cloud.firestore {
               </button>
             </div>
           </div>
+
+          {/* 3 Step Instruction */}
+          <div className="space-y-4">
+            <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center text-xs">1</span>
+              <span>ขั้นตอนการเปิดสิทธิ์ใน Firebase Console (ใช้เวลาเพียง 30 วินาที):</span>
+            </h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="font-bold text-slate-800 block">1. เข้าหน้า Rules</span>
+                <span className="text-slate-600 block leading-relaxed">
+                  ไปที่ Firebase Console &gt; เลือกโปรเจกต์ &gt; <strong>Firestore Database</strong> &gt; แท็บ <strong>Rules</strong>
+                </span>
+                <a
+                  href={`https://console.firebase.google.com/project/${projectId}/firestore/rules`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-amber-700 hover:text-amber-800 font-bold underline mt-1"
+                >
+                  <span>เปิดลิงก์หน้านี้ทันที</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="font-bold text-slate-800 block">2. วางโค้ดกฎ (Rules)</span>
+                <span className="text-slate-600 block leading-relaxed">
+                  ลบโค้ดเดิมทั้งหมดในกล่องข้อความ แล้ววางโค้ดด้านล่างนี้ลงไปแทนที่
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="font-bold text-slate-800 block">3. กดปุ่ม "Publish"</span>
+                <span className="text-slate-600 block leading-relaxed">
+                  กดปุ่มสีฟ้า <strong>Publish</strong> ด้านบน แล้วกลับมากดปุ่ม "ทดสอบการเชื่อมต่อ"
+                </span>
+              </div>
+            </div>
+
+            {/* Code Box with Copy */}
+            <div className="relative mt-2">
+              <div className="flex items-center justify-between px-4 py-2 bg-slate-900 text-slate-300 text-xs rounded-t-xl font-mono">
+                <span>firestore.rules (กฎเปิดสิทธิ์ระบบสต๊อกฟอยล์)</span>
+                <button
+                  onClick={copyRulesCode}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  {copiedRules ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedRules ? 'คัดลอกแล้ว!' : 'คัดลอกโค้ดนี้'}</span>
+                </button>
+              </div>
+              <pre className="p-4 bg-slate-950 text-amber-300 text-xs font-mono rounded-b-xl overflow-x-auto border-x border-b border-slate-800 leading-relaxed">
+{`rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // อนุญาตให้อ่านและเขียนข้อมูลสต๊อกฟอยล์สำหรับเครื่องในโรงงาน
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+              </pre>
+            </div>
+          </div>
         </div>
       )}
 

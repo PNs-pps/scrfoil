@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
-import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
+import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 import { 
@@ -108,11 +108,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         }
       }
 
-      // Width with numeric and string normalization
-      const matchWidth = selectedWidth === 'all' || String(r.width) === selectedWidth || Number(r.width) === Number(selectedWidth);
+      // Width
+      const matchWidth = selectedWidth === 'all' || String(r.width) === selectedWidth;
 
-      // Pattern with canonical normalization (e.g. ท้องขาว vs ขาว)
-      const matchPattern = selectedPattern === 'all' || normalizePattern(r.pattern) === normalizePattern(selectedPattern);
+      // Pattern
+      const matchPattern = selectedPattern === 'all' || r.pattern === selectedPattern;
 
       // Status
       const matchStatus = 
@@ -151,13 +151,12 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       const groupsMap = new Map<number, FoilRoll[]>();
       
       // Keep standard widths in order first
-      STANDARD_WIDTHS.forEach(w => groupsMap.set(Number(w), []));
+      STANDARD_WIDTHS.forEach(w => groupsMap.set(w, []));
 
       filteredRolls.forEach(roll => {
-        const numW = Number(roll.width);
-        const list = groupsMap.get(numW) || [];
+        const list = groupsMap.get(roll.width) || [];
         list.push(roll);
-        groupsMap.set(numW, list);
+        groupsMap.set(roll.width, list);
       });
 
       const result: RollGroup[] = [];
@@ -187,17 +186,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }
 
     if (groupBy === 'pattern') {
-      // Group by Pattern (ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว)
+      // Group by Pattern (ขาว, ดำ, ไม้อ่อน, ลายไม้เข้ม, เทา, กลีบบัว)
       const groupsMap = new Map<string, FoilRoll[]>();
       
       // Standard patterns first
-      STANDARD_PATTERNS.forEach(p => groupsMap.set(normalizePattern(p.value), []));
+      STANDARD_PATTERNS.forEach(p => groupsMap.set(p.value, []));
 
       filteredRolls.forEach(roll => {
-        const normP = normalizePattern(roll.pattern);
-        const list = groupsMap.get(normP) || [];
+        const list = groupsMap.get(roll.pattern) || [];
         list.push(roll);
-        groupsMap.set(normP, list);
+        groupsMap.set(roll.pattern, list);
       });
 
       const result: RollGroup[] = [];
@@ -563,8 +561,20 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           </div>
 
           {/* Action Buttons */}
-          {onOpenMonthlySummary && (
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center flex-wrap gap-2 shrink-0">
+            {onOpenBatchImport && (
+              <button
+                type="button"
+                onClick={onOpenBatchImport}
+                className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                title="อัปโหลดข้อมูลใบงาน SO ที่ใช้ตัดฟอยล์แบบเป็นชุด"
+              >
+                <Upload className="w-3.5 h-3.5 stroke-[2.2]" />
+                <span>อัปโหลด SO ตัดฟอยล์</span>
+              </button>
+            )}
+
+            {onOpenMonthlySummary && (
               <button
                 type="button"
                 onClick={onOpenMonthlySummary}
@@ -574,8 +584,24 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>สรุปรายเดือน</span>
               </button>
-            </div>
-          )}
+            )}
+
+            <button
+              onClick={onExportRolls}
+              className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              <span>ส่งออก CSV</span>
+            </button>
+
+            <button
+              onClick={onOpenAddModal}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-amber-400" />
+              <span>เพิ่มฟอยล์ใหม่</span>
+            </button>
+          </div>
         </div>
 
         {/* Row 1.5: Quick Lot Number Chips for Faster Access */}

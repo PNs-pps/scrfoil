@@ -146,10 +146,13 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   const totalNg = historyItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
   const totalDeducted = historyItems.reduce((sum, r) => sum + Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0))), 0);
   
-  // Accurately show remaining meters matching the roll inventory state
+  // Accurately calculate effective remaining meters:
+  // If cuts exist, remaining meters must be totalMeters - totalDeducted so it never shows full amount when cut
   const effectiveRemaining = roll.isZeroedOut
     ? 0
-    : Math.max(0, Number(roll.remainingMeters ?? 0));
+    : historyItems.length > 0
+      ? Math.max(0, roll.totalMeters - totalDeducted)
+      : Math.max(0, roll.remainingMeters);
 
   const percentLeft = roll.totalMeters > 0 
     ? Math.max(0, Math.round((effectiveRemaining / roll.totalMeters) * 100)) 

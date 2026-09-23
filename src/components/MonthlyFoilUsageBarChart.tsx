@@ -23,10 +23,7 @@ import {
   SlidersHorizontal,
   FileSpreadsheet,
   CheckCircle2,
-  Database,
-  ArrowUpRight,
-  ArrowDownRight,
-  Minus
+  Database
 } from 'lucide-react';
 import { 
   STANDARD_PATTERNS, 
@@ -34,7 +31,7 @@ import {
   getCanonicalPatternStyle, 
   PATTERN_HEX_COLORS 
 } from '../utils/soFormatter';
-import { formatMeters, round2 } from '../utils/formatters';
+import { formatMeters } from '../utils/formatters';
 
 interface MonthlyFoilUsageBarChartProps {
   records: StockCutRecord[];
@@ -86,6 +83,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
   const [selectedYear, setSelectedYear] = useState<number>(availableYears[0] || currentYear);
   const [chartType, setChartType] = useState<'stacked' | 'grouped'>('stacked');
   const [metric, setMetric] = useState<'used' | 'totalDeducted' | 'ng'>('used');
+  const [viewRange, setViewRange] = useState<'all_year' | 'active_only' | 'recent_6'>('all_year');
   const [showDataTable, setShowDataTable] = useState<boolean>(false);
 
   // Active patterns in the records or standards
@@ -218,8 +216,18 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
     const monthlyAverage = activeMonthsCount > 0 ? yearTotalUsed / activeMonthsCount : 0;
     const yearNgRate = yearTotalDeducted > 0 ? (yearTotalNg / yearTotalDeducted) * 100 : 0;
 
+    // Filter by view range
+    let filteredMonths = monthsData;
+    if (viewRange === 'active_only') {
+      filteredMonths = monthsData.filter((m) => m.currentMetricTotal > 0);
+    } else if (viewRange === 'recent_6') {
+      const currentMonthIndex = new Date().getMonth();
+      const start = Math.max(0, currentMonthIndex - 5);
+      filteredMonths = monthsData.slice(start, currentMonthIndex + 1);
+    }
+
     return {
-      chartData: monthsData,
+      chartData: filteredMonths,
       yearStats: {
         totalUsed: yearTotalUsed,
         totalNg: yearTotalNg,
@@ -235,103 +243,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
         patternYearTotals,
       },
     };
-  }, [records, selectedYear, metric, allActivePatterns]);
-
-  // MoM Comparison: Current Month vs Previous Month
-  const currentCalendarMonthIdx = new Date().getMonth(); // 0-indexed (e.g. 8 = Sep)
-  const isSelectedYearCurrent = selectedYear === currentYear;
-
-  const [targetMonthIndex, setTargetMonthIndex] = useState<number>(() => {
-    return isSelectedYearCurrent ? currentCalendarMonthIdx : 11;
-  });
-
-  const momData = useMemo(() => {
-    const currM = chartData[targetMonthIndex] || chartData[0];
-    const currMonthInfo = MONTH_NAMES_TH[targetMonthIndex] || MONTH_NAMES_TH[0];
-
-    let prevMonthName = '';
-    let prevTotalUsed = 0;
-    let prevTotalNg = 0;
-    let prevTotalDeducted = 0;
-    let prevCutCount = 0;
-    const prevPatternTotals: Record<string, number> = {};
-    allActivePatterns.forEach((p) => {
-      prevPatternTotals[p] = 0;
-    });
-
-    if (targetMonthIndex > 0) {
-      const prevM = chartData[targetMonthIndex - 1];
-      const prevInfo = MONTH_NAMES_TH[targetMonthIndex - 1];
-      prevMonthName = `${prevInfo.full} ${selectedYear + 543}`;
-      prevTotalUsed = prevM?.totalUsed || 0;
-      prevTotalNg = prevM?.totalNg || 0;
-      prevTotalDeducted = prevM?.totalDeducted || 0;
-      prevCutCount = prevM?.cutCount || 0;
-      allActivePatterns.forEach((p) => {
-        prevPatternTotals[p] = (prevM as any)?.[p] || 0;
-      });
-    } else {
-      const priorYear = selectedYear - 1;
-      prevMonthName = `ธันวาคม ${priorYear + 543}`;
-      const prefix = `${priorYear}-12`;
-      const prevRecs = records.filter((r) => {
-        const d = r.usageDate || r.recordedDate || r.createdAt || '';
-        return d && d.startsWith(prefix);
-      });
-      prevCutCount = prevRecs.length;
-      prevRecs.forEach((r) => {
-        const p = normalizePattern(r.pattern);
-        const u = Number(r.usedMeters) || 0;
-        const n = Number(r.ngMeters) || 0;
-        prevTotalUsed += u;
-        prevTotalNg += n;
-        prevTotalDeducted += u + n;
-        prevPatternTotals[p] = (prevPatternTotals[p] || 0) + u;
-      });
-    }
-
-    const diffUsed = round2(currM.totalUsed - prevTotalUsed);
-    const percentUsed =
-      prevTotalUsed > 0
-        ? round2((diffUsed / prevTotalUsed) * 100)
-        : currM.totalUsed > 0
-        ? 100
-        : 0;
-
-    const diffNg = round2(currM.totalNg - prevTotalNg);
-    const diffDeducted = round2(currM.totalDeducted - prevTotalDeducted);
-    const diffCutCount = currM.cutCount - prevCutCount;
-
-    const patternBreakdown = allActivePatterns
-      .map((p) => {
-        const currVal = (currM as any)?.[p] || 0;
-        const prevVal = prevPatternTotals[p] || 0;
-        const diff = round2(currVal - prevVal);
-        return {
-          pattern: p,
-          currVal,
-          prevVal,
-          diff,
-        };
-      })
-      .sort((a, b) => b.currVal - a.currVal);
-
-    return {
-      currMonthName: `${currMonthInfo.full} ${selectedYear + 543}`,
-      currM,
-      prevMonthName,
-      prevTotalUsed,
-      prevTotalNg,
-      prevTotalDeducted,
-      prevCutCount,
-      diffUsed,
-      percentUsed,
-      diffNg,
-      diffDeducted,
-      diffCutCount,
-      patternBreakdown,
-    };
-  }, [chartData, targetMonthIndex, selectedYear, records, allActivePatterns]);
+  }, [records, selectedYear, metric, viewRange, allActivePatterns]);
 
   // Export Monthly Data to CSV for Double Backup
   const handleExportMonthlyCSV = () => {
@@ -454,6 +366,60 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
             วิเคราะห์แนวโน้มการใช้วัตถุดิบฟอยล์แต่ละลาย (ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว) ต่อเดือน เพื่อวางแผนสั่งซื้อและประเมินสต๊อก
           </p>
         </div>
+
+        {/* Double Backup & Report Actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          {onDoubleBackup && (
+            <button
+              type="button"
+              onClick={() => onDoubleBackup()}
+              disabled={isDoubleBackingUp}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-amber-300 text-xs sm:text-sm font-bold shadow-sm active:scale-[0.98] transition-all flex items-center gap-2 cursor-pointer border border-slate-700 disabled:opacity-60"
+              title="ทำการสำรองข้อมูล 2 ชั้น (Double Backup) ซิงค์ขึ้น Cloud Firestore พร้อมดาวน์โหลดสำเนาไฟล์ JSON ลงเครื่องทันที"
+            >
+              {isDoubleBackingUp ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+              ) : (
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              )}
+              <span>สำรองข้อมูล 2 ชั้น (Double Backup)</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleExportMonthlyCSV}
+            className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-semibold shadow-2xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer border border-slate-300"
+            title="ส่งออกรายงานยอดใช้รายเดือนเป็น CSV สำหรับนำเข้า Excel หรือทำสำรอง"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-600" />
+            <span>ส่งออก CSV รายเดือน</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Double Backup Status Bar Banner */}
+      <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50/50 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 text-xs text-slate-700">
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-amber-700 shrink-0" />
+          <div>
+            <span className="font-bold text-slate-900 mr-1.5">ระบบสำรองข้อมูล Double Backup Redundancy:</span>
+            <span className="text-slate-600">
+              ชั้นที่ 1 Cloud Firestore (คลาวด์กลาง) + ชั้นที่ 2 Local Snapshot & JSON (บันทึกออฟไลน์ในเครื่อง)
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto font-mono text-[11px]">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 font-semibold border border-emerald-300">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+            Cloud + Local Active
+          </span>
+          {lastDoubleBackupTime && (
+            <span className="text-slate-500">
+              ล่าสุด: {new Date(lastDoubleBackupTime).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+            </span>
+          )}
+        </div>
       </div>
 
       {/* KPI Highlight Summary Cards */}
@@ -518,178 +484,6 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
         </div>
       </div>
 
-      {/* ----------------------------------------------------------------- */}
-      {/* Month-over-Month (MoM) Summary: เดือนปัจจุบันเทียบกับเดือนก่อนหน้า */}
-      {/* ----------------------------------------------------------------- */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs space-y-4">
-        {/* Header with Title and Month Picker */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
-                สรุปการใช้ฟอยล์: {momData.currMonthName}
-                <span className="text-xs font-normal text-slate-500">
-                  (เทียบกับ {momData.prevMonthName})
-                </span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                เปรียบเทียบสถิติการใช้งาน ยอดตัดลงแผ่นจริง ของเสีย NG และสัดส่วนแต่ละลาย
-              </p>
-            </div>
-          </div>
-
-          {/* Month Selector dropdown */}
-          <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-xs">
-            <Calendar className="w-3.5 h-3.5 text-slate-500" />
-            <span className="text-slate-600 font-medium">เลือกเดือน:</span>
-            <select
-              value={targetMonthIndex}
-              onChange={(e) => setTargetMonthIndex(Number(e.target.value))}
-              className="font-bold text-slate-900 bg-transparent border-none outline-none cursor-pointer"
-            >
-              {MONTH_NAMES_TH.map((m, idx) => (
-                <option key={m.num} value={idx}>
-                  {m.full} ({chartData[idx]?.totalUsed > 0 ? `${formatMeters(chartData[idx].totalUsed)} ม.` : 'ไม่มีการตัด'})
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* 4 Comparison Metric Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* 1. ยอดใช้จริงลงแผ่น (Used Meters) */}
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">1. ยอดใช้จริง (ลงแผ่น)</span>
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
-                momData.diffUsed > 0
-                  ? 'bg-amber-100 text-amber-900'
-                  : momData.diffUsed < 0
-                  ? 'bg-blue-100 text-blue-900'
-                  : 'bg-slate-200 text-slate-700'
-              }`}>
-                {momData.diffUsed > 0 ? <ArrowUpRight className="w-3 h-3 text-amber-700" /> : momData.diffUsed < 0 ? <ArrowDownRight className="w-3 h-3 text-blue-700" /> : <Minus className="w-3 h-3" />}
-                {momData.diffUsed > 0 ? `+${formatMeters(momData.diffUsed)} ม.` : momData.diffUsed < 0 ? `${formatMeters(momData.diffUsed)} ม.` : 'เท่าเดิม'}
-              </span>
-            </div>
-            <div className="text-xl sm:text-2xl font-black font-mono text-slate-900">
-              {formatMeters(momData.currM.totalUsed)} <span className="text-xs font-normal text-slate-500">ม.</span>
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1 border-t border-slate-200/60">
-              <span>เดือนก่อนหน้า:</span>
-              <span className="font-bold text-slate-700">{formatMeters(momData.prevTotalUsed)} ม.</span>
-              <span className="font-bold text-slate-700">({momData.percentUsed > 0 ? `+${momData.percentUsed}%` : `${momData.percentUsed}%`})</span>
-            </div>
-          </div>
-
-          {/* 2. ของเสีย NG */}
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">2. ของเสีย NG</span>
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
-                momData.diffNg > 0
-                  ? 'bg-rose-100 text-rose-800'
-                  : momData.diffNg < 0
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-slate-200 text-slate-700'
-              }`}>
-                {momData.diffNg > 0 ? <ArrowUpRight className="w-3 h-3 text-rose-600" /> : momData.diffNg < 0 ? <ArrowDownRight className="w-3 h-3 text-emerald-600" /> : <Minus className="w-3 h-3" />}
-                {momData.diffNg > 0 ? `+${formatMeters(momData.diffNg)} ม.` : momData.diffNg < 0 ? `${formatMeters(momData.diffNg)} ม.` : 'เท่าเดิม'}
-              </span>
-            </div>
-            <div className="text-xl sm:text-2xl font-black font-mono text-rose-600">
-              {formatMeters(momData.currM.totalNg)} <span className="text-xs font-normal text-slate-500">ม.</span>
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1 border-t border-slate-200/60">
-              <span>เดือนก่อนหน้า:</span>
-              <span className="font-bold text-slate-700">{formatMeters(momData.prevTotalNg)} ม.</span>
-              <span>
-                (เสีย {momData.currM.totalDeducted > 0 ? ((momData.currM.totalNg / momData.currM.totalDeducted) * 100).toFixed(1) : 0}%)
-              </span>
-            </div>
-          </div>
-
-          {/* 3. รวมตัดสต๊อกทั้งหมด (Used + NG) */}
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">3. รวมตัดสต๊อก</span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 font-mono">
-                {momData.diffDeducted > 0 ? `+${formatMeters(momData.diffDeducted)} ม.` : `${formatMeters(momData.diffDeducted)} ม.`}
-              </span>
-            </div>
-            <div className="text-xl sm:text-2xl font-black font-mono text-slate-900">
-              {formatMeters(momData.currM.totalDeducted)} <span className="text-xs font-normal text-slate-500">ม.</span>
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1 border-t border-slate-200/60">
-              <span>เดือนก่อนหน้า:</span>
-              <span className="font-bold text-slate-700">{formatMeters(momData.prevTotalDeducted)} ม.</span>
-            </div>
-          </div>
-
-          {/* 4. จำนวนใบสั่งตัด SO */}
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">4. จำนวนคำสั่งตัด</span>
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full font-mono ${
-                momData.diffCutCount > 0 ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-700'
-              }`}>
-                {momData.diffCutCount > 0 ? `+${momData.diffCutCount} ใบ` : `${momData.diffCutCount} ใบ`}
-              </span>
-            </div>
-            <div className="text-xl sm:text-2xl font-black font-mono text-slate-900">
-              {momData.currM.cutCount} <span className="text-xs font-normal text-slate-500">ครั้ง/SO</span>
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1 border-t border-slate-200/60">
-              <span>เดือนก่อนหน้า:</span>
-              <span className="font-bold text-slate-700">{momData.prevCutCount} ครั้ง/SO</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Pattern-by-Pattern Breakdown */}
-        <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/70 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-700 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-amber-600" />
-              เปรียบเทียบการใช้งานแยกตามลายฟอยล์ ({momData.currMonthName} vs {momData.prevMonthName})
-            </span>
-            <span className="text-[11px] text-slate-500 font-mono">หน่วย: เมตร</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-            {momData.patternBreakdown.map((p) => {
-              const style = getCanonicalPatternStyle(p.pattern);
-              return (
-                <div key={p.pattern} className="bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 truncate">
-                      {p.pattern}
-                    </span>
-                    <span
-                      className="w-2.5 h-2.5 rounded-full border border-slate-300"
-                      style={{ backgroundColor: PATTERN_HEX_COLORS[normalizePattern(p.pattern)] || '#cbd5e1' }}
-                    />
-                  </div>
-                  <div className="text-sm font-bold font-mono text-slate-900">
-                    {formatMeters(p.currVal)} <span className="text-[10px] font-normal text-slate-400">ม.</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                    <span>ก่อน: {formatMeters(p.prevVal)}</span>
-                    <span className={p.diff > 0 ? 'text-amber-700 font-bold' : p.diff < 0 ? 'text-blue-700 font-bold' : 'text-slate-400'}>
-                      {p.diff > 0 ? `+${formatMeters(p.diff)}` : p.diff < 0 ? formatMeters(p.diff) : '0'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
       {/* Control Panel: Year, Mode, Metric & Filters */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50/90 rounded-2xl border border-slate-200/80 text-xs">
         {/* Left: Year & Range Selector */}
@@ -745,6 +539,28 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
               }`}
             >
               เฉพาะ NG
+            </button>
+          </div>
+
+          {/* Range: 12 months vs active vs recent */}
+          <div className="flex items-center bg-white p-0.5 rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setViewRange('all_year')}
+              className={`px-2 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                viewRange === 'all_year' ? 'bg-amber-100 text-amber-900 font-bold' : 'text-slate-600'
+              }`}
+            >
+              12 เดือน
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewRange('active_only')}
+              className={`px-2 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                viewRange === 'active_only' ? 'bg-amber-100 text-amber-900 font-bold' : 'text-slate-600'
+              }`}
+            >
+              เฉพาะเดือนที่มีตัด
             </button>
           </div>
         </div>

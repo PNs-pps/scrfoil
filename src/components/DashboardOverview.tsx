@@ -136,19 +136,64 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </p>
         </div>
 
-        {onOpenMonthlySummary && (
-          <div className="flex items-center gap-2 sm:self-center shrink-0">
+        <div className="flex items-center flex-wrap gap-2 sm:self-center shrink-0">
+          {onDoubleBackup && (
+            <button
+              type="button"
+              onClick={() => onDoubleBackup()}
+              disabled={isDoubleBackingUp}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-amber-400/40 text-amber-300 text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              title="สำรองข้อมูล 2 ชั้นทันที (Cloud Firestore + Local Snapshot + ดาวน์โหลด JSON)"
+            >
+              {isDoubleBackingUp ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+              ) : (
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              )}
+              <span>สำรอง 2 ชั้น</span>
+            </button>
+          )}
+
+          {onOpenMonthlySummary && (
             <button
               type="button"
               onClick={onOpenMonthlySummary}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
               title="เปิดหน้าต่างสรุปการใช้ฟอยล์รายเดือนและส่งออกรายงาน"
             >
               <BarChart2 className="w-4 h-4 text-emerald-400" />
               <span>สรุปรายเดือน</span>
             </button>
-          </div>
-        )}
+          )}
+
+          {onOpenBatchImport && (
+            <button
+              type="button"
+              onClick={onOpenBatchImport}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              title="อัปโหลด SO ตัดฟอยล์เป็นชุด"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>อัปโหลด SO ตัดฟอยล์</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => onOpenCutModal()}
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Scissors className="w-4 h-4 stroke-[2.5]" />
+            <span>ตัดสต๊อก</span>
+          </button>
+
+          <button
+            onClick={onOpenAddModal}
+            className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Package className="w-4 h-4 text-amber-600" />
+            <span>+ รับเข้าม้วนใหม่</span>
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards Grid */}

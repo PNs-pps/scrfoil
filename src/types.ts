@@ -111,38 +111,3 @@ export interface CutHistoryItem {
   nonSoReason?: string;
   notes?: string;
 }
-
-/**
- * ตัวเลือกชนิดเหล็ก สำหรับงานตัด SO ไม่ใช้ฟอยล์ ผลิต PU Sandwich
- * 1. เหล็กนอก
- * 2. เหล็กBlue Scope
- * 3. อื่นๆ
- */
-export type SteelOriginType = 'เหล็กนอก' | 'เหล็กBlue Scope' | 'อื่นๆ';
-
-export interface PuSandwichCutRecord {
-  id: string;
-  soNumber: string;               // รหัสใบสั่งตัด SO
-  productionDate: string;         // วันที่ตัด/ผลิต (YYYY-MM-DD)
-  // 5 ช่องคีย์หลัก:
-  coilColor: string;              // 1. สีคอล์ย
-  thickness: string;              // 2. ความหนา (เช่น 0.35, 0.40)
-  coilNumber: string;             // 3. เบอร์คอล์ย
-  weightBefore: number;           // 4. น้ำหนักก่อนใช้ (กก.)
-  weightAfter: number;            // 5. น้ำหนักหลังใช้ (กก.)
-  // ช่องตัวเลือก 1 ช่อง:
-  steelOrigin: SteelOriginType;   // 1. เหล็กนอก 2. เหล็กBlue Scope 3. อื่นๆ
-  customSteelOrigin?: string;     // ระบุรายละเอียดกรณีเลือก "อื่นๆ"
-  // คำนวณอัตโนมัติ:
-  weightUsed: number;             // น้ำหนักที่ใช้จริง = weightBefore - weightAfter (กก.)
-  // ความยาวตามใบงาน SO:
-  soLengthMeters?: number;        // ความยาวตามใบงาน SO (เมตร)
-  // ยอด NG (ของเสีย):
-  ngKg?: number;                  // ยอด NG เสียหาย (กก.)
-  ngMeters?: number;              // ยอด NG เสียหาย (เมตร)
-  // ข้อมูลเสริม:
-  lengthMeters?: number;          // ความยาวที่ผลิต (ม.)
-  recordedBy?: string;            // ผู้บันทึก
-  notes?: string;                 // หมายเหตุ
-  createdAt: string;              // Timestamp บันทึก
-}

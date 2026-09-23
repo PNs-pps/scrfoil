@@ -70,11 +70,5 @@ service cloud.firestore {
       allow update: if isValidId(recordId) && isValidStockCutRecord(request.resource.data);
       allow delete: if isValidId(recordId);
     }
-
-    // PU Sandwich cut records (no foil) collection
-    match /pu_sandwich_cuts/{recordId} {
-      allow read: if true;
-      allow write: if true;
-    }
   }
 }
