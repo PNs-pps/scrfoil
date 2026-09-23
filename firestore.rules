@@ -42,7 +42,10 @@ service cloud.firestore {
 
     // Foil rolls inventory collection
     match /foil_rolls/{rollId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isValidId(rollId) && isValidFoilRoll(request.resource.data);
+      allow update: if isValidId(rollId) && isValidFoilRoll(request.resource.data);
+      allow delete: if isValidId(rollId);
 
       // Cuts subcollection per roll
       match /cuts/{cutId} {
@@ -62,12 +65,16 @@ service cloud.firestore {
 
     // Stock cut records collection
     match /stock_cut_records/{recordId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isValidId(recordId) && isValidStockCutRecord(request.resource.data);
+      allow update: if isValidId(recordId) && isValidStockCutRecord(request.resource.data);
+      allow delete: if isValidId(recordId);
     }
 
     // PU Sandwich cut records (no foil) collection
     match /pu_sandwich_cuts/{recordId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if true;
     }
   }
 }
