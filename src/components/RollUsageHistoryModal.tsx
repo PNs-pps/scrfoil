@@ -132,12 +132,15 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         });
 
         const merged = Array.from(map.values()).sort((a, b) => {
-          const timeB = new Date(b.createdAt || b.cutDate || b.usageDate || 0).getTime();
-          const timeA = new Date(a.createdAt || a.cutDate || a.usageDate || 0).getTime();
-          return timeB - timeA;
-        });
+  // เรียงลำดับจากยอดคงเหลือ "น้อย" ไป "มาก" 
+  // (ทำให้รายการที่ถูกตัดยอดล่าสุด ซึ่งเหลือน้อยที่สุด อยู่บรรทัดบนสุดเสมอ)
+  const remA = Number(a.remainingAfter) || 0;
+  const remB = Number(b.remainingAfter) || 0;
+  
+  return remA - remB;
+});
 
-        setHistoryItems(merged);
+setHistoryItems(merged);
       },
       (err: any) => {
         setIsLoading(false);
