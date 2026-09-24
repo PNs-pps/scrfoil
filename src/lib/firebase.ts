@@ -428,18 +428,23 @@ export async function executeCutBatchInFirestore(
     // 4. Write everything atomically within the transaction.
     tx.set(rollRef, sanitizeForFirestore(updatedRoll), { merge: true });
 
+    let runningBatchChain = freshRemaining;
     newRecords.forEach((record) => {
       const safeCutMeters = Math.abs(Number(record.usedMeters || 0));
       const safeNgMeters = Math.abs(Number(record.ngMeters || 0));
       const safeTotalDeducted = Math.abs(Number(record.totalDeducted || (safeCutMeters + safeNgMeters)));
+
+      const stepBefore = runningBatchChain;
+      const stepAfter = round2(Math.max(0, stepBefore - safeTotalDeducted));
+      runningBatchChain = stepAfter;
 
       const safeRecord: StockCutRecord = {
         ...record,
         usedMeters: safeCutMeters,
         ngMeters: safeNgMeters,
         totalDeducted: safeTotalDeducted,
-        remainingBefore: freshRemaining,
-        remainingAfter: newRemaining,
+        remainingBefore: stepBefore,
+        remainingAfter: stepAfter,
         notes: record.notes || '',
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
         usageDate: record.usageDate || new Date().toISOString().split('T')[0],
@@ -456,8 +461,8 @@ export async function executeCutBatchInFirestore(
         usedMeters: safeCutMeters,
         ngMeters: safeNgMeters,
         totalDeducted: safeTotalDeducted,
-        remainingBefore: freshRemaining,
-        remainingAfter: newRemaining,
+        remainingBefore: stepBefore,
+        remainingAfter: stepAfter,
         cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
@@ -583,23 +588,30 @@ export async function executeMultiRollCutBatchInFirestore(
       tx.set(rollRef, sanitizeForFirestore(rollToSave), { merge: true });
     });
 
+    const runningChainByRoll = new Map<string, number>();
+    updatedRolls.forEach((r: any) => {
+      runningChainByRoll.set(r.id, r._freshRemainingBefore ?? 0);
+    });
+
     batchRecords.forEach((record) => {
       if (alreadyWrittenIds.has(record.id)) return;
       const parentRoll: any = updatedRolls.find((r) => r.id === record.foilId);
-      const freshRemainingBefore = parentRoll?._freshRemainingBefore ?? record.remainingBefore ?? 0;
-      const remainingAfterRoll = parentRoll?.remainingMeters ?? record.remainingAfter ?? 0;
-
       const safeCutMeters = Math.abs(Number(record.usedMeters || 0));
       const safeNgMeters = Math.abs(Number(record.ngMeters || 0));
       const safeTotalDeducted = Math.abs(Number(record.totalDeducted || (safeCutMeters + safeNgMeters)));
+
+      const currentBalance = runningChainByRoll.get(record.foilId) ?? (parentRoll?._freshRemainingBefore ?? record.remainingBefore ?? 0);
+      const stepBefore = currentBalance;
+      const stepAfter = round2(Math.max(0, stepBefore - safeTotalDeducted));
+      runningChainByRoll.set(record.foilId, stepAfter);
 
       const safeRecord: StockCutRecord = {
         ...record,
         usedMeters: safeCutMeters,
         ngMeters: safeNgMeters,
         totalDeducted: safeTotalDeducted,
-        remainingBefore: freshRemainingBefore,
-        remainingAfter: remainingAfterRoll,
+        remainingBefore: stepBefore,
+        remainingAfter: stepAfter,
       };
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
       tx.set(recordRef, sanitizeForFirestore(safeRecord));
@@ -611,8 +623,8 @@ export async function executeMultiRollCutBatchInFirestore(
         usedMeters: safeCutMeters,
         ngMeters: safeNgMeters,
         totalDeducted: safeTotalDeducted,
-        remainingBefore: freshRemainingBefore,
-        remainingAfter: remainingAfterRoll,
+        remainingBefore: stepBefore,
+        remainingAfter: stepAfter,
         cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
@@ -768,6 +780,150 @@ export async function reconcileRollsInFirestore(
 
   markLocalWrite(adjustments.map((a) => a.rollId));
   return updatedRolls;
+}
+
+/**
+ * Realign and continuous-chain recalculation for all cut records of a specific roll:
+ * Sets remainingBefore and remainingAfter for each cut record in chronological order,
+ * eliminating all jumps, and updates the parent roll's remainingMeters (unless zeroed out).
+ */
+export async function realignRollCutChainInFirestore(
+  rollId: string,
+  recordIds: string[]
+): Promise<{ updatedRoll: FoilRoll; updatedRecords: StockCutRecord[] }> {
+  if (!rollId || !recordIds || recordIds.length === 0) {
+    throw new Error('ไม่พบข้อมูลรายการตัดที่ต้องการปรับยอดความต่อเนื่อง');
+  }
+
+  const rollRef = doc(db, ROLLS_COLLECTION, rollId);
+  const recordRefs = recordIds.map((id) => doc(db, RECORDS_COLLECTION, id));
+
+  const result = await runTransaction(db, async (tx) => {
+    // 1. All reads first
+    const [rollSnap, ...recordSnaps] = await Promise.all([
+      tx.get(rollRef),
+      ...recordRefs.map((ref) => tx.get(ref)),
+    ]);
+
+    if (!rollSnap.exists()) {
+      throw new Error(`ไม่พบม้วนฟอยล์ ${rollId} ในระบบ`);
+    }
+
+    const serverRoll = rollSnap.data() as FoilRoll;
+    const records: StockCutRecord[] = [];
+
+    recordSnaps.forEach((snap) => {
+      if (snap.exists()) {
+        records.push(snap.data() as StockCutRecord);
+      }
+    });
+
+    if (records.length === 0) {
+      throw new Error('ไม่พบรายการตัดในระบบที่สามารถปรับความต่อเนื่องได้');
+    }
+
+    // Sort chronologically (oldest cut first)
+    const sortedRecords = [...records].sort((a, b) => {
+      const tA = new Date(a.createdAt || a.usageDate || a.recordedDate || 0).getTime();
+      const tB = new Date(b.createdAt || b.usageDate || b.recordedDate || 0).getTime();
+      return tA - tB;
+    });
+
+    let runningBalance = Number(serverRoll.totalMeters || 1000);
+    let totalUsed = 0;
+    let totalNg = 0;
+    const updatedRecords: StockCutRecord[] = [];
+
+    sortedRecords.forEach((rec) => {
+      const safeUsed = Math.abs(Number(rec.usedMeters || 0));
+      const safeNg = Math.abs(Number(rec.ngMeters || 0));
+      const safeTotal = Math.abs(Number(rec.totalDeducted || (safeUsed + safeNg)));
+
+      totalUsed = round2(totalUsed + safeUsed);
+      totalNg = round2(totalNg + safeNg);
+
+      const stepBefore = runningBalance;
+      const stepAfter = round2(Math.max(0, stepBefore - safeTotal));
+      runningBalance = stepAfter;
+
+      const updatedRec: StockCutRecord = {
+        ...rec,
+        usedMeters: safeUsed,
+        ngMeters: safeNg,
+        totalDeducted: safeTotal,
+        remainingBefore: stepBefore,
+        remainingAfter: stepAfter,
+      };
+      updatedRecords.push(updatedRec);
+
+      // Write cut record in RECORDS_COLLECTION
+      const recRef = doc(db, RECORDS_COLLECTION, rec.id);
+      tx.set(recRef, sanitizeForFirestore(updatedRec), { merge: true });
+
+      // Write to subcollection cut_history and cuts
+      const historyItem: CutHistoryItem = {
+        id: rec.id,
+        soNumber: rec.soNumber || '',
+        cutMeters: safeUsed,
+        usedMeters: safeUsed,
+        ngMeters: safeNg,
+        totalDeducted: safeTotal,
+        remainingBefore: stepBefore,
+        remainingAfter: stepAfter,
+        cutDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
+        usageDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
+        recordedDate: rec.recordedDate || new Date().toISOString().split('T')[0],
+        recordedBy: rec.recordedBy || 'ช่างคุมเครื่อง',
+        notes: rec.notes || '',
+        createdAt: rec.createdAt || new Date().toISOString(),
+        cutType: rec.cutType || 'so',
+        nonSoReason: rec.nonSoReason || '',
+        rollId: serverRoll.id,
+        lotNumber: serverRoll.lotNumber,
+        rollNumber: serverRoll.rollNumber,
+        width: serverRoll.width,
+        pattern: serverRoll.pattern,
+      };
+
+      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', rec.id), sanitizeForFirestore(historyItem), { merge: true });
+      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem), { merge: true });
+    });
+
+    const isZeroed = Boolean(
+      serverRoll.isZeroedOut ||
+      (serverRoll.remainingMeters === 0 && (serverRoll.status === 'depleted' || serverRoll.manualZeroedOriginalMeters !== undefined))
+    );
+
+    const finalRemaining = isZeroed ? 0 : runningBalance;
+
+    const updatedRoll: FoilRoll = {
+      ...serverRoll,
+      remainingMeters: finalRemaining,
+      usedMeters: totalUsed,
+      ngMeters: totalNg,
+      status: finalRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+      recentCuts: updatedRecords.slice(-50).map((r) => ({
+        id: r.id,
+        soNumber: r.soNumber || '',
+        cutType: r.cutType || 'so',
+        usedMeters: r.usedMeters,
+        ngMeters: r.ngMeters,
+        totalDeducted: r.totalDeducted,
+        remainingAfter: r.remainingAfter ?? 0,
+        usageDate: r.usageDate,
+        recordedDate: r.recordedDate,
+        recordedBy: r.recordedBy,
+        notes: r.notes,
+      })),
+    };
+
+    tx.set(rollRef, sanitizeForFirestore(updatedRoll), { merge: true });
+
+    return { updatedRoll, updatedRecords };
+  });
+
+  markLocalWrite([rollId, ...recordIds]);
+  return result;
 }
 
 function round2(num: number): number {

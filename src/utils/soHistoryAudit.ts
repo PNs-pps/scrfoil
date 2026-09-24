@@ -2,7 +2,8 @@ import { FoilRoll, StockCutRecord } from '../types';
 import { round2 } from './formatters';
 
 export type SOBugType = 
-  | 'DUPLICATE_SO_EXACT'      // รหัส SO เดียวกันและยอดเมตรเท่ากันเป๊ะ (บันทึกซ้ำซ้อน)
+  | 'DUPLICATE_SO_EXACT'      // รหัส SO เดียวกันและยอดเมตรเท่ากันเป๊ะ (กรอกซ้ำเพราะประวัติไม่ขึ้น)
+  | 'SPLIT_PRODUCTION_BATCH'  // รหัส SO เดียวกันแต่เมตรต่างกัน (แบ่งรอบการผลิตปกติ)
   | 'DUPLICATE_SO_MULTIPLE'   // รหัส SO เดียวกันถูกตัดมากกว่า 1 ครั้งในม้วนนี้
   | 'METER_JUMP'              // ยอดคงเหลือโซ่ขาด ยอดก่อนตัดไม่ตรงกับยอดหลังตัดของใบก่อนหน้า
   | 'MATH_DISCREPANCY'        // เลขในใบงานไม่ตรงกัน (used + ng != total หรือ before - total != after)
@@ -19,6 +20,7 @@ export interface SOBugIssue {
   description: string;
   soNumber?: string;
   recordId?: string;
+  duplicateRecordIds?: string[];
   affectedMeters?: number;
   expectedValue?: number;
   actualValue?: number;
@@ -36,6 +38,9 @@ export interface TimelineStep {
   isMathValid: boolean;
   isDuplicateSO: boolean;
   duplicateCount: number;
+  isExactDuplicateSO: boolean;
+  isSplitProduction: boolean;
+  roundIndex?: number;
 }
 
 export interface RollSOAuditResult {
@@ -104,46 +109,58 @@ export function auditRollSOHistory(
     soMap.set(soKey, list);
   });
 
-  // 1. Check for Duplicate SOs
+  // 1. Check for Duplicate SOs vs Split Production Rounds
   soMap.forEach((cuts, soKey) => {
     if (cuts.length > 1) {
-      // Check if cuts have exact same meter amounts
-      const firstCutMeters = cuts[0].totalDeducted;
-      const hasExactMeters = cuts.every((c) => Math.abs(c.totalDeducted - firstCutMeters) < 0.01);
-      
-      // Check timestamps: if cuts were created within 10 minutes of each other
-      let isWithinMinutes = false;
-      for (let i = 0; i < cuts.length - 1; i++) {
-        const t1 = new Date(cuts[i].createdAt || 0).getTime();
-        const t2 = new Date(cuts[i + 1].createdAt || 0).getTime();
-        if (t1 > 0 && t2 > 0 && Math.abs(t2 - t1) < 10 * 60 * 1000) {
-          isWithinMinutes = true;
-          break;
+      // Group cuts by their cut meter amounts to detect accidental duplicates (exact same meters)
+      const meterGroups = new Map<number, StockCutRecord[]>();
+      cuts.forEach((c) => {
+        const roundedMeters = round2(c.totalDeducted || (c.usedMeters + c.ngMeters));
+        let matchedKey: number | null = null;
+        for (const k of meterGroups.keys()) {
+          if (Math.abs(k - roundedMeters) < 0.05) {
+            matchedKey = k;
+            break;
+          }
         }
-      }
+        const key = matchedKey !== null ? matchedKey : roundedMeters;
+        const group = meterGroups.get(key) || [];
+        group.push(c);
+        meterGroups.set(key, group);
+      });
 
-      if (hasExactMeters && isWithinMinutes) {
+      let hasExactDup = false;
+      meterGroups.forEach((group, meterKey) => {
+        if (group.length > 1) {
+          hasExactDup = true;
+          const duplicateRecordIds = group.slice(1).map((g) => g.id);
+          issues.push({
+            id: `dup-exact-${roll.id}-${soKey}-${meterKey}`,
+            type: 'DUPLICATE_SO_EXACT',
+            severity: 'error',
+            title: `⚠️ พบการตัด SO ${soKey} ซ้ำ ยอดเมตรเท่ากันเป๊ะ (${meterKey} ม.)`,
+            description: `พบการตัด SO ${soKey} ซ้ำกัน ${group.length} ครั้ง ยอดครั้งละ ${meterKey} ม. เท่ากันเป๊ะ มักเกิดจากบันทึกแล้วประวัติไม่ขึ้นทันที จึงกรอกซ้ำ ทำให้สต๊อกถูกหักเบิ้ลไป ${round2(meterKey * (group.length - 1))} ม.`,
+            soNumber: soKey,
+            recordId: group[0].id,
+            duplicateRecordIds,
+            affectedMeters: round2(meterKey * (group.length - 1)),
+            suggestedAction: 'กดยกเลิกหรือลบรายการตัดที่ซ้ำออก 1 รายการเพื่อคืนยอดสต๊อก',
+            timestamp: group[1].createdAt || group[1].usageDate,
+          });
+        }
+      });
+
+      // If cuts have different meters, this is legitimate split production (แบ่งรอบการผลิต)
+      if (!hasExactDup) {
         issues.push({
-          id: `dup-exact-${roll.id}-${soKey}`,
-          type: 'DUPLICATE_SO_EXACT',
-          severity: 'error',
-          title: `พบ SO ${soKey} บันทึกซ้ำยอดเท่ากัน (${firstCutMeters} ม.) ในเวลาใกล้เคียงกัน`,
-          description: `พบการบันทึก SO ${soKey} จำนวน ${cuts.length} ครั้ง ยอดตัดครั้งละ ${firstCutMeters} ม. อาจเกิดจากการกดปุ่มบันทึกซ้ำหรือซิงค์ซ้ำซ้อน ทำให้ยอดสต๊อกถูกตัดเบิ้ล`,
-          soNumber: soKey,
-          affectedMeters: round2(firstCutMeters * (cuts.length - 1)),
-          suggestedAction: 'ตรวจสอบประวัติและยกเลิกรายการตัดที่ซ้ำซ้อนออก 1 รายการ',
-          timestamp: cuts[0].createdAt,
-        });
-      } else {
-        issues.push({
-          id: `dup-multi-${roll.id}-${soKey}`,
-          type: 'DUPLICATE_SO_MULTIPLE',
-          severity: 'warning',
-          title: `รหัส SO ${soKey} มีการตัดใช้งาน ${cuts.length} ครั้งในม้วนนี้`,
-          description: `มีการตัด SO ${soKey} รวม ${cuts.length} รายการ (รวมตัดทั้งสิ้น ${round2(cuts.reduce((s, c) => s + c.totalDeducted, 0))} ม.)`,
+          id: `split-prod-${roll.id}-${soKey}`,
+          type: 'SPLIT_PRODUCTION_BATCH',
+          severity: 'info',
+          title: `SO ${soKey} แบ่งรอบการผลิต (${cuts.length} รอบ)`,
+          description: `พบ SO ${soKey} ในม้วนนี้ ${cuts.length} ครั้ง โดยใช้จำนวนเมตรต่างกัน (${cuts.map((c, i) => `รอบ ${i + 1}: ${round2(c.totalDeducted)}ม.`).join(', ')}) ซึ่งเป็นการแบ่งรอบการผลิตตามปกติ`,
           soNumber: soKey,
           affectedMeters: round2(cuts.reduce((s, c) => s + c.totalDeducted, 0)),
-          suggestedAction: 'ตรวจสอบว่าเป็นใบงานที่มีการตัดเบิกหลายช่วงจริงหรือไม่',
+          suggestedAction: 'ไม่มีข้อผิดพลาด (แบ่งรอบผลิตตามใบงาน)',
           timestamp: cuts[0].createdAt,
         });
       }
@@ -237,7 +254,16 @@ export function auditRollSOHistory(
     runningRemaining = round2(Math.max(0, expectedBefore - safeTotal));
 
     const soKey = (rec.soNumber || '').trim().toUpperCase();
-    const dupCount = (soMap.get(soKey) || []).length;
+    const allCutsForSO = soMap.get(soKey) || [];
+    const dupCount = allCutsForSO.length;
+    
+    // Check if another cut of this SO has exact same meters
+    const exactMatches = allCutsForSO.filter(
+      (c) => Math.abs((c.totalDeducted || (c.usedMeters + c.ngMeters)) - safeTotal) < 0.05
+    );
+    const isExactDuplicateSO = exactMatches.length > 1;
+    const isSplitProduction = dupCount > 1 && !isExactDuplicateSO;
+    const roundIndex = allCutsForSO.findIndex((c) => c.id === rec.id) + 1;
 
     timeline.push({
       index: idx + 1,
@@ -249,6 +275,9 @@ export function auditRollSOHistory(
       isMathValid,
       isDuplicateSO: dupCount > 1,
       duplicateCount: dupCount,
+      isExactDuplicateSO,
+      isSplitProduction,
+      roundIndex,
     });
   });
 

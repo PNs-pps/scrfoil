@@ -13,11 +13,12 @@ import {
   Layers, 
   Clock, 
   Scissors, 
-  ArrowRight,
-  Info,
-  Sparkles,
-  RefreshCw,
-  AlertCircle
+  ArrowRight, 
+  Info, 
+  Sparkles, 
+  RefreshCw, 
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { 
   auditAllRollsSOHistory, 
@@ -37,6 +38,8 @@ interface SOBugInspectorModalProps {
   onFixMultipleRolls: (
     adjustments: Array<{ rollId: string; expectedRemaining: number; sumUsed: number; sumNg: number }>
   ) => Promise<void>;
+  onRealignChain?: (rollId: string, recordIds: string[]) => Promise<void>;
+  onDeleteRecord?: (recordId: string) => Promise<void>;
   canEdit: boolean;
 }
 
@@ -50,6 +53,8 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
   initialRollId,
   onFixRoll,
   onFixMultipleRolls,
+  onRealignChain,
+  onDeleteRecord,
   canEdit,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +64,20 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
   const [isBulkFixing, setIsBulkFixing] = useState(false);
   const [showBulkConsent, setShowBulkConsent] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
+
+  // States for Accept Re-chain and Delete Duplicate modals
+  const [realignConfirmTarget, setRealignConfirmTarget] = useState<RollSOAuditResult | null>(null);
+  const [realignConsentChecked, setRealignConsentChecked] = useState(false);
+  const [isRealigning, setIsRealigning] = useState<string | null>(null);
+
+  const [deleteRecordConfirmTarget, setDeleteRecordConfirmTarget] = useState<{
+    recordId: string;
+    soNumber: string;
+    usedMeters: number;
+    rollLot: string;
+    rollNumber: string;
+  } | null>(null);
+  const [isDeletingRecord, setIsDeletingRecord] = useState(false);
 
   // Run audit engine on all rolls
   const auditResults = useMemo(() => {
@@ -344,6 +363,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
               const hasErrors = res.hasErrors;
               const hasWarnings = res.hasWarnings;
               const isFixing = fixingRollId === res.rollId;
+              const hasChainJump = res.timeline.some((step) => !step.isChainValid);
 
               return (
                 <div
@@ -385,6 +405,11 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                               ยอดตรงกับ SO ✅
                             </span>
                           )}
+                          {hasChainJump && (
+                            <span className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-300 font-bold text-[11px] rounded-md animate-pulse">
+                              โซ่ขาด/ยอดกระโดด ⚠️
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-xs text-slate-500 font-mono">
@@ -409,6 +434,24 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                             {formatMeters(res.calculatedRemaining)} ม.
                           </span>
                         </div>
+
+                        {/* Accept button for Re-chaining SO continuity */}
+                        {canEdit && onRealignChain && hasChainJump && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRealignConfirmTarget(res);
+                              setRealignConsentChecked(false);
+                            }}
+                            disabled={isRealigning === res.rollId}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                            title="Accept ปรับยอดความต่อเนื่อง SO (Re-chain)"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Accept ปรับความต่อเนื่อง</span>
+                            <span className="sm:hidden">Accept</span>
+                          </button>
+                        )}
 
                         {canEdit && res.canAutoAdjust && (
                           <button
@@ -467,6 +510,31 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                   💡 แนะนำ: {iss.suggestedAction}
                                 </span>
                               )}
+
+                              {/* Quick Action: Delete duplicate record if exact duplicate detected */}
+                              {iss.type === 'DUPLICATE_SO_EXACT' && onDeleteRecord && iss.duplicateRecordIds && iss.duplicateRecordIds.length > 0 && (
+                                <div className="pt-1.5 flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const dupRec = res.timeline.find((t) => t.record.id === iss.duplicateRecordIds?.[0])?.record;
+                                      if (dupRec) {
+                                        setDeleteRecordConfirmTarget({
+                                          recordId: dupRec.id,
+                                          soNumber: dupRec.soNumber,
+                                          usedMeters: dupRec.usedMeters,
+                                          rollLot: res.lotNumber,
+                                          rollNumber: res.rollNumber,
+                                        });
+                                      }
+                                    }}
+                                    className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>ลบรายการซ้ำออก 1 รายการเพื่อคืนยอด {formatMeters(iss.affectedMeters)} ม.</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -477,15 +545,73 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                   {/* Expanded Timeline Table */}
                   {isExpanded && (
                     <div className="bg-slate-50 p-4 border-t border-slate-200 animate-in fade-in">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          <span>ไทม์ไลน์การตัดเรียงตามลำดับเวลา ({res.timeline.length} รายการ)</span>
-                        </h4>
-                        <span className="text-[11px] text-slate-500">
-                          ตรวจสอบความต่อเนื่องของยอดคงเหลือแต่ละใบงาน
-                        </span>
+                      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                            <span>ไทม์ไลน์การตัดเรียงตามลำดับเวลา ({res.timeline.length} รายการ)</span>
+                          </h4>
+                          {hasChainJump && (
+                            <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
+                              พบจุดยอดกระโดด
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-slate-500">
+                            ตรวจสอบความต่อเนื่องของยอดคงเหลือแต่ละใบงาน
+                          </span>
+                          {canEdit && onRealignChain && hasChainJump && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRealignConfirmTarget(res);
+                                setRealignConsentChecked(false);
+                              }}
+                              disabled={isRealigning === res.rollId}
+                              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>⚡ Accept ปรับยอดความต่อเนื่อง</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Chain Jump Prompt Banner */}
+                      {hasChainJump && (
+                        <div className="mb-3 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between flex-wrap gap-3 animate-in fade-in">
+                          <div className="flex items-start gap-2.5 text-xs text-amber-950 flex-1 min-w-[240px]">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <div className="font-bold text-amber-900 flex items-center gap-2">
+                                <span>ตรวจพบยอดคงเหลือก่อนตัด/หลังตัดกระโดด ไม่ต่อเนื่องกัน</span>
+                                <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
+                                  {res.issues.filter((i) => i.type === 'METER_JUMP').length} จุดกระโดด
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                                กดปุ่ม <strong>Accept</strong> เพื่อให้ระบบคำนวณยอดคงเหลือก่อนตัด-หลังตัดของทุกใบงานใหม่ตั้งแต่เมตรเริ่มต้น ({formatMeters(res.totalMeters)} ม.) เรียงตามลำดับเวลา ให้เชื่อมต่อกันอย่างสมบูรณ์ ไม่มียอดกระโดด
+                              </p>
+                            </div>
+                          </div>
+                          {canEdit && onRealignChain && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRealignConfirmTarget(res);
+                                setRealignConsentChecked(false);
+                              }}
+                              disabled={isRealigning === res.rollId}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Accept ปรับยอดความต่อเนื่อง SO</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
 
                       {res.timeline.length === 0 ? (
                         <div className="p-4 text-center text-xs text-slate-400 bg-white rounded-lg border border-slate-200">
@@ -498,6 +624,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                               <tr>
                                 <th className="p-2.5">ลำดับ</th>
                                 <th className="p-2.5">รหัส SO</th>
+                                <th className="p-2.5">ประเภท / รอบ</th>
                                 <th className="p-2.5 text-right">ตัดลงแผ่น</th>
                                 <th className="p-2.5 text-right">NG</th>
                                 <th className="p-2.5 text-right">รวมตัดออก</th>
@@ -505,6 +632,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                 <th className="p-2.5">สถานะความต่อเนื่อง (Chain)</th>
                                 <th className="p-2.5">วันที่ใช้งาน</th>
                                 <th className="p-2.5">ผู้บันทึก</th>
+                                {canEdit && onDeleteRecord && <th className="p-2.5 text-center">จัดการ</th>}
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -522,6 +650,24 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                           </span>
                                         )}
                                       </div>
+                                    </td>
+                                    <td className="p-2.5">
+                                      {step.isExactDuplicateSO ? (
+                                        <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 border border-rose-300 rounded text-[10px] font-bold inline-flex items-center gap-0.5">
+                                          <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                          <span>ซ้ำยอดเท่ากัน</span>
+                                        </span>
+                                      ) : step.isSplitProduction ? (
+                                        <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded text-[10px] font-medium inline-flex items-center gap-0.5" title="แบ่งรอบการผลิตตามใบงานจริง">
+                                          <span>รอบผลิตที่ {step.roundIndex}</span>
+                                        </span>
+                                      ) : step.isDuplicateSO ? (
+                                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-medium">
+                                          SO ซ้ำ ({step.duplicateCount}x)
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-slate-400 font-mono">-</span>
+                                      )}
                                     </td>
                                     <td className="p-2.5 text-right font-mono font-bold text-slate-800">
                                       {formatMeters(rec.usedMeters)} ม.
@@ -554,6 +700,29 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                     <td className="p-2.5 text-slate-600 truncate max-w-[100px] text-[11px]">
                                       {rec.recordedBy || 'ช่างคุมเครื่อง'}
                                     </td>
+                                    {canEdit && onDeleteRecord && (
+                                      <td className="p-2.5 text-center">
+                                        {step.isExactDuplicateSO && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setDeleteRecordConfirmTarget({
+                                                recordId: rec.id,
+                                                soNumber: rec.soNumber,
+                                                usedMeters: rec.usedMeters,
+                                                rollLot: res.lotNumber,
+                                                rollNumber: res.rollNumber,
+                                              });
+                                            }}
+                                            className="px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                                            title="ลบรายการที่ซ้ำนี้ออกเพื่อคืนยอดสต๊อก"
+                                          >
+                                            <Trash2 className="w-3 h-3 text-rose-600" />
+                                            <span>ลบซ้ำ</span>
+                                          </button>
+                                        )}
+                                      </td>
+                                    )}
                                   </tr>
                                 );
                               })}
@@ -600,6 +769,182 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Realign Chain Confirmation Dialog */}
+      {realignConfirmTarget && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-emerald-400 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  ยืนยัน Accept ปรับยอดความต่อเนื่อง SO (Re-chain)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ม้วนล็อต {realignConfirmTarget.lotNumber} #{realignConfirmTarget.rollNumber} ({realignConfirmTarget.width} มม. ลาย {realignConfirmTarget.pattern})
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-200 text-xs text-slate-800 space-y-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center font-mono">
+                <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                  <span className="text-[10px] text-slate-400 block font-sans">จำนวนใบงาน</span>
+                  <strong className="text-slate-900">{realignConfirmTarget.timeline.length} ใบ</strong>
+                </div>
+                <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                  <span className="text-[10px] text-slate-400 block font-sans">เริ่มต้นม้วน</span>
+                  <strong className="text-slate-900">{formatMeters(realignConfirmTarget.totalMeters)} ม.</strong>
+                </div>
+                <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                  <span className="text-[10px] text-slate-400 block font-sans">ตัดรวมจริง</span>
+                  <strong className="text-rose-600">{formatMeters(realignConfirmTarget.totalDeductedMeters)} ม.</strong>
+                </div>
+                <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                  <span className="text-[10px] text-slate-400 block font-sans">คงเหลือใหม่</span>
+                  <strong className="text-emerald-700">{formatMeters(realignConfirmTarget.calculatedRemaining)} ม.</strong>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-600 space-y-1 bg-white p-3 rounded-lg border border-emerald-100">
+                <p className="font-semibold text-slate-800">สิ่งที่ระบบจะดำเนินการ:</p>
+                <p>1. คำนวณยอด <strong>ก่อนตัด &rarr; หลังตัด</strong> ของทุกใบงานใหม่ทั้งหมดตามลำดับเวลา ให้เชื่อมต่อกัน 100%</p>
+                <p>2. บันทึกปรับปรุงข้อมูลผ่าน <strong>Firestore Transaction</strong> ป้องกันข้อมูลกระโดดและป้องกันการแย่งเขียน</p>
+                <p>3. ปรับยอดคงเหลือของม้วนฟอยล์ให้ตรงกับยอดคำนวณ {realignConfirmTarget.isZeroedOut ? '(ม้วนนี้ถูกตัดเป็น 0 แล้ว ระบบจะคงไว้ที่ 0 ม.)' : `(${formatMeters(realignConfirmTarget.calculatedRemaining)} ม.)`}</p>
+              </div>
+
+              <label className="flex items-start gap-2 pt-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={realignConsentChecked}
+                  onChange={(e) => setRealignConsentChecked(e.target.checked)}
+                  className="mt-0.5 rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span className="text-xs font-semibold text-emerald-950">
+                  ข้าพเจ้าได้ตรวจสอบและยินยอมให้ระบบปรับยอดความต่อเนื่องของฟอยล์ม้วนนี้
+                </span>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setRealignConfirmTarget(null)}
+                disabled={isRealigning === realignConfirmTarget.rollId}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={!realignConsentChecked || isRealigning === realignConfirmTarget.rollId}
+                onClick={async () => {
+                  if (!onRealignChain || !realignConfirmTarget) return;
+                  setIsRealigning(realignConfirmTarget.rollId);
+                  try {
+                    const recordIds = realignConfirmTarget.timeline.map((s) => s.record.id);
+                    await onRealignChain(realignConfirmTarget.rollId, recordIds);
+                    setRealignConfirmTarget(null);
+                  } catch (err) {
+                    console.error('Realign failed:', err);
+                  } finally {
+                    setIsRealigning(null);
+                  }
+                }}
+                className={`px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-xs ${
+                  !realignConsentChecked || isRealigning === realignConfirmTarget.rollId
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
+                }`}
+              >
+                {isRealigning === realignConfirmTarget.rollId ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>กำลังปรับยอดความต่อเนื่อง...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>✓ ยืนยัน Accept ปรับยอดความต่อเนื่อง</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Record Confirmation Dialog */}
+      {deleteRecordConfirmTarget && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-rose-300 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  ยืนยันลบรายการตัด SO ที่บันทึกซ้ำ
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ม้วนล็อต {deleteRecordConfirmTarget.rollLot} #{deleteRecordConfirmTarget.rollNumber}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50/80 p-3.5 rounded-xl border border-rose-200 text-xs text-rose-950 space-y-2">
+              <p className="font-semibold">
+                คุณต้องการลบรายการตัด SO <strong>{deleteRecordConfirmTarget.soNumber}</strong> จำนวน <strong>{formatMeters(deleteRecordConfirmTarget.usedMeters)} ม.</strong> ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                เมื่อลบรายการนี้ออก ระบบจะคืนยอด {formatMeters(deleteRecordConfirmTarget.usedMeters)} ม. กลับเข้าสต๊อกม้วนฟอยล์ทันที
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeleteRecordConfirmTarget(null)}
+                disabled={isDeletingRecord}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingRecord}
+                onClick={async () => {
+                  if (!onDeleteRecord || !deleteRecordConfirmTarget) return;
+                  setIsDeletingRecord(true);
+                  try {
+                    await onDeleteRecord(deleteRecordConfirmTarget.recordId);
+                    setDeleteRecordConfirmTarget(null);
+                  } catch (err) {
+                    console.error('Delete record failed:', err);
+                  } finally {
+                    setIsDeletingRecord(false);
+                  }
+                }}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingRecord ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>กำลังลบรายการ...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>✓ ลบรายการซ้ำและคืนยอด</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -16,7 +16,7 @@ export interface AutoBackupSnapshot {
   rollsCount: number;
   recordsCount: number;
   totalRemainingMeters: number;
-  reason: 'scheduled' | 'before_cut' | 'manual' | 'before_reset' | 'cloud_sync' | 'double_backup';
+  reason: 'scheduled' | 'before_cut' | 'manual' | 'before_reset' | 'cloud_sync' | 'double_backup' | 'realign_chain';
   data: {
     rolls: FoilRoll[];
     records: StockCutRecord[];

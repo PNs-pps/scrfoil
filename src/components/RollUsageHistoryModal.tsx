@@ -35,6 +35,7 @@ interface RollUsageHistoryModalProps {
   onOpenCutForThisRoll: (rollId: string) => void;
   onEditRoll?: (roll: FoilRoll) => void;
   onFixRoll?: (rollId: string, correctRemaining: number, sumUsed?: number, sumNg?: number) => Promise<void>;
+  onRealignChain?: (rollId: string, recordIds: string[]) => Promise<void>;
   canEdit?: boolean;
   onOpenFullAudit?: (rollId?: string) => void;
 }
@@ -46,6 +47,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   onOpenCutForThisRoll,
   onEditRoll,
   onFixRoll,
+  onRealignChain,
   canEdit = true,
   onOpenFullAudit,
 }) => {
@@ -479,6 +481,36 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Accept button if chain jump detected */}
+              {canEdit && onRealignChain && audit.timeline.some((step) => !step.isChainValid) && (
+                <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-xs text-rose-800 font-medium">
+                    ⚠️ ตรวจพบยอดคงเหลือก่อนตัด-หลังตัดกระโดด ไม่ต่อเนื่องกัน ({audit.timeline.filter(t => !t.isChainValid).length} จุด)
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!onRealignChain || !roll || !audit) return;
+                      setIsFixingThisRoll(true);
+                      try {
+                        await onRealignChain(roll.id, audit.timeline.map((s) => s.record.id));
+                      } finally {
+                        setIsFixingThisRoll(false);
+                      }
+                    }}
+                    disabled={isFixingThisRoll}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
+                  >
+                    {isFixingThisRoll ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>⚡ Accept ปรับยอดความต่อเนื่อง SO</span>
+                  </button>
                 </div>
               )}
 

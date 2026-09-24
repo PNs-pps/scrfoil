@@ -36,16 +36,26 @@ interface CutStockModalProps {
   isOpen: boolean;
   onClose: () => void;
   availableRolls: FoilRoll[];
+  existingRecords?: StockCutRecord[];
   preselectedRollId?: string | null;
   initialCutMode?: 'so' | 'non_so';
   onConfirmCut?: (record: Omit<StockCutRecord, 'id' | 'createdAt'>) => Promise<void> | void;
   onConfirmCutBatch: (records: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => Promise<void> | void;
 }
 
+export interface DuplicateAlertInfo {
+  orderIndex: number;
+  soNumber: string;
+  usedMeters: number;
+  existingDate: string;
+  existingRecordedBy?: string;
+}
+
 export const CutStockModal: React.FC<CutStockModalProps> = ({
   isOpen,
   onClose,
   availableRolls,
+  existingRecords = [],
   preselectedRollId,
   initialCutMode = 'so',
   onConfirmCut,
@@ -63,6 +73,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const [recordedBy, setRecordedBy] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [duplicatePromptModal, setDuplicatePromptModal] = useState<DuplicateAlertInfo[] | null>(null);
 
   // References to input elements for focus navigation
   const usedMetersInputRefs = useRef<{ [orderId: string]: HTMLInputElement | null }>({});
@@ -288,46 +299,41 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const remainingAfter = Math.max(0, round2(remainingBefore - totalDeductedAll));
   const isOverCut = totalDeductedAll > remainingBefore;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  // Detect if any order is an exact duplicate of a previously recorded cut on this roll
+  // (Same SO Number and same used meters)
+  const exactDuplicates = useMemo<DuplicateAlertInfo[]>(() => {
+    if (!currentRoll || !existingRecords || existingRecords.length === 0) return [];
+    const dups: DuplicateAlertInfo[] = [];
 
-    if (!currentRoll) {
-      setError('กรุณาเลือกม้วนฟอยล์ที่ต้องการตัดสต๊อก');
-      return;
-    }
+    orders.forEach((ord, idx) => {
+      if (ord.cutType !== 'so') return;
+      const soClean = ord.soNumber.trim().toUpperCase();
+      const used = parseFloat(ord.usedMeters);
+      if (!soClean || isNaN(used) || used <= 0) return;
 
-    if (!recordedBy.trim()) {
-      setError('กรุณาระบุชื่อผู้บันทึก');
-      return;
-    }
+      const found = existingRecords.find(
+        (r) =>
+          r.foilId === currentRoll.id &&
+          (r.soNumber || '').trim().toUpperCase() === soClean &&
+          Math.abs(Number(r.usedMeters || 0) - used) < 0.05
+      );
 
-    // Validate each order line
-    for (let i = 0; i < orders.length; i++) {
-      const ord = orders[i];
-      const calc = orderCalculations[i];
-
-      if (ord.cutType === 'so' && !ord.soNumber.trim()) {
-        setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณากรอกรหัส SO ให้ครบถ้วน`);
-        return;
+      if (found) {
+        dups.push({
+          orderIndex: idx,
+          soNumber: soClean,
+          usedMeters: used,
+          existingDate: found.usageDate || found.recordedDate || '',
+          existingRecordedBy: found.recordedBy,
+        });
       }
+    });
 
-      if (calc.numUsed <= 0 && calc.numNg <= 0) {
-        setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณาระบุจำนวนเมตรที่ใช้ หรือ NG ที่เสีย`);
-        return;
-      }
-    }
+    return dups;
+  }, [currentRoll, existingRecords, orders]);
 
-    if (totalDeductedAll <= 0) {
-      setError('กรุณาระบุจำนวนเมตรตัดใช้งานอย่างน้อยหนึ่งรายการ');
-      return;
-    }
-
-    // Over-cut validation: Strictly prevent submission if cutMeters + ngMeters > remainingMeters
-    if (isOverCut) {
-      setError('ไม่สามารถตัดเกินจำนวนคงเหลือในม้วนได้');
-      return;
-    }
+  const executeCutSubmission = async () => {
+    if (!currentRoll) return;
 
     // Save operator to recent list
     saveRecentOperator(recordedBy.trim());
@@ -378,11 +384,60 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error('Cut stock batch submission failed:', err);
-      // Alert/Error message as requested: "บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ"
       setError(err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!currentRoll) {
+      setError('กรุณาเลือกม้วนฟอยล์ที่ต้องการตัดสต๊อก');
+      return;
+    }
+
+    if (!recordedBy.trim()) {
+      setError('กรุณาระบุชื่อผู้บันทึก');
+      return;
+    }
+
+    // Validate each order line
+    for (let i = 0; i < orders.length; i++) {
+      const ord = orders[i];
+      const calc = orderCalculations[i];
+
+      if (ord.cutType === 'so' && !ord.soNumber.trim()) {
+        setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณากรอกรหัส SO ให้ครบถ้วน`);
+        return;
+      }
+
+      if (calc.numUsed <= 0 && calc.numNg <= 0) {
+        setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณาระบุจำนวนเมตรที่ใช้ หรือ NG ที่เสีย`);
+        return;
+      }
+    }
+
+    if (totalDeductedAll <= 0) {
+      setError('กรุณาระบุจำนวนเมตรตัดใช้งานอย่างน้อยหนึ่งรายการ');
+      return;
+    }
+
+    // Over-cut validation: Strictly prevent submission if cutMeters + ngMeters > remainingMeters
+    if (isOverCut) {
+      setError('ไม่สามารถตัดเกินจำนวนคงเหลือในม้วนได้');
+      return;
+    }
+
+    // If exact duplicates exist and user has not yet consented via prompt, show the prompt modal!
+    if (exactDuplicates.length > 0) {
+      setDuplicatePromptModal(exactDuplicates);
+      return;
+    }
+
+    await executeCutSubmission();
   };
 
   if (!isOpen) return null;
@@ -785,6 +840,32 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                     </div>
                   </div>
 
+                  {/* Exact Duplicate SO Warning Alert */}
+                  {(() => {
+                    const dupAlert = exactDuplicates.find((d) => d.orderIndex === index);
+                    if (!dupAlert) return null;
+                    return (
+                      <div className="p-3 bg-amber-50/95 border border-amber-300 rounded-xl flex items-start gap-2.5 text-amber-950 text-xs animate-in fade-in">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center justify-between flex-wrap gap-1 font-bold text-amber-900">
+                            <span>⚠️ แจ้งเตือน: พบการตัด SO นี้ยอดเมตรเท่ากันในม้วนนี้แล้ว!</span>
+                            <span className="px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded font-mono text-[10px]">
+                              เคยตัด {dupAlert.usedMeters} ม. ({dupAlert.existingDate || 'เร็วๆ นี้'})
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-amber-800 leading-relaxed">
+                            <strong>หากคุณเพิ่งกดยืนยันแล้วประวัติไม่ขึ้น จึงมากรอกซ้ำ:</strong> กรุณาอย่ากดบันทึกซ้ำซ้อน เพราะจะทำให้ระบบตัดสต๊อกเบิ้ล 2 รอบ
+                            <br />
+                            <span className="text-slate-600">
+                              (หมายเหตุ: ใบงานบางครั้งมีการแบ่งรอบการผลิต หากเป็นการแบ่งรอบผลิตจริงที่ใช้เมตรเท่ากัน สามารถบันทึกต่อได้)
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Note & Single Item Total */}
                   <div className="flex items-center gap-2 pt-1">
                     <input
@@ -935,6 +1016,66 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Warning Modal when Duplicate SO with same meters is detected */}
+      {duplicatePromptModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-amber-300 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  แจ้งเตือน: พบการตัด SO เดียวกัน ยอดเมตรเท่ากัน!
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  กรุณาตรวจสอบว่าเกิดจากการกดบันทึกซ้ำหรือไม่
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50/90 p-3.5 rounded-xl border border-amber-200 text-xs text-amber-950 space-y-2">
+              <p className="font-semibold leading-relaxed">
+                ในบางกรณีที่กดบันทึกแล้วประวัติไม่ขึ้นทันที ผู้ใช้อาจเผลอกรอกซ้ำ ซึ่งจะทำให้ระบบตัดยอดสต๊อกเบิ้ล 2 รอบ
+              </p>
+              <div className="bg-white p-2.5 rounded-lg border border-amber-200 space-y-1.5 font-mono text-[11px]">
+                {duplicatePromptModal.map((d, i) => (
+                  <div key={i} className="flex justify-between items-center text-slate-800">
+                    <span className="font-bold text-slate-900">SO {d.soNumber}</span>
+                    <span className="text-rose-600 font-bold">
+                      ใช้ {formatMeters(d.usedMeters)} ม. (เคยบันทึกเมื่อ {d.existingDate || 'เร็วๆ นี้'})
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                <strong>ใบงานบางครั้งการทำงานมีการแบ่งรอบการผลิต:</strong> หากใบงานนี้เป็นการตัดแบ่งรอบผลิตใหม่จริง ให้กดยืนยันเพื่อบันทึกต่อได้
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDuplicatePromptModal(null)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก (ไม่บันทึกซ้ำ)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicatePromptModal(null);
+                  executeCutSubmission();
+                }}
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                ✓ ยืนยันว่าเป็นการแบ่งรอบผลิตจริง (บันทึก)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

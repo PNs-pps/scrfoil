@@ -24,6 +24,7 @@ import {
   executeMultiRollCutBatchInFirestore,
   revertCutRecordInFirestore, 
   reconcileRollsInFirestore,
+  realignRollCutChainInFirestore,
   uploadAllToFirestore,
   testFirestoreConnection,
   fetchAllCutRecordsFromFirestore,
@@ -58,11 +59,35 @@ import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
 import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X } from 'lucide-react';
 
+type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
+
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings'>('dashboard');
+  
+  // Persistent activeTab so that reloading keeps the user on the exact page being viewed
+  const [activeTab, setActiveTabRaw] = useState<AppTab>(() => {
+    try {
+      const hash = window.location.hash.replace('#', '') as AppTab;
+      if (['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'settings'].includes(hash)) {
+        return hash;
+      }
+      const saved = sessionStorage.getItem('scrfoil_active_tab') as AppTab;
+      if (saved && ['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'settings'].includes(saved)) {
+        return saved;
+      }
+    } catch {}
+    return 'dashboard';
+  });
+
+  const setActiveTab = (tab: AppTab) => {
+    setActiveTabRaw(tab);
+    try {
+      sessionStorage.setItem('scrfoil_active_tab', tab);
+      window.history.replaceState(null, '', `#${tab}`);
+    } catch {}
+  };
 
   // Visitor vs Data Entry (Editor) Mode State
   const [userMode, setUserMode] = useState<UserMode>(() => getUserMode());
@@ -823,6 +848,34 @@ export default function App() {
     }
   };
 
+  // Realign sequential cut chain for a specific roll in Firestore
+  const handleRealignChain = async (rollId: string, recordIds: string[]): Promise<void> => {
+    try {
+      const { updatedRoll, updatedRecords } = await realignRollCutChainInFirestore(rollId, recordIds);
+
+      // Update rolls in local state
+      const nextRolls = rolls.map((r) => (r.id === updatedRoll.id ? updatedRoll : r));
+
+      // Update records in local state
+      const updatedMap = new Map(updatedRecords.map((r) => [r.id, r]));
+      const nextRecords = records.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
+
+      updateRollsState(nextRolls);
+      updateRecordsState(nextRecords);
+      createBackupSnapshot(nextRolls, nextRecords, 'realign_chain');
+
+      // Re-run integrity check
+      const newIssues = checkStockIntegrity(nextRolls, nextRecords);
+      setStockIntegrityIssues(newIssues);
+
+      showToast(`ปรับยอดความต่อเนื่อง SO ของม้วนล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} สำเร็จ เรียบร้อยแล้ว ✅`);
+    } catch (err: any) {
+      console.error('Failed to realign roll cut chain:', err);
+      showToast(`ไม่สามารถปรับยอดความต่อเนื่องได้: ${err?.message || err}`, 'info');
+      throw err;
+    }
+  };
+
   // Reset to default sample
   const handleResetData = () => {
     if (confirm('คุณต้องการรีเซ็ตข้อมูลเป็นตัวอย่างเริ่มต้นของโรงงานหรือไม่? (คิดดีๆ)')) {
@@ -850,20 +903,28 @@ export default function App() {
       {/* External update banner: another device changed data — offer a reload
           so this device doesn't keep working on a stale page. */}
       {externalUpdateAvailable && (
-        <div className="sticky top-0 z-[60] bg-blue-600 text-white px-4 py-2.5 flex items-center justify-center gap-3 text-sm font-medium shadow-md">
-          <span>🔄 มีการอัปเดตข้อมูลใหม่จากเครื่องอื่น กรุณารีเฟรชหน้านี้เพื่อดูข้อมูลล่าสุด</span>
+        <div className="sticky top-0 z-[60] bg-blue-700 text-white px-4 py-2.5 flex items-center justify-center gap-3 text-xs sm:text-sm font-medium shadow-md animate-in slide-in-from-top duration-200">
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
+            <span>🔄 มีการตัดสต๊อก/อัปเดตข้อมูลใหม่จากเครื่องอื่น (ดึงอ่านค่า Realtime เรียบร้อยแล้ว)</span>
+          </span>
           <button
-            onClick={() => window.location.reload()}
-            className="bg-white text-blue-700 font-bold px-3 py-1 rounded-md hover:bg-blue-50 transition-colors shrink-0"
+            onClick={() => {
+              try {
+                sessionStorage.setItem('scrfoil_active_tab', activeTab);
+              } catch {}
+              window.location.reload();
+            }}
+            className="bg-white text-blue-800 font-bold px-3 py-1 rounded-lg hover:bg-blue-50 transition-all text-xs shrink-0 shadow-xs cursor-pointer active:scale-95"
           >
-            รีเฟรชตอนนี้
+            รีโหลดหน้านี้ ({activeTab === 'dashboard' ? 'แดชบอร์ด' : activeTab === 'rolls' ? 'ม้วนฟอยล์' : activeTab === 'history' ? 'ประวัติ' : activeTab === 'flow' ? 'ยอดผลิตประจำวัน' : activeTab === 'sandwich' ? 'แซนวิช' : 'ตั้งค่า'})
           </button>
           <button
             onClick={() => setExternalUpdateAvailable(false)}
-            className="text-blue-100 hover:text-white shrink-0"
-            title="ปิด"
+            className="text-blue-200 hover:text-white shrink-0 p-1 cursor-pointer transition-colors"
+            title="ปิดข้อความแจ้งเตือน"
           >
-            ✕
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
@@ -1101,6 +1162,7 @@ export default function App() {
           onOpenCutForThisRoll={handleOpenCutForRoll}
           onEditRoll={(roll) => requireEditorPermission(() => setEditingRoll(roll))}
           onFixRoll={handleFixRoll}
+          onRealignChain={handleRealignChain}
           canEdit={userMode === 'editor'}
           onOpenFullAudit={(rollId) => handleOpenSOAudit(rollId)}
         />
@@ -1204,6 +1266,8 @@ export default function App() {
         initialRollId={soBugAuditTargetRollId}
         onFixRoll={handleFixRoll}
         onFixMultipleRolls={handleFixMultipleRolls}
+        onRealignChain={handleRealignChain}
+        onDeleteRecord={handleDeleteRecord}
         canEdit={userMode === 'editor'}
       />
 
