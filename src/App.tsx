@@ -145,6 +145,37 @@ export default function App() {
     }
     setIsRunningIntegrityCheck(false);
   };
+    // ฟังก์ชันตรวจสอบระบบรวม 2 in 1 (ยอดม้วนฟอยล์ + บัคประวัติ SO)
+  const handleRunMasterAudit = () => {
+    setIsRunningIntegrityCheck(true);
+    
+    // 1. ตรวจสอบยอดม้วนฟอยล์
+    const integrityIssues = checkStockIntegrity(rolls, records);
+    setStockIntegrityIssues(integrityIssues);
+    markAutoCheckRun();
+
+    // 2. ตรวจสอบบัคประวัติ SO
+    const hasSOBugs = soBugCount > 0;
+
+    // 3. ประมวลผลและแสดงผลลัพธ์
+    setTimeout(() => {
+      setIsRunningIntegrityCheck(false);
+      
+      if (integrityIssues.length > 0 && hasSOBugs) {
+        setShowIntegrityModal(true);
+        showToast('พบความผิดปกติทั้งยอดคงเหลือม้วนฟอยล์ และบัคประวัติ SO! ⚠️', 'info');
+      } else if (integrityIssues.length > 0) {
+        setShowIntegrityModal(true);
+        showToast('พบบัคยอดม้วนฟอยล์ไม่ตรงกับประวัติ ⚠️', 'info');
+      } else if (hasSOBugs) {
+        setIsSOBugInspectorOpen(true);
+        showToast('ยอดม้วนฟอยล์ปกติ แต่พบบัคประวัติ SO ที่ต้องแก้ไข ⚠️', 'info');
+      } else {
+        showToast('ตรวจสอบสมบูรณ์! ยอดม้วนฟอยล์และประวัติ SO ถูกต้อง 100% ✅', 'success');
+      }
+    }, 500); // ดีเลย์เล็กน้อยเพื่อให้ UI แสดงผลการโหลด
+  };
+  
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   
   // Modals
