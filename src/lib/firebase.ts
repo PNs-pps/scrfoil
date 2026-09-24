@@ -558,6 +558,8 @@ export async function executeMultiRollCutBatchInFirestore(
           id: r.id,
           soNumber: r.soNumber || '',
           cutType: r.cutType || 'so',
+          productionRound: r.productionRound || '',
+          roundNumber: r.roundNumber,
           usedMeters: Math.abs(Number(r.usedMeters || 0)),
           ngMeters: Math.abs(Number(r.ngMeters || 0)),
           totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
@@ -629,6 +631,8 @@ export async function executeMultiRollCutBatchInFirestore(
         usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
+        productionRound: record.productionRound || '',
+        roundNumber: record.roundNumber,
         notes: record.notes || '',
         createdAt: record.createdAt || new Date().toISOString(),
         cutType: record.cutType || 'so',
@@ -718,15 +722,13 @@ export interface RollAdjustmentItem {
   expectedRemaining: number;
   sumUsed?: number;
   sumNg?: number;
+  force?: boolean;
 }
 
 /**
  * Reconciles one or more foil rolls to their expected remaining meters based
  * on the true sum of all SO cut records. Executes inside a Firestore TRANSACTION
  * so it never clobbers concurrent cuts from other devices.
- *
- * STRICT RULE: Automatically skips any roll where `isZeroedOut === true` or
- * where the roll was manually set to 0 ("ยกเว้นลูกที่กดตัดเป็น 0 แล้ว").
  */
 export async function reconcileRollsInFirestore(
   adjustments: RollAdjustmentItem[]
@@ -747,14 +749,9 @@ export async function reconcileRollsInFirestore(
 
       const serverRoll = snap.data() as FoilRoll;
 
-      // Exclusion guard: Do not adjust rolls that are manually zeroed out or cut to 0
-      const isZeroed = Boolean(
-        serverRoll.isZeroedOut ||
-        (serverRoll.remainingMeters === 0 && (serverRoll.status === 'depleted' || serverRoll.manualZeroedOriginalMeters !== undefined))
-      );
-
-      if (isZeroed) {
-        // Skip zeroed out rolls as instructed by the user
+      // Exclusion guard: Skip if roll was explicitly set to isZeroedOut, UNLESS force is requested
+      const isExplicitZeroed = Boolean(serverRoll.isZeroedOut);
+      if (isExplicitZeroed && !adj.force) {
         result.push(serverRoll);
         return;
       }
@@ -768,6 +765,8 @@ export async function reconcileRollsInFirestore(
         remainingMeters: safeExpected,
         usedMeters: safeUsed,
         ngMeters: safeNg,
+        isZeroedOut: safeExpected > 0 ? false : (serverRoll.isZeroedOut ?? false),
+        manualZeroedOriginalMeters: safeExpected > 0 ? undefined : serverRoll.manualZeroedOriginalMeters,
         status: safeExpected > 0 ? ('active' as const) : ('depleted' as const),
       };
 
@@ -889,23 +888,22 @@ export async function realignRollCutChainInFirestore(
       tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem), { merge: true });
     });
 
-    const isZeroed = Boolean(
-      serverRoll.isZeroedOut ||
-      (serverRoll.remainingMeters === 0 && (serverRoll.status === 'depleted' || serverRoll.manualZeroedOriginalMeters !== undefined))
-    );
-
-    const finalRemaining = isZeroed ? 0 : runningBalance;
+    const finalRemaining = runningBalance;
 
     const updatedRoll: FoilRoll = {
       ...serverRoll,
       remainingMeters: finalRemaining,
       usedMeters: totalUsed,
       ngMeters: totalNg,
+      isZeroedOut: finalRemaining > 0 ? false : (serverRoll.isZeroedOut ?? false),
+      manualZeroedOriginalMeters: finalRemaining > 0 ? undefined : serverRoll.manualZeroedOriginalMeters,
       status: finalRemaining <= 0 ? ('depleted' as const) : ('active' as const),
       recentCuts: updatedRecords.slice(-50).map((r) => ({
         id: r.id,
         soNumber: r.soNumber || '',
         cutType: r.cutType || 'so',
+        productionRound: r.productionRound || '',
+        roundNumber: r.roundNumber,
         usedMeters: r.usedMeters,
         ngMeters: r.ngMeters,
         totalDeducted: r.totalDeducted,
@@ -923,6 +921,134 @@ export async function realignRollCutChainInFirestore(
   });
 
   markLocalWrite([rollId, ...recordIds]);
+  return result;
+}
+
+/**
+ * Update an existing SO cut record in Firestore transactionally:
+ * Adjusts the roll's remainingMeters, usedMeters, and ngMeters based on the difference (delta).
+ * Also updates the subcollection cut_history and cuts.
+ */
+export async function updateStockCutRecordInFirestore(
+  updatedRecord: StockCutRecord,
+  oldRecord: StockCutRecord
+): Promise<{ updatedRoll: FoilRoll; updatedRecord: StockCutRecord }> {
+  const rollId = updatedRecord.foilId;
+  const recordId = updatedRecord.id;
+  const rollRef = doc(db, ROLLS_COLLECTION, rollId);
+  const recordRef = doc(db, RECORDS_COLLECTION, recordId);
+
+  const result = await runTransaction(db, async (tx) => {
+    const [rollSnap, recSnap] = await Promise.all([tx.get(rollRef), tx.get(recordRef)]);
+
+    if (!rollSnap.exists()) {
+      throw new Error('ไม่พบข้อมูลม้วนฟอยล์ในระบบ');
+    }
+    if (!recSnap.exists()) {
+      throw new Error('ไม่พบรายการตัดสต๊อก SO นี้ในระบบ');
+    }
+
+    const serverRoll = rollSnap.data() as FoilRoll;
+    const oldServerRecord = recSnap.data() as StockCutRecord;
+
+    const oldUsed = Math.abs(Number(oldServerRecord.usedMeters ?? oldRecord.usedMeters ?? 0));
+    const oldNg = Math.abs(Number(oldServerRecord.ngMeters ?? oldRecord.ngMeters ?? 0));
+    const oldTotal = Math.abs(Number(oldServerRecord.totalDeducted ?? (oldUsed + oldNg)));
+
+    const newUsed = Math.abs(Number(updatedRecord.usedMeters || 0));
+    const newNg = Math.abs(Number(updatedRecord.ngMeters || 0));
+    const newTotal = Math.abs(Number(updatedRecord.totalDeducted ?? (newUsed + newNg)));
+
+    const deltaTotal = round2(newTotal - oldTotal);
+    const deltaUsed = round2(newUsed - oldUsed);
+    const deltaNg = round2(newNg - oldNg);
+
+    const currentRemaining = Number(serverRoll.remainingMeters || 0);
+
+    // Validate if increased cut exceeds available remaining meters
+    if (deltaTotal > 0 && deltaTotal > currentRemaining + 0.05) {
+      throw new Error(
+        `ยอดตัดที่เพิ่มขึ้น (${deltaTotal.toLocaleString()} ม.) เกินกว่ายอดคงเหลือปัจจุบันในม้วน (${currentRemaining.toLocaleString()} ม.)`
+      );
+    }
+
+    const nextRemaining = round2(Math.max(0, currentRemaining - deltaTotal));
+    const nextUsed = round2(Math.max(0, Number(serverRoll.usedMeters || 0) + deltaUsed));
+    const nextNg = round2(Math.max(0, Number(serverRoll.ngMeters || 0) + deltaNg));
+
+    const finalRecord: StockCutRecord = {
+      ...updatedRecord,
+      usedMeters: newUsed,
+      ngMeters: newNg,
+      totalDeducted: newTotal,
+      remainingAfter: round2(Math.max(0, (updatedRecord.remainingBefore ?? currentRemaining) - newTotal)),
+    };
+
+    const historyItem: CutHistoryItem = {
+      id: finalRecord.id,
+      soNumber: finalRecord.soNumber || '',
+      cutMeters: newUsed,
+      usedMeters: newUsed,
+      ngMeters: newNg,
+      totalDeducted: newTotal,
+      remainingBefore: finalRecord.remainingBefore,
+      remainingAfter: finalRecord.remainingAfter,
+      cutDate: finalRecord.usageDate || finalRecord.recordedDate || new Date().toISOString().split('T')[0],
+      usageDate: finalRecord.usageDate || finalRecord.recordedDate || new Date().toISOString().split('T')[0],
+      recordedDate: finalRecord.recordedDate || new Date().toISOString().split('T')[0],
+      recordedBy: finalRecord.recordedBy || 'ช่างคุมเครื่อง',
+      productionRound: finalRecord.productionRound || '',
+      roundNumber: finalRecord.roundNumber,
+      notes: finalRecord.notes || '',
+      createdAt: finalRecord.createdAt || new Date().toISOString(),
+      cutType: finalRecord.cutType || 'so',
+      nonSoReason: finalRecord.nonSoReason || '',
+      rollId: serverRoll.id,
+      lotNumber: serverRoll.lotNumber,
+      rollNumber: serverRoll.rollNumber,
+      width: serverRoll.width,
+      pattern: serverRoll.pattern,
+      isSilverSide: finalRecord.isSilverSide,
+      isWhiteSide: finalRecord.isWhiteSide,
+    };
+
+    const updatedRoll: FoilRoll = {
+      ...serverRoll,
+      remainingMeters: nextRemaining,
+      usedMeters: nextUsed,
+      ngMeters: nextNg,
+      status: nextRemaining > 0 ? ('active' as const) : ('depleted' as const),
+      isZeroedOut: nextRemaining > 0 ? false : serverRoll.isZeroedOut,
+      recentCuts: (serverRoll.recentCuts || []).map((c) =>
+        c.id === recordId
+          ? {
+              id: c.id,
+              soNumber: finalRecord.soNumber || '',
+              cutType: finalRecord.cutType || 'so',
+              productionRound: finalRecord.productionRound,
+              roundNumber: finalRecord.roundNumber,
+              usedMeters: newUsed,
+              ngMeters: newNg,
+              totalDeducted: newTotal,
+              remainingAfter: finalRecord.remainingAfter ?? 0,
+              usageDate: finalRecord.usageDate,
+              recordedDate: finalRecord.recordedDate,
+              recordedBy: finalRecord.recordedBy,
+              notes: finalRecord.notes,
+            }
+          : c
+      ),
+    };
+
+    tx.set(recordRef, sanitizeForFirestore(finalRecord), { merge: true });
+    tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', recordId), sanitizeForFirestore(historyItem), { merge: true });
+    tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', recordId), sanitizeForFirestore(historyItem), { merge: true });
+    tx.set(rollRef, sanitizeForFirestore(updatedRoll), { merge: true });
+
+    return { updatedRoll, updatedRecord: finalRecord };
+  });
+
+  markLocalWrite([rollId, recordId]);
   return result;
 }
 

@@ -22,6 +22,8 @@ interface CutOrderItem {
   id: string;
   cutType: 'so' | 'non_so';
   soNumber: string;
+  productionRound?: string;
+  roundNumber?: number;
   isSilverSide?: boolean;
   isWhiteSide?: boolean;
   nonSoReasonType: string;

@@ -70,10 +70,7 @@ export function checkStockIntegrity(
     const actualRemaining = round2(Number(roll.remainingMeters || 0));
     const diff = round2(actualRemaining - expectedRemaining);
 
-    const isZeroed = Boolean(
-      roll.isZeroedOut || 
-      (roll.remainingMeters === 0 && (roll.status === 'depleted' || roll.manualZeroedOriginalMeters !== undefined))
-    );
+    const isZeroed = Boolean(roll.isZeroedOut);
 
     // If options explicitly ask to exclude zeroed out rolls from mismatches list
     if (options?.excludeZeroedOut && isZeroed) {
@@ -96,8 +93,8 @@ export function checkStockIntegrity(
         sumNgMeters: deduction.ng,
         sumTotalDeducted: deduction.total,
         isZeroedOut: isZeroed,
-        canAutoAdjust: !isZeroed,
-        zeroedReason: isZeroed ? 'ม้วนนี้ถูกกดตัดเป็น 0 แล้ว (isZeroedOut) ยกเว้นการปรับยอด' : undefined,
+        canAutoAdjust: true, // Allow adjusting any mismatch to restore integrity
+        zeroedReason: isZeroed ? 'ม้วนนี้ถูกตั้งค่าเป็น 0 (สามารถกดปรับยอดเพื่อคืนสต๊อกได้)' : undefined,
       });
     }
   });

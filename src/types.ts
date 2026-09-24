@@ -48,6 +48,8 @@ export interface FoilRoll {
     usageDate: string;
     recordedDate: string;
     recordedBy: string;
+    productionRound?: string;
+    roundNumber?: number;
     notes?: string;
   }>;
   createdAt: string;
@@ -65,6 +67,8 @@ export interface StockCutRecord {
   soNumber: string;          // รหัส SO หรือ เหตุผลการเบิกกรณีไม่ใช้ SO เช่น 'สาขายืม', 'ซ่อมฟอยล์พ่นกาว'
   cutType?: 'so' | 'non_so'; // ชนิดการตัด: มี SO หรือ ไม่ใช้ SO
   nonSoReason?: string;      // เหตุผลเพิ่มเติมกรณีไม่ใช้ SO (เช่น สาขาพัทยายืม)
+  productionRound?: string;  // รอบการผลิต เช่น 'รอบ 1', 'รอบ 2', 'รอบ 3' หรือ 'รอบ 1/2'
+  roundNumber?: number;      // ลำดับรอบการผลิต เช่น 1, 2, 3
   usedMeters: number;        // จำนวนเมตรที่ใช้
   ngMeters: number;          // NG ที่เสีย (เมตร)
   totalDeducted: number;     // รวมตัดออก (used + ng)
@@ -109,6 +113,8 @@ export interface CutHistoryItem {
   recordedBy?: string;
   cutType?: 'so' | 'non_so';
   nonSoReason?: string;
+  productionRound?: string;
+  roundNumber?: number;
   notes?: string;
 }
 

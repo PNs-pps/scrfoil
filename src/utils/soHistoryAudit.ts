@@ -54,6 +54,7 @@ export interface RollSOAuditResult {
   calculatedRemaining: number;
   diff: number; // currentRemaining - calculatedRemaining
   isZeroedOut: boolean;
+  canRestoreZeroed?: boolean;
   totalCutsCount: number;
   totalUsedMeters: number;
   totalNgMeters: number;
@@ -112,55 +113,63 @@ export function auditRollSOHistory(
   // 1. Check for Duplicate SOs vs Split Production Rounds
   soMap.forEach((cuts, soKey) => {
     if (cuts.length > 1) {
-      // Group cuts by their cut meter amounts to detect accidental duplicates (exact same meters)
-      const meterGroups = new Map<number, StockCutRecord[]>();
+      // If cuts have explicit different production rounds, they are intentional split runs
+      const explicitRounds = new Set(cuts.map((c) => (c.productionRound || '').trim()).filter(Boolean));
+      const hasDistinctExplicitRounds = explicitRounds.size > 1 && explicitRounds.size === cuts.length;
+
+      // Group cuts by their cut meter amounts AND production round to detect accidental duplicates
+      const meterGroups = new Map<string, StockCutRecord[]>();
       cuts.forEach((c) => {
         const roundedMeters = round2(c.totalDeducted || (c.usedMeters + c.ngMeters));
-        let matchedKey: number | null = null;
-        for (const k of meterGroups.keys()) {
-          if (Math.abs(k - roundedMeters) < 0.05) {
-            matchedKey = k;
-            break;
-          }
-        }
-        const key = matchedKey !== null ? matchedKey : roundedMeters;
-        const group = meterGroups.get(key) || [];
+        const roundKey = (c.productionRound || '').trim();
+        // A cut is considered an exact duplicate if both meter amount AND production round are the same (or neither specified)
+        const groupKey = `${roundKey}::${roundedMeters}`;
+        const group = meterGroups.get(groupKey) || [];
         group.push(c);
-        meterGroups.set(key, group);
+        meterGroups.set(groupKey, group);
       });
 
       let hasExactDup = false;
-      meterGroups.forEach((group, meterKey) => {
-        if (group.length > 1) {
-          hasExactDup = true;
-          const duplicateRecordIds = group.slice(1).map((g) => g.id);
-          issues.push({
-            id: `dup-exact-${roll.id}-${soKey}-${meterKey}`,
-            type: 'DUPLICATE_SO_EXACT',
-            severity: 'error',
-            title: `⚠️ พบการตัด SO ${soKey} ซ้ำ ยอดเมตรเท่ากันเป๊ะ (${meterKey} ม.)`,
-            description: `พบการตัด SO ${soKey} ซ้ำกัน ${group.length} ครั้ง ยอดครั้งละ ${meterKey} ม. เท่ากันเป๊ะ มักเกิดจากบันทึกแล้วประวัติไม่ขึ้นทันที จึงกรอกซ้ำ ทำให้สต๊อกถูกหักเบิ้ลไป ${round2(meterKey * (group.length - 1))} ม.`,
-            soNumber: soKey,
-            recordId: group[0].id,
-            duplicateRecordIds,
-            affectedMeters: round2(meterKey * (group.length - 1)),
-            suggestedAction: 'กดยกเลิกหรือลบรายการตัดที่ซ้ำออก 1 รายการเพื่อคืนยอดสต๊อก',
-            timestamp: group[1].createdAt || group[1].usageDate,
-          });
-        }
-      });
+      if (!hasDistinctExplicitRounds) {
+        meterGroups.forEach((group, groupKey) => {
+          if (group.length > 1) {
+            hasExactDup = true;
+            const duplicateRecordIds = group.slice(1).map((g) => g.id);
+            const [roundName, meterStr] = groupKey.split('::');
+            const meterKey = Number(meterStr) || 0;
+            issues.push({
+              id: `dup-exact-${roll.id}-${soKey}-${groupKey}`,
+              type: 'DUPLICATE_SO_EXACT',
+              severity: 'error',
+              title: `⚠️ พบการตัด SO ${soKey}${roundName ? ` (${roundName})` : ''} ซ้ำ ยอดเมตรเท่ากัน (${meterKey} ม.)`,
+              description: `พบการตัด SO ${soKey}${roundName ? ` ${roundName}` : ''} ซ้ำกัน ${group.length} ครั้ง ยอดครั้งละ ${meterKey} ม. เท่ากันเป๊ะ มักเกิดจากบันทึกแล้วประวัติไม่ขึ้นทันที จึงกรอกซ้ำ ทำให้สต๊อกถูกหักเบิ้ลไป ${round2(meterKey * (group.length - 1))} ม.`,
+              soNumber: soKey,
+              recordId: group[0].id,
+              duplicateRecordIds,
+              affectedMeters: round2(meterKey * (group.length - 1)),
+              suggestedAction: 'กดยกเลิกหรือลบรายการตัดที่ซ้ำออก 1 รายการเพื่อคืนยอดสต๊อก หรือแก้ไขระบุรอบการผลิตให้ถูกต้อง',
+              timestamp: group[1].createdAt || group[1].usageDate,
+            });
+          }
+        });
+      }
 
-      // If cuts have different meters, this is legitimate split production (แบ่งรอบการผลิต)
+      // If cuts have different meters or distinct rounds, this is legitimate split production (แบ่งรอบการผลิต)
       if (!hasExactDup) {
+        const roundsDesc = cuts.map((c, i) => {
+          const rLabel = c.productionRound || `รอบ ${i + 1}`;
+          return `${rLabel}: ${round2(c.totalDeducted || (c.usedMeters + c.ngMeters))}ม.`;
+        }).join(', ');
+
         issues.push({
           id: `split-prod-${roll.id}-${soKey}`,
           type: 'SPLIT_PRODUCTION_BATCH',
           severity: 'info',
           title: `SO ${soKey} แบ่งรอบการผลิต (${cuts.length} รอบ)`,
-          description: `พบ SO ${soKey} ในม้วนนี้ ${cuts.length} ครั้ง โดยใช้จำนวนเมตรต่างกัน (${cuts.map((c, i) => `รอบ ${i + 1}: ${round2(c.totalDeducted)}ม.`).join(', ')}) ซึ่งเป็นการแบ่งรอบการผลิตตามปกติ`,
+          description: `พบ SO ${soKey} ในม้วนนี้ ${cuts.length} ครั้ง (${roundsDesc}) ซึ่งเป็นการแบ่งรอบการผลิตตามใบงาน`,
           soNumber: soKey,
-          affectedMeters: round2(cuts.reduce((s, c) => s + c.totalDeducted, 0)),
-          suggestedAction: 'ไม่มีข้อผิดพลาด (แบ่งรอบผลิตตามใบงาน)',
+          affectedMeters: round2(cuts.reduce((s, c) => s + (c.totalDeducted || (c.usedMeters + c.ngMeters)), 0)),
+          suggestedAction: 'ไม่มีข้อผิดพลาด (ระบบรองรับการแบ่งรอบการผลิตของ SO)',
           timestamp: cuts[0].createdAt,
         });
       }
@@ -286,36 +295,43 @@ export function auditRollSOHistory(
   const currentRemaining = round2(Number(roll.remainingMeters || 0));
   const diff = round2(currentRemaining - calculatedRemaining);
 
-  const isZeroedOut = Boolean(
-    roll.isZeroedOut || 
-    (roll.remainingMeters === 0 && (roll.status === 'depleted' || roll.manualZeroedOriginalMeters !== undefined))
-  );
+  // A roll is ONLY zeroed out if explicitly set by user (roll.isZeroedOut === true)
+  // NEVER infer zeroed-out from remainingMeters === 0 or depleted status,
+  // because that wrongly locks rolls whose balance became 0 and prevents recovery!
+  const isZeroedOut = Boolean(roll.isZeroedOut);
 
   if (isZeroedOut) {
-    // If roll was zeroed out, inform that it is intentionally set to 0
     if (calculatedRemaining > 0 && currentRemaining === 0) {
       issues.push({
         id: `zeroed-notice-${roll.id}`,
         type: 'MASTER_ROLL_MISMATCH',
         severity: 'info',
-        title: 'ม้วนนี้กดตัดเป็น 0 แล้ว (isZeroedOut) ยกเว้นการปรับยอด',
-        description: `คำนวณจาก SO ควรเหลือ ${calculatedRemaining} ม. แต่ผู้ใช้งานได้กดตัดเป็น 0 (เศษหางม้วน) ระบบจึงคงค่า 0 ม. ตามเจตนา`,
-        suggestedAction: 'ไม่มีข้อผิดพลาด (คงไว้ที่ 0 ม. ต่อไป)',
+        title: 'ม้วนนี้ถูกตั้งค่าติ๊กเป็น 0 (เศษหางม้วน)',
+        description: `คำนวณจาก SO ควรเหลือ ${calculatedRemaining} ม. แต่สถานะม้วนถูกตั้งเป็น 0 ม. คุณสามารถกด "คืนค่ายอดตาม SO" เพื่อนำม้วนนี้กลับมาใช้งานต่อได้`,
+        suggestedAction: `กดปุ่ม "คืนค่ายอดตาม SO" เพื่อปรับยอดกลับเป็น ${calculatedRemaining} ม.`,
+        affectedMeters: calculatedRemaining,
+        expectedValue: calculatedRemaining,
+        actualValue: currentRemaining,
       });
     }
   } else {
     // Check if remainingMeters does not match calculatedRemaining
     if (Math.abs(diff) > TOLERANCE) {
+      const isZeroBug = currentRemaining === 0 && calculatedRemaining > 0;
       issues.push({
         id: `master-diff-${roll.id}`,
         type: 'MASTER_ROLL_MISMATCH',
         severity: 'error',
-        title: `ยอดคงเหลือหน้าสต๊อกไม่ตรงกับผลรวมตัด SO (ผลต่าง ${diff > 0 ? '+' : ''}${diff} ม.)`,
-        description: `สต๊อกหน้าแอปแสดง: ${currentRemaining} ม. แต่คำนวณจากยอดรับเข้า (${roll.totalMeters} ม.) ลบยอดตัดจริงทุกใบ (${totalDeducted} ม.) ควรเหลือ ${calculatedRemaining} ม.`,
+        title: isZeroBug
+          ? `⚠️ ยอดคงเหลือม้วนกลายเป็น 0 ม. (คำนวณจากใบตัด SO ควรเหลือ ${calculatedRemaining} ม.)`
+          : `ยอดคงเหลือหน้าสต๊อกไม่ตรงกับผลรวมตัด SO (ผลต่าง ${diff > 0 ? '+' : ''}${diff} ม.)`,
+        description: isZeroBug
+          ? `สต๊อกหน้าแอปแสดง 0 ม. แต่คำนวณจากยอดรับเข้า (${roll.totalMeters} ม.) หักยอดตัดจริงทุกใบ (${totalDeducted} ม.) ควรเหลือ ${calculatedRemaining} ม. สามารถกดปุ่มปรับยอดเพื่อคืนสต๊อกได้ทันที`
+          : `สต๊อกหน้าแอปแสดง: ${currentRemaining} ม. แต่คำนวณจากยอดรับเข้า (${roll.totalMeters} ม.) ลบยอดตัดจริงทุกใบ (${totalDeducted} ม.) ควรเหลือ ${calculatedRemaining} ม.`,
         affectedMeters: Math.abs(diff),
         expectedValue: calculatedRemaining,
         actualValue: currentRemaining,
-        suggestedAction: 'ปรับยอดคงเหลือม้วนนี้ให้ตรงกับยอดคำนวณจริงจากใบสั่งตัด SO',
+        suggestedAction: `ปรับยอดคงเหลือม้วนนี้ให้ตรงกับยอดคำนวณจริงจากใบสั่งตัด SO (${calculatedRemaining} ม.)`,
       });
     }
   }
@@ -336,7 +352,8 @@ export function auditRollSOHistory(
 
   const hasErrors = issues.some((i) => i.severity === 'error');
   const hasWarnings = issues.some((i) => i.severity === 'warning');
-  const canAutoAdjust = !isZeroedOut && Math.abs(diff) > TOLERANCE;
+  const canAutoAdjust = Math.abs(diff) > TOLERANCE;
+  const canRestoreZeroed = (isZeroedOut && calculatedRemaining > 0) || (currentRemaining === 0 && calculatedRemaining > 0);
 
   return {
     rollId: roll.id,
@@ -359,6 +376,7 @@ export function auditRollSOHistory(
     hasErrors,
     hasWarnings,
     canAutoAdjust,
+    canRestoreZeroed,
     timeline,
   };
 }
