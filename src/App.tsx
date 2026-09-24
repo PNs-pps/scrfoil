@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from './types';
 import { 
   getStoredRolls, 
@@ -48,10 +48,12 @@ import { PuSandwichModal } from './components/PuSandwichModal';
 import { PuSandwichView } from './components/PuSandwichView';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
+import { IntegrityCheckModal } from './components/IntegrityCheckModal';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
 import { formatMeters, round2 } from './utils/formatters';
-import { CheckCircle2, AlertCircle, Sparkles, X } from 'lucide-react';
+import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
+import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X } from 'lucide-react';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
@@ -77,6 +79,26 @@ export default function App() {
   // device (not an echo of our own write) — prompts the user to reload so
   // they're not looking at a stale page while they keep working.
   const [externalUpdateAvailable, setExternalUpdateAvailable] = useState(false);
+  // Results of the daily stock-integrity check (roll remaining vs. its own cut
+  // records). null = not checked yet this session; [] = checked, all good.
+  const [stockIntegrityIssues, setStockIntegrityIssues] = useState<IntegrityMismatch[] | null>(null);
+  const [showIntegrityModal, setShowIntegrityModal] = useState(false);
+  const [isRunningIntegrityCheck, setIsRunningIntegrityCheck] = useState(false);
+
+  const runIntegrityCheck = (isManual: boolean = false) => {
+    setIsRunningIntegrityCheck(true);
+    const issues = checkStockIntegrity(rolls, records);
+    setStockIntegrityIssues(issues);
+    if (!isManual) {
+      markAutoCheckRun();
+    }
+    if (issues.length > 0) {
+      setShowIntegrityModal(true);
+    } else if (isManual) {
+      showToast('ตรวจสอบแล้ว ยอดคงเหลือของทุกม้วนตรงกับรายการตัด SO ทั้งหมด ✅');
+    }
+    setIsRunningIntegrityCheck(false);
+  };
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   
   // Modals
@@ -243,6 +265,31 @@ export default function App() {
 
     return () => clearInterval(intervalId);
   }, [rolls, records, syncStatus]);
+
+  // Automatic daily stock-integrity check (runs by itself, up to 2x/day, the
+  // first couple of times someone opens the app each day — see
+  // src/utils/integrityCheck.ts for how "automatic" works in a client-only app).
+  const hasRunAutoIntegrityCheckRef = useRef(false);
+  useEffect(() => {
+    if (rolls.length === 0 || records.length === 0) return;
+    if (hasRunAutoIntegrityCheckRef.current) return;
+    if (!shouldRunAutoCheck()) return;
+
+    hasRunAutoIntegrityCheckRef.current = true;
+    // Small delay so this runs after the initial Firestore sync has settled,
+    // not against a half-loaded local cache.
+    const timer = setTimeout(() => {
+      const issues = checkStockIntegrity(rolls, records);
+      setStockIntegrityIssues(issues);
+      markAutoCheckRun();
+      if (issues.length > 0) {
+        setShowIntegrityModal(true);
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [rolls, records]);
+
 
   // Switch between user custom project and auto-provisioned cloud
   const handleSwitchCloud = () => {
@@ -923,6 +970,9 @@ export default function App() {
             onFetchFullHistory={handleFetchFullHistoryFromCloud}
             isFetchingFullHistory={isFetchingFullHistory}
             isCached={isCached}
+            onRunIntegrityCheck={() => requireEditorPermission(() => runIntegrityCheck(true))}
+            isRunningIntegrityCheck={isRunningIntegrityCheck}
+            integrityCheckState={getCheckState()}
           />
         )}
       </main>
@@ -1047,6 +1097,60 @@ export default function App() {
                 className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
               >
                 รับทราบ / ตกลง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Integrity Check Results Modal */}
+      {showIntegrityModal && stockIntegrityIssues && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-amber-200 max-w-lg w-full overflow-hidden animate-in zoom-in-95 duration-150 max-h-[85vh] flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-start gap-3.5">
+              <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  พบยอดคงเหลือไม่ตรงกับรายการตัด SO
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  ระบบตรวจสอบอัตโนมัติพบ {stockIntegrityIssues.length} ม้วนที่ยอดคงเหลือไม่ตรงกับผลรวมของรายการตัดจริง
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1 space-y-2.5">
+              {stockIntegrityIssues.map((issue) => (
+                <div key={issue.rollId} className="border border-amber-200 bg-amber-50/60 rounded-xl p-3 text-sm">
+                  <div className="font-bold text-slate-900">
+                    {issue.pattern} — ล็อต {issue.lotNumber} #{issue.rollNumber} (หน้า {issue.width} มม.)
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700">
+                    <span>ยอดในระบบตอนนี้:</span>
+                    <span className="font-mono font-bold text-right">{issue.actualRemaining.toLocaleString()} ม.</span>
+                    <span>ยอดที่ควรจะเป็น (จากรายการตัด {issue.recordCount} รายการ):</span>
+                    <span className="font-mono font-bold text-right">{issue.expectedRemaining.toLocaleString()} ม.</span>
+                    <span className="font-semibold">ผลต่าง:</span>
+                    <span className={`font-mono font-bold text-right ${issue.diff > 0 ? 'text-rose-600' : 'text-blue-600'}`}>
+                      {issue.diff > 0 ? '+' : ''}{issue.diff.toLocaleString()} ม.
+                    </span>
+                  </div>
+                </div>
+              ))}
+              <p className="text-[11px] text-slate-400 pt-1">
+                สาเหตุที่พบบ่อย: มีการแก้ไขยอดม้วนด้วยตนเองโดยไม่รวมรายการตัดที่มีอยู่, การตัด/ลบรายการที่ซิงค์ไม่สมบูรณ์, หรือแคชเก่าในเครื่องที่ยังไม่อัปเดต แนะนำให้ตรวจสอบม้วนที่ระบุแล้วแก้ไขยอดให้ถูกต้องหากจำเป็น
+              </p>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowIntegrityModal(false)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+              >
+                รับทราบ
               </button>
             </div>
           </div>
