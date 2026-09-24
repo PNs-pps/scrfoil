@@ -701,6 +701,75 @@ export async function revertCutRecordInFirestore(
   return updatedRoll;
 }
 
+export interface RollAdjustmentItem {
+  rollId: string;
+  expectedRemaining: number;
+  sumUsed?: number;
+  sumNg?: number;
+}
+
+/**
+ * Reconciles one or more foil rolls to their expected remaining meters based
+ * on the true sum of all SO cut records. Executes inside a Firestore TRANSACTION
+ * so it never clobbers concurrent cuts from other devices.
+ *
+ * STRICT RULE: Automatically skips any roll where `isZeroedOut === true` or
+ * where the roll was manually set to 0 ("ยกเว้นลูกที่กดตัดเป็น 0 แล้ว").
+ */
+export async function reconcileRollsInFirestore(
+  adjustments: RollAdjustmentItem[]
+): Promise<FoilRoll[]> {
+  if (!adjustments || adjustments.length === 0) return [];
+
+  const rollRefs = adjustments.map((a) => doc(db, ROLLS_COLLECTION, a.rollId));
+
+  const updatedRolls = await runTransaction(db, async (tx) => {
+    // 1. Read all target rolls fresh from Firestore
+    const snaps = await Promise.all(rollRefs.map((ref) => tx.get(ref)));
+
+    const result: FoilRoll[] = [];
+
+    adjustments.forEach((adj, idx) => {
+      const snap = snaps[idx];
+      if (!snap.exists()) return;
+
+      const serverRoll = snap.data() as FoilRoll;
+
+      // Exclusion guard: Do not adjust rolls that are manually zeroed out or cut to 0
+      const isZeroed = Boolean(
+        serverRoll.isZeroedOut ||
+        (serverRoll.remainingMeters === 0 && (serverRoll.status === 'depleted' || serverRoll.manualZeroedOriginalMeters !== undefined))
+      );
+
+      if (isZeroed) {
+        // Skip zeroed out rolls as instructed by the user
+        result.push(serverRoll);
+        return;
+      }
+
+      const safeExpected = round2(Math.max(0, Number(adj.expectedRemaining ?? 0)));
+      const safeUsed = adj.sumUsed !== undefined ? round2(Math.max(0, adj.sumUsed)) : serverRoll.usedMeters;
+      const safeNg = adj.sumNg !== undefined ? round2(Math.max(0, adj.sumNg)) : serverRoll.ngMeters;
+
+      const updatedRoll: FoilRoll = {
+        ...serverRoll,
+        remainingMeters: safeExpected,
+        usedMeters: safeUsed,
+        ngMeters: safeNg,
+        status: safeExpected > 0 ? ('active' as const) : ('depleted' as const),
+      };
+
+      tx.set(rollRefs[idx], sanitizeForFirestore(updatedRoll), { merge: true });
+      result.push(updatedRoll);
+    });
+
+    return result;
+  });
+
+  markLocalWrite(adjustments.map((a) => a.rollId));
+  return updatedRolls;
+}
+
 function round2(num: number): number {
   if (isNaN(num)) return 0;
   return Math.round((num + Number.EPSILON) * 100) / 100;

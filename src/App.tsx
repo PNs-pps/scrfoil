@@ -23,6 +23,7 @@ import {
   executeCutBatchInFirestore, 
   executeMultiRollCutBatchInFirestore,
   revertCutRecordInFirestore, 
+  reconcileRollsInFirestore,
   uploadAllToFirestore,
   testFirestoreConnection,
   fetchAllCutRecordsFromFirestore,
@@ -49,6 +50,8 @@ import { PuSandwichView } from './components/PuSandwichView';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { IntegrityCheckModal } from './components/IntegrityCheckModal';
+import { SOBugInspectorModal } from './components/SOBugInspectorModal';
+import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
 import { formatMeters, round2 } from './utils/formatters';
@@ -84,6 +87,24 @@ export default function App() {
   const [stockIntegrityIssues, setStockIntegrityIssues] = useState<IntegrityMismatch[] | null>(null);
   const [showIntegrityModal, setShowIntegrityModal] = useState(false);
   const [isRunningIntegrityCheck, setIsRunningIntegrityCheck] = useState(false);
+
+  // SO History Bug Inspector State
+  const [isSOBugInspectorOpen, setIsSOBugInspectorOpen] = useState(false);
+  const [soBugAuditTargetRollId, setSoBugAuditTargetRollId] = useState<string | null>(null);
+
+  // Real-time calculation of SO bugs across all rolls
+  const soAuditResults = React.useMemo(() => {
+    return auditAllRollsSOHistory(rolls, records);
+  }, [rolls, records]);
+
+  const soBugCount = React.useMemo(() => {
+    return soAuditResults.filter((r) => r.issues.length > 0).length;
+  }, [soAuditResults]);
+
+  const handleOpenSOAudit = (rollId?: string) => {
+    setSoBugAuditTargetRollId(rollId || null);
+    setIsSOBugInspectorOpen(true);
+  };
 
   const runIntegrityCheck = (isManual: boolean = false) => {
     setIsRunningIntegrityCheck(true);
@@ -754,6 +775,54 @@ export default function App() {
     showToast('ลบม้วนฟอยล์ออกจากรายการและ Cloud แล้ว', 'info');
   };
 
+  // Reconcile and fix a single roll's remaining stock based on authoritative SO cut slips
+  const handleFixRoll = async (
+    rollId: string,
+    expectedRemaining: number,
+    sumUsed?: number,
+    sumNg?: number
+  ) => {
+    try {
+      const updated = await reconcileRollsInFirestore([{
+        rollId,
+        expectedRemaining,
+        sumUsed,
+        sumNg,
+      }]);
+
+      if (updated && updated.length > 0) {
+        const nextRolls = rolls.map((r) => (r.id === rollId ? updated[0] : r));
+        updateRollsState(nextRolls);
+        showToast(`ปรับปรุงยอดคงเหลือม้วนล็อต ${updated[0].lotNumber} #${updated[0].rollNumber} เป็น ${formatMeters(updated[0].remainingMeters)} ม. สำเร็จ ✅`);
+        const newIssues = checkStockIntegrity(nextRolls, records);
+        setStockIntegrityIssues(newIssues);
+      }
+    } catch (err: any) {
+      console.error('Failed to reconcile roll:', err);
+      showToast(`ไม่สามารถปรับปรุงยอดได้: ${err?.message || err}`, 'info');
+    }
+  };
+
+  // Reconcile and fix multiple rolls automatically with user consent
+  const handleFixMultipleRolls = async (
+    adjustments: Array<{ rollId: string; expectedRemaining: number; sumUsed: number; sumNg: number }>
+  ) => {
+    try {
+      const updated = await reconcileRollsInFirestore(adjustments);
+      if (updated && updated.length > 0) {
+        const updatedMap = new Map(updated.map((r) => [r.id, r]));
+        const nextRolls = rolls.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
+        updateRollsState(nextRolls);
+        showToast(`ปรับปรุงยอดคงเหลือตามใบตัด SO อัตโนมัติสำเร็จ ${updated.length} ม้วน เรียบร้อยแล้ว ✅`);
+        const newIssues = checkStockIntegrity(nextRolls, records);
+        setStockIntegrityIssues(newIssues);
+      }
+    } catch (err: any) {
+      console.error('Failed to auto-reconcile multiple rolls:', err);
+      showToast(`ไม่สามารถปรับปรุงยอดอัตโนมัติได้: ${err?.message || err}`, 'info');
+    }
+  };
+
   // Reset to default sample
   const handleResetData = () => {
     if (confirm('คุณต้องการรีเซ็ตข้อมูลเป็นตัวอย่างเริ่มต้นของโรงงานหรือไม่? (คิดดีๆ)')) {
@@ -854,6 +923,8 @@ export default function App() {
         userMode={userMode}
         onUnlockEditor={() => requireEditorPermission(() => {})}
         onLockVisitor={handleLockToVisitor}
+        onOpenSOAudit={() => handleOpenSOAudit()}
+        soBugCount={soBugCount}
       />
 
       {/* Main Content Area */}
@@ -973,6 +1044,7 @@ export default function App() {
             onRunIntegrityCheck={() => requireEditorPermission(() => runIntegrityCheck(true))}
             isRunningIntegrityCheck={isRunningIntegrityCheck}
             integrityCheckState={getCheckState()}
+            onOpenSOAudit={() => handleOpenSOAudit()}
           />
         )}
       </main>
@@ -1028,6 +1100,9 @@ export default function App() {
           onClose={() => setDetailRoll(null)}
           onOpenCutForThisRoll={handleOpenCutForRoll}
           onEditRoll={(roll) => requireEditorPermission(() => setEditingRoll(roll))}
+          onFixRoll={handleFixRoll}
+          canEdit={userMode === 'editor'}
+          onOpenFullAudit={(rollId) => handleOpenSOAudit(rollId)}
         />
       )}
 
@@ -1103,59 +1178,34 @@ export default function App() {
         </div>
       )}
 
-      {/* Stock Integrity Check Results Modal */}
+      {/* Stock Integrity Auto-Reconciliation Modal */}
       {showIntegrityModal && stockIntegrityIssues && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-amber-200 max-w-lg w-full overflow-hidden animate-in zoom-in-95 duration-150 max-h-[85vh] flex flex-col">
-            <div className="p-5 border-b border-slate-100 flex items-start gap-3.5">
-              <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                <AlertCircle className="w-6 h-6 stroke-[2.5]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-base font-bold text-slate-900 leading-tight">
-                  พบยอดคงเหลือไม่ตรงกับรายการตัด SO
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  ระบบตรวจสอบอัตโนมัติพบ {stockIntegrityIssues.length} ม้วนที่ยอดคงเหลือไม่ตรงกับผลรวมของรายการตัดจริง
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 overflow-y-auto flex-1 space-y-2.5">
-              {stockIntegrityIssues.map((issue) => (
-                <div key={issue.rollId} className="border border-amber-200 bg-amber-50/60 rounded-xl p-3 text-sm">
-                  <div className="font-bold text-slate-900">
-                    {issue.pattern} — ล็อต {issue.lotNumber} #{issue.rollNumber} (หน้า {issue.width} มม.)
-                  </div>
-                  <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-700">
-                    <span>ยอดในระบบตอนนี้:</span>
-                    <span className="font-mono font-bold text-right">{issue.actualRemaining.toLocaleString()} ม.</span>
-                    <span>ยอดที่ควรจะเป็น (จากรายการตัด {issue.recordCount} รายการ):</span>
-                    <span className="font-mono font-bold text-right">{issue.expectedRemaining.toLocaleString()} ม.</span>
-                    <span className="font-semibold">ผลต่าง:</span>
-                    <span className={`font-mono font-bold text-right ${issue.diff > 0 ? 'text-rose-600' : 'text-blue-600'}`}>
-                      {issue.diff > 0 ? '+' : ''}{issue.diff.toLocaleString()} ม.
-                    </span>
-                  </div>
-                </div>
-              ))}
-              <p className="text-[11px] text-slate-400 pt-1">
-                สาเหตุที่พบบ่อย: มีการแก้ไขยอดม้วนด้วยตนเองโดยไม่รวมรายการตัดที่มีอยู่, การตัด/ลบรายการที่ซิงค์ไม่สมบูรณ์, หรือแคชเก่าในเครื่องที่ยังไม่อัปเดต แนะนำให้ตรวจสอบม้วนที่ระบุแล้วแก้ไขยอดให้ถูกต้องหากจำเป็น
-              </p>
-            </div>
-
-            <div className="p-4 border-t border-slate-100 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowIntegrityModal(false)}
-                className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-              >
-                รับทราบ
-              </button>
-            </div>
-          </div>
-        </div>
+        <IntegrityCheckModal
+          isOpen={showIntegrityModal}
+          onClose={() => setShowIntegrityModal(false)}
+          mismatches={stockIntegrityIssues}
+          checkedAt={getCheckState().lastCheckedAt || new Date().toISOString()}
+          onFixRoll={handleFixRoll}
+          onFixMultipleRolls={handleFixMultipleRolls}
+          canEdit={userMode === 'editor'}
+          onOpenSOAudit={(rollId) => handleOpenSOAudit(rollId)}
+        />
       )}
+
+      {/* Roll SO Diagnostics & Bug Inspector Modal */}
+      <SOBugInspectorModal
+        isOpen={isSOBugInspectorOpen}
+        onClose={() => {
+          setIsSOBugInspectorOpen(false);
+          setSoBugAuditTargetRollId(null);
+        }}
+        rolls={rolls}
+        records={records}
+        initialRollId={soBugAuditTargetRollId}
+        onFixRoll={handleFixRoll}
+        onFixMultipleRolls={handleFixMultipleRolls}
+        canEdit={userMode === 'editor'}
+      />
 
       {/* Firebase Rules Configuration Guide Modal */}
       <FirebaseRulesModal

@@ -27,20 +27,36 @@ export interface IntegrityMismatch {
   expectedRemaining: number;
   diff: number; // actual - expected (positive = roll shows MORE than it should)
   recordCount: number;
+  sumUsedMeters: number;
+  sumNgMeters: number;
+  sumTotalDeducted: number;
+  isZeroedOut: boolean;
+  canAutoAdjust: boolean;
+  zeroedReason?: string;
 }
 
 // Small tolerance to absorb floating point rounding noise, not real discrepancies.
 const TOLERANCE_METERS = 0.05;
 
+export interface CheckStockIntegrityOptions {
+  excludeZeroedOut?: boolean;
+}
+
 export function checkStockIntegrity(
   rolls: FoilRoll[],
-  records: StockCutRecord[]
+  records: StockCutRecord[],
+  options?: CheckStockIntegrityOptions
 ): IntegrityMismatch[] {
-  const deductionByRoll = new Map<string, { total: number; count: number }>();
+  const deductionByRoll = new Map<string, { total: number; used: number; ng: number; count: number }>();
 
   records.forEach((rec) => {
-    const existing = deductionByRoll.get(rec.foilId) || { total: 0, count: 0 };
-    const deducted = Math.abs(Number(rec.totalDeducted ?? (Number(rec.usedMeters || 0) + Number(rec.ngMeters || 0))));
+    const existing = deductionByRoll.get(rec.foilId) || { total: 0, used: 0, ng: 0, count: 0 };
+    const safeUsed = Math.abs(Number(rec.usedMeters || 0));
+    const safeNg = Math.abs(Number(rec.ngMeters || 0));
+    const deducted = Math.abs(Number(rec.totalDeducted ?? (safeUsed + safeNg)));
+
+    existing.used = round2(existing.used + safeUsed);
+    existing.ng = round2(existing.ng + safeNg);
     existing.total = round2(existing.total + deducted);
     existing.count += 1;
     deductionByRoll.set(rec.foilId, existing);
@@ -49,10 +65,20 @@ export function checkStockIntegrity(
   const mismatches: IntegrityMismatch[] = [];
 
   rolls.forEach((roll) => {
-    const deduction = deductionByRoll.get(roll.id) || { total: 0, count: 0 };
+    const deduction = deductionByRoll.get(roll.id) || { total: 0, used: 0, ng: 0, count: 0 };
     const expectedRemaining = round2(Math.max(0, Number(roll.totalMeters || 0) - deduction.total));
     const actualRemaining = round2(Number(roll.remainingMeters || 0));
     const diff = round2(actualRemaining - expectedRemaining);
+
+    const isZeroed = Boolean(
+      roll.isZeroedOut || 
+      (roll.remainingMeters === 0 && (roll.status === 'depleted' || roll.manualZeroedOriginalMeters !== undefined))
+    );
+
+    // If options explicitly ask to exclude zeroed out rolls from mismatches list
+    if (options?.excludeZeroedOut && isZeroed) {
+      return;
+    }
 
     if (Math.abs(diff) > TOLERANCE_METERS) {
       mismatches.push({
@@ -66,6 +92,12 @@ export function checkStockIntegrity(
         expectedRemaining,
         diff,
         recordCount: deduction.count,
+        sumUsedMeters: deduction.used,
+        sumNgMeters: deduction.ng,
+        sumTotalDeducted: deduction.total,
+        isZeroedOut: isZeroed,
+        canAutoAdjust: !isZeroed,
+        zeroedReason: isZeroed ? 'ม้วนนี้ถูกกดตัดเป็น 0 แล้ว (isZeroedOut) ยกเว้นการปรับยอด' : undefined,
       });
     }
   });

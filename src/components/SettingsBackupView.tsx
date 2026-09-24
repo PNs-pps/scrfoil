@@ -24,7 +24,8 @@ import {
   FileText,
   Lock,
   RefreshCw,
-  Zap
+  Zap,
+  Bug
 } from 'lucide-react';
 import { 
   AutoBackupConfig, 
@@ -73,6 +74,7 @@ interface SettingsBackupViewProps {
   onRunIntegrityCheck?: () => void;
   isRunningIntegrityCheck?: boolean;
   integrityCheckState?: { date: string; count: number; lastCheckedAt: string };
+  onOpenSOAudit?: () => void;
 }
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
@@ -99,6 +101,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   onRunIntegrityCheck,
   isRunningIntegrityCheck = false,
   integrityCheckState,
+  onOpenSOAudit,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile'>('backup');
   
@@ -467,6 +470,32 @@ service cloud.firestore {
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* SO History Bug Inspector Card */}
+              {onOpenSOAudit && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                      <Bug className="w-4 h-4 text-amber-600" />
+                      <span>ตรวจหาบัคจากประวัติ SO แต่ละลูก</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950">
+                      ตรวจจับข้อผิดพลาด
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    วิเคราะห์ประวัติการตัด SO รายม้วนอย่างละเอียด ตรวจสอบการบันทึก SO ซ้ำซ้อน ยอดคงเหลือโซ่ขาด (ยอดกระโดด) และเปรียบเทียบยอดคงเหลือจริง พร้อมฟังก์ชันปรับยอดอัตโนมัติด้วยความยินยอม (ยกเว้นม้วนที่ตัดเป็น 0)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onOpenSOAudit}
+                    className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Bug className="w-3.5 h-3.5 text-amber-400" />
+                    <span>เปิดระบบตรวจหาบัค SO เชิงลึก</span>
+                  </button>
                 </div>
               )}
 

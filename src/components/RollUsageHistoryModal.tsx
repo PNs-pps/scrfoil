@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FoilRoll, StockCutRecord, CutHistoryItem } from '../types';
 import { 
   X, 
@@ -15,10 +15,18 @@ import {
   Printer,
   RefreshCw,
   ExternalLink,
-  Edit2
+  Edit2,
+  Bug,
+  CheckCircle2,
+  AlertTriangle,
+  Wrench,
+  Sparkles,
+  ShieldCheck,
+  Info
 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
 import { subscribeToRollCutHistory } from '../lib/firebase';
+import { auditRollSOHistory } from '../utils/soHistoryAudit';
 
 interface RollUsageHistoryModalProps {
   roll: FoilRoll | null;
@@ -26,6 +34,9 @@ interface RollUsageHistoryModalProps {
   onClose: () => void;
   onOpenCutForThisRoll: (rollId: string) => void;
   onEditRoll?: (roll: FoilRoll) => void;
+  onFixRoll?: (rollId: string, correctRemaining: number, sumUsed?: number, sumNg?: number) => Promise<void>;
+  canEdit?: boolean;
+  onOpenFullAudit?: (rollId?: string) => void;
 }
 
 export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
@@ -34,42 +45,23 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   onClose,
   onOpenCutForThisRoll,
   onEditRoll,
+  onFixRoll,
+  canEdit = true,
+  onOpenFullAudit,
 }) => {
   // Initialize with in-memory or embedded data first for instant render
   const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
     if (!roll) return [];
-    if (roll.recentCuts && roll.recentCuts.length > 0) {
-      return roll.recentCuts.map((c) => ({
-        id: c.id,
-        soNumber: c.soNumber,
-        cutMeters: c.usedMeters,
-        usedMeters: c.usedMeters,
-        ngMeters: c.ngMeters,
-        totalDeducted: c.totalDeducted,
-        remainingBefore: (c as any).remainingBefore ?? 0,
-        remainingAfter: c.remainingAfter,
-        cutDate: c.usageDate || c.recordedDate,
-        usageDate: c.usageDate,
-        recordedDate: c.recordedDate,
-        recordedBy: c.recordedBy,
-        notes: c.notes,
-        createdAt: (c as any).createdAt || c.recordedDate,
-        cutType: c.cutType || 'so',
-        rollId: roll.id,
-        lotNumber: roll.lotNumber,
-        rollNumber: roll.rollNumber,
-      }));
-    }
-    return records
-      .filter((r) => r.foilId === roll.id)
-      .map((r) => ({
+    const rollCuts = records.filter((r) => r.foilId === roll.id);
+    if (rollCuts.length > 0) {
+      return rollCuts.map((r) => ({
         id: r.id,
         soNumber: r.soNumber,
         cutMeters: r.usedMeters,
         usedMeters: r.usedMeters,
         ngMeters: r.ngMeters,
         totalDeducted: r.totalDeducted,
-        remainingBefore: r.remainingBefore,
+        remainingBefore: r.remainingBefore ?? 0,
         remainingAfter: r.remainingAfter,
         cutDate: r.usageDate || r.recordedDate,
         usageDate: r.usageDate,
@@ -83,53 +75,67 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         lotNumber: roll.lotNumber,
         rollNumber: roll.rollNumber,
       }));
+    }
+    return [];
   });
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [indexWarning, setIndexWarning] = useState<string | null>(null);
+  const [isFixingThisRoll, setIsFixingThisRoll] = useState(false);
+  const [showConfirmFix, setShowConfirmFix] = useState(false);
 
   // Realtime subscription to Firestore sub-collection: foil_rolls/{rollId}/cut_history
+  // Merging both the root collection records and the subcollection items so no SO is ever lost!
   useEffect(() => {
-    if (!roll.id) return;
+    if (!roll?.id) return;
     setIsLoading(true);
 
     const unsubscribe = subscribeToRollCutHistory(
       roll.id,
-      (items) => {
+      (subItems) => {
         setIsLoading(false);
-        if (items && items.length > 0) {
-          setHistoryItems(items);
-        } else {
-          // Fallback to records prop if sub-collection is currently empty
-          const fallback = records
-            .filter((r) => r.foilId === roll.id)
-            .map((r) => ({
-              id: r.id,
-              soNumber: r.soNumber,
-              cutMeters: r.usedMeters,
-              usedMeters: r.usedMeters,
-              ngMeters: r.ngMeters,
-              totalDeducted: r.totalDeducted,
-              remainingBefore: r.remainingBefore,
-              remainingAfter: r.remainingAfter,
-              cutDate: r.usageDate || r.recordedDate,
-              usageDate: r.usageDate,
-              recordedDate: r.recordedDate,
-              recordedBy: r.recordedBy,
-              notes: r.notes,
-              createdAt: r.createdAt || r.recordedDate,
-              cutType: r.cutType || 'so',
-              nonSoReason: r.nonSoReason,
-              rollId: roll.id,
-              lotNumber: roll.lotNumber,
-              rollNumber: roll.rollNumber,
-            }));
-          if (fallback.length > 0) {
-            setHistoryItems(fallback);
-          } else {
-            setHistoryItems([]);
-          }
-        }
+        
+        // Merge records: Map by ID to prevent duplicates
+        const map = new Map<string, CutHistoryItem>();
+
+        // 1. Root records
+        const rootItems = records
+          .filter((r) => r.foilId === roll.id)
+          .map((r) => ({
+            id: r.id,
+            soNumber: r.soNumber,
+            cutMeters: r.usedMeters,
+            usedMeters: r.usedMeters,
+            ngMeters: r.ngMeters,
+            totalDeducted: r.totalDeducted,
+            remainingBefore: r.remainingBefore ?? 0,
+            remainingAfter: r.remainingAfter,
+            cutDate: r.usageDate || r.recordedDate,
+            usageDate: r.usageDate,
+            recordedDate: r.recordedDate,
+            recordedBy: r.recordedBy,
+            notes: r.notes,
+            createdAt: r.createdAt || r.recordedDate,
+            cutType: r.cutType || 'so',
+            nonSoReason: r.nonSoReason,
+            rollId: roll.id,
+            lotNumber: roll.lotNumber,
+            rollNumber: roll.rollNumber,
+          }));
+        rootItems.forEach((item) => map.set(item.id, item));
+
+        // 2. Sub-collection items
+        (subItems || []).forEach((item) => {
+          map.set(item.id, item);
+        });
+
+        const merged = Array.from(map.values()).sort((a, b) => {
+          const timeB = new Date(b.createdAt || b.cutDate || b.usageDate || 0).getTime();
+          const timeA = new Date(a.createdAt || a.cutDate || a.usageDate || 0).getTime();
+          return timeB - timeA;
+        });
+
+        setHistoryItems(merged);
       },
       (err: any) => {
         setIsLoading(false);
@@ -142,59 +148,84 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [roll.id, records]);
+  }, [roll?.id, records]);
+
+  // Run SO History Audit specifically for this roll
+  const audit = useMemo(() => {
+    if (!roll) return null;
+    return auditRollSOHistory(roll, records);
+  }, [roll, records]);
 
   const totalUsed = historyItems.reduce((sum, r) => sum + Number(r.cutMeters ?? r.usedMeters ?? 0), 0);
   const totalNg = historyItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
   const totalDeducted = historyItems.reduce((sum, r) => sum + Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0))), 0);
   
   // Accurately show remaining meters matching the roll inventory state
-  const effectiveRemaining = roll.isZeroedOut
+  const effectiveRemaining = roll?.isZeroedOut
     ? 0
-    : Math.max(0, Number(roll.remainingMeters ?? 0));
+    : Math.max(0, Number(roll?.remainingMeters ?? 0));
 
-  const percentLeft = roll.totalMeters > 0 
-    ? Math.max(0, Math.round((effectiveRemaining / roll.totalMeters) * 100)) 
+  const percentLeft = (roll?.totalMeters ?? 0) > 0 
+    ? Math.max(0, Math.round((effectiveRemaining / roll!.totalMeters) * 100)) 
     : 0;
+
+  // Handle single roll fix with consent
+  const handleFixCurrentRoll = async () => {
+    if (!roll || !audit || !onFixRoll) return;
+    setIsFixingThisRoll(true);
+    try {
+      await onFixRoll(
+        roll.id,
+        audit.calculatedRemaining,
+        audit.totalUsedMeters,
+        audit.totalNgMeters
+      );
+      setShowConfirmFix(false);
+    } finally {
+      setIsFixingThisRoll(false);
+    }
+  };
 
   // Export single roll history to CSV
   const handleExportThisRoll = () => {
+    if (!roll || historyItems.length === 0) return;
+
     const headers = [
       'ลำดับ',
-      'รหัสใบงาน / SO',
-      'ชนิดการตัด',
-      'เลขล็อต',
+      'รหัส SO / ใบงาน',
+      'ประเภทการตัด',
+      'เหตุผล (ถ้าไม่ระบุ SO)',
+      'ล็อตฟอยล์',
       'เบอร์ม้วน',
       'หน้ากว้าง (มม.)',
       'ลายฟอยล์',
-      'เมตรที่ใช้ลงแผ่นจริง (ม.)',
-      'NG ที่เสีย (ม.)',
+      'ตัดใช้งาน (ม.)',
+      'NG เสีย (ม.)',
       'รวมตัดออก (ม.)',
-      'คงเหลือก่อนตัด (ม.)',
-      'คงเหลือหลังตัด (ม.)',
-      'วันที่ใช้งาน',
-      'วันที่บันทึก',
+      'ยอดคงเหลือก่อนตัด (ม.)',
+      'ยอดคงเหลือหลังตัด (ม.)',
+      'วันที่ใช้งาน/ตัด',
       'ผู้บันทึก',
       'หมายเหตุ'
     ];
 
-    const rows = historyItems.map((r, idx) => [
+    const rows = historyItems.map((item, idx) => [
       idx + 1,
-      r.soNumber,
-      r.cutType === 'non_so' ? `ไม่ใช้ SO (${r.nonSoReason || 'สาขายืม/ซ่อม'})` : 'มี SO',
-      r.lotNumber || roll.lotNumber,
-      r.rollNumber || roll.rollNumber,
-      r.width || roll.width,
-      r.pattern || roll.pattern,
-      r.cutMeters ?? r.usedMeters ?? 0,
-      r.ngMeters || 0,
-      r.totalDeducted || ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0)),
-      r.remainingBefore ?? '-',
-      r.remainingAfter ?? '-',
-      r.cutDate || r.usageDate || r.recordedDate || '-',
-      r.recordedDate || r.createdAt || '-',
-      `"${(r.recordedBy || 'ช่างคุมเครื่อง').replace(/"/g, '""')}"`,
-      `"${(r.notes || '').replace(/"/g, '""')}"`
+      `"${item.soNumber || '-'}"`,
+      `"${item.cutType === 'non_so' ? 'ไม่ระบุ SO' : 'มี SO'}"`,
+      `"${item.nonSoReason || '-'}"`,
+      `"${roll.lotNumber}"`,
+      `"${roll.rollNumber}"`,
+      roll.width,
+      `"${roll.pattern}"`,
+      item.cutMeters ?? item.usedMeters ?? 0,
+      item.ngMeters || 0,
+      item.totalDeducted || ((item.cutMeters ?? item.usedMeters ?? 0) + (item.ngMeters || 0)),
+      item.remainingBefore ?? '-',
+      item.remainingAfter ?? '-',
+      `"${item.cutDate || item.usageDate || item.recordedDate || '-'}"`,
+      `"${item.recordedBy || '-'}"`,
+      `"${(item.notes || '').replace(/"/g, '""')}"`
     ]);
 
     const csvContent = '\uFEFF' + [
@@ -249,7 +280,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         </div>
 
         {/* Body Content */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-5">
+        <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
+          
           {/* Roll Profile Card */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 sm:p-5">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -390,6 +422,121 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             </div>
           </div>
 
+          {/* SO History Audit & Diagnostics Banner */}
+          {audit && (
+            <div className={`rounded-xl border p-3.5 space-y-2.5 ${
+              audit.issues.some((i) => i.severity === 'error')
+                ? 'bg-rose-50/70 border-rose-300 text-rose-950'
+                : audit.issues.some((i) => i.severity === 'warning')
+                  ? 'bg-amber-50/70 border-amber-300 text-amber-950'
+                  : 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
+            }`}>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Bug className={`w-4 h-4 ${
+                    audit.hasErrors ? 'text-rose-600' : audit.hasWarnings ? 'text-amber-600' : 'text-emerald-600'
+                  }`} />
+                  <span className="font-bold text-xs">
+                    ผลการตรวจสอบประวัติ SO ของม้วนนี้:
+                  </span>
+                  {audit.issues.length === 0 ? (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-semibold">
+                      สมบูรณ์ ไม่พบบัค ✅
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[11px] font-bold">
+                      พบข้อสังเกต {audit.issues.length} รายการ
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {onOpenFullAudit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenFullAudit(roll.id);
+                      }}
+                      className="text-xs font-semibold text-slate-700 hover:text-amber-800 underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>ดูไทม์ไลน์วิเคราะห์บัคเต็ม</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Issues List */}
+              {audit.issues.length > 0 && (
+                <div className="space-y-1.5 pt-1 text-xs">
+                  {audit.issues.map((iss) => (
+                    <div key={iss.id} className="p-2 rounded-lg bg-white/80 border border-slate-200/80 flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-snug">
+                        <span className="font-bold text-slate-900 block">{iss.title}</span>
+                        <span className="text-[11px] text-slate-600">{iss.description}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Auto Fix / Consent Trigger if roll can be adjusted */}
+              {canEdit && audit.canAutoAdjust && (
+                <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-xs text-slate-700">
+                    คำนวณจากยอดตัด SO จริง ควรเหลือ: <strong className="text-emerald-700 font-mono">{formatMeters(audit.calculatedRemaining)} ม.</strong> (ต่างจากปัจจุบัน {audit.diff > 0 ? `+${formatMeters(audit.diff)}` : formatMeters(audit.diff)} ม.)
+                  </div>
+
+                  {!showConfirmFix ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmFix(true)}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Wrench className="w-3.5 h-3.5" />
+                      <span>ปรับยอดม้วนนี้ให้ตรงกับ SO ({formatMeters(audit.calculatedRemaining)} ม.)</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-amber-300">
+                      <span className="text-xs font-bold text-slate-800">
+                        ยืนยันปรับยอดเป็น {formatMeters(audit.calculatedRemaining)} ม.?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmFix(false)}
+                        className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded"
+                      >
+                        ยกเลิก
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleFixCurrentRoll}
+                        disabled={isFixingThisRoll}
+                        className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-bold hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        {isFixingThisRoll ? (
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3 h-3 text-amber-400" />
+                        )}
+                        <span>ยืนยัน</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {audit.isZeroedOut && (
+                <div className="pt-1 text-xs text-slate-600 flex items-center gap-1.5 font-medium">
+                  <Info className="w-3.5 h-3.5 text-slate-500" />
+                  <span>ม้วนนี้ถูกกดตัดเป็น 0 แล้ว (isZeroedOut) — ระบบยกเว้นการปรับยอดอัตโนมัติ เพื่อคงค่าเดิมตามที่ผู้ใช้งานระบุ</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Index Creation Notice if orderBy failed */}
           {indexWarning && (
             <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 animate-in fade-in">
@@ -421,105 +568,71 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             </div>
 
             {historyItems.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <Scissors className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="font-semibold text-slate-700">ม้วนนี้ยังไม่มีประวัติการตัดสต๊อก</p>
-                <p className="text-xs text-slate-400">เป็นม้วนใหม่ลูกเต็ม {formatMeters(roll.totalMeters)} เมตร พร้อมใช้งาน</p>
+              <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center">
+                <Scissors className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-slate-700">ยังไม่มีประวัติการตัดฟอยล์จากลูกนี้</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  เมื่อมีการกดตัดสต๊อกและระบุใบสั่งผลิต SO ระบบจะบันทึกประวัติไว้ที่นี่
+                </p>
               </div>
             ) : (
-              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
-                      <tr>
-                        <th className="p-3">ลำดับ</th>
-                        <th className="p-3">รหัสใบงาน / SO</th>
-                        <th className="p-3">ประเภท</th>
-                        <th className="p-3 text-right">ตัดลงแผ่นจริง</th>
-                        <th className="p-3 text-right">NG ที่เสีย</th>
-                        <th className="p-3 text-right">รวมตัดออก</th>
-                        <th className="p-3 text-right">ก่อนตัด &rarr; หลังตัด</th>
-                        <th className="p-3">วันที่ใช้งาน</th>
-                        <th className="p-3">วันที่/เวลาบันทึก</th>
-                        <th className="p-3">ผู้บันทึก</th>
-                        <th className="p-3">หมายเหตุ</th>
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 text-[11px]">
+                        <th className="py-2.5 px-3">ลำดับ</th>
+                        <th className="py-2.5 px-3">รหัส SO / ใบงาน</th>
+                        <th className="py-2.5 px-3 text-right">ตัดลงแผ่น</th>
+                        <th className="py-2.5 px-3 text-right">NG</th>
+                        <th className="py-2.5 px-3 text-right">รวมตัดออก</th>
+                        <th className="py-2.5 px-3 text-right">คงเหลือก่อน &rarr; หลัง</th>
+                        <th className="py-2.5 px-3">วันที่ใช้งาน</th>
+                        <th className="py-2.5 px-3">ผู้บันทึก</th>
+                        <th className="py-2.5 px-3">หมายเหตุ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {historyItems.map((item, idx) => {
-                        const isNonSo = item.cutType === 'non_so';
-                        const cutMetersVal = item.cutMeters ?? item.usedMeters ?? 0;
-                        const ngMetersVal = item.ngMeters ?? 0;
-                        const totalDeductedVal = item.totalDeducted ?? (cutMetersVal + ngMetersVal);
-
-                        // Format created time / date
-                        let createdTimeStr = '';
-                        if (item.createdAt) {
-                          const cd = new Date(item.createdAt);
-                          if (!isNaN(cd.getTime())) {
-                            createdTimeStr = `${cd.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.`;
-                          }
-                        }
-
-                        return (
-                          <tr key={item.id} className="hover:bg-amber-50/40 transition-colors">
-                            <td className="p-3 text-slate-400 font-mono font-medium">
-                              {idx + 1}
-                            </td>
-                            <td className="p-3">
-                              <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded border inline-block ${
-                                isNonSo
-                                  ? 'bg-slate-100 text-slate-800 border-slate-300'
-                                  : 'bg-amber-50 text-amber-900 border-amber-300'
-                              }`}>
-                                {item.soNumber}
-                              </span>
-                            </td>
-                            <td className="p-3 text-slate-600">
-                              {isNonSo ? (
-                                <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                  {item.nonSoReason || 'ไม่ใช้ SO'}
-                                </span>
-                              ) : (
-                                <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                                  ใบสั่งผลิต SO
+                      {historyItems.map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
+                            <div className="flex items-center gap-1.5">
+                              <span>{item.soNumber || '-'}</span>
+                              {item.cutType === 'non_so' && (
+                                <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded text-[10px] font-normal">
+                                  ไม่มี SO
                                 </span>
                               )}
-                            </td>
-                            <td className="p-3 text-right font-mono font-bold text-slate-900">
-                              {formatMeters(cutMetersVal)} <span className="text-slate-400 font-normal">ม.</span>
-                            </td>
-                            <td className="p-3 text-right font-mono text-rose-600">
-                              {ngMetersVal > 0 ? `${formatMeters(ngMetersVal)} ม.` : '-'}
-                            </td>
-                            <td className="p-3 text-right font-mono font-bold text-amber-800">
-                              -{formatMeters(totalDeductedVal)} <span className="text-slate-400 font-normal">ม.</span>
-                            </td>
-                            <td className="p-3 text-right font-mono text-[11px]">
-                              <span className="text-slate-500">{formatMeters(item.remainingBefore ?? 0)}</span>
-                              <span className="text-slate-300 mx-1">&rarr;</span>
-                              <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
-                            </td>
-                            <td className="p-3 font-mono text-slate-800 whitespace-nowrap font-medium">
-                              {item.cutDate || item.usageDate || item.recordedDate || '-'}
-                            </td>
-                            <td className="p-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
-                              {item.recordedDate || (item.createdAt ? new Date(item.createdAt).toLocaleDateString('th-TH') : '-')}
-                              {createdTimeStr && (
-                                <span className="text-[10px] text-slate-400 block">
-                                  {createdTimeStr}
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-3 text-slate-700 truncate max-w-[120px]">
-                              {item.recordedBy || 'ช่างคุมเครื่อง'}
-                            </td>
-                            <td className="p-3 text-slate-500 text-[11px] truncate max-w-[150px]" title={item.notes}>
-                              {item.notes || '-'}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">
+                            {formatMeters(item.cutMeters ?? item.usedMeters ?? 0)} ม.
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-rose-600">
+                            {(item.ngMeters || 0) > 0 ? `${formatMeters(item.ngMeters)} ม.` : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">
+                            -{formatMeters(item.totalDeducted || ((item.cutMeters ?? item.usedMeters ?? 0) + (item.ngMeters || 0)))} ม.
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-[11px] whitespace-nowrap">
+                            <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
+                            <span className="text-slate-300 mx-1">&rarr;</span>
+                            <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap text-[11px]">
+                            {item.cutDate || item.usageDate || item.recordedDate || (item.createdAt ? item.createdAt.slice(0, 10) : '-')}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 max-w-[120px] truncate text-[11px]">
+                            {item.recordedBy || '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-500 max-w-[150px] truncate text-[11px]">
+                            {item.notes || (item.nonSoReason ? `เหตุผล: ${item.nonSoReason}` : '-')}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -529,20 +642,20 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="hidden sm:inline">
-              ซิงค์เรียลไทม์กับ Firestore sub-collection (foil_rolls/{roll.id}/cut_history)
-            </span>
+        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+          <div className="text-xs text-slate-500 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>ซิงค์ข้อมูลกับ Cloud Firestore กลางอัตโนมัติ</span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer ml-auto"
-          >
-            ปิดหน้าต่าง
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              ปิดหน้าต่าง
+            </button>
+          </div>
         </div>
       </div>
     </div>

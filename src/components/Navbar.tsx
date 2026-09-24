@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory, Bug } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
@@ -18,6 +18,8 @@ interface NavbarProps {
   userMode: UserMode;
   onUnlockEditor: () => void;
   onLockVisitor: () => void;
+  onOpenSOAudit?: () => void;
+  soBugCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,6 +38,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   userMode,
   onUnlockEditor,
   onLockVisitor,
+  onOpenSOAudit,
+  soBugCount = 0,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
@@ -94,6 +98,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-950 text-[10px] font-bold">
                     ล็อค
                   </span>
+                </button>
+              )}
+
+              {/* SO Bug Inspector Button */}
+              {onOpenSOAudit && (
+                <button
+                  type="button"
+                  onClick={onOpenSOAudit}
+                  className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                  title="ตรวจหาบัคจากประวัติ SO และตรวจสอบยอดคงเหลือสต๊อก"
+                >
+                  <Bug className="w-3.5 h-3.5 text-amber-600 group-hover:rotate-12 transition-transform" />
+                  <span className="hidden sm:inline">ตรวจบัค SO</span>
+                  {Boolean(soBugCount && soBugCount > 0) && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-bold animate-pulse">
+                      {soBugCount}
+                    </span>
+                  )}
                 </button>
               )}
 
