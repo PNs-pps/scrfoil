@@ -11,6 +11,7 @@ import {
   setDoc, 
   deleteDoc, 
   writeBatch, 
+  runTransaction,
   getDocs,
   query,
   limit,
@@ -132,6 +133,37 @@ export async function testFirestoreConnection(): Promise<{ isConnected: boolean;
 const ROLLS_COLLECTION = 'foil_rolls';
 const RECORDS_COLLECTION = 'stock_cut_records';
 
+/**
+ * --- External-update detection ---------------------------------------------
+ * The realtime listeners below (`subscribeToFoilRolls`/`subscribeToStockCutRecords`)
+ * are READ-ONLY mirrors of Firestore: they never write anything back, they only
+ * push whatever is on the server into the UI. All writes go exclusively through
+ * the transaction functions further down this file.
+ *
+ * Because of that, when a snapshot arrives carrying a change to a document this
+ * device did NOT just write itself, it must mean another device changed the
+ * data. We track our own recent writes (doc id -> expiry) for a few seconds so
+ * the listener can tell the two cases apart and fire `onExternalChange` only
+ * for genuinely-external updates (e.g. to prompt the user to refresh).
+ */
+const recentLocalWriteIds = new Map<string, number>();
+const LOCAL_WRITE_TTL_MS = 10000;
+
+function markLocalWrite(ids: string[]): void {
+  const expiry = Date.now() + LOCAL_WRITE_TTL_MS;
+  ids.forEach((id) => recentLocalWriteIds.set(id, expiry));
+}
+
+function isRecentLocalWrite(id: string): boolean {
+  const expiry = recentLocalWriteIds.get(id);
+  if (expiry === undefined) return false;
+  if (Date.now() > expiry) {
+    recentLocalWriteIds.delete(id);
+    return false;
+  }
+  return true;
+}
+
 export interface SubscriptionOptions {
   limitCount?: number;
   onFromCache?: (isFromCache: boolean) => void;
@@ -143,15 +175,30 @@ export interface SubscriptionOptions {
 export function subscribeToFoilRolls(
   onUpdate: (rolls: FoilRoll[]) => void,
   onError?: (err: Error) => void,
-  options?: { onFromCache?: (isFromCache: boolean) => void }
+  options?: { onFromCache?: (isFromCache: boolean) => void; onExternalChange?: () => void }
 ): () => void {
   try {
     const q = query(collection(db, ROLLS_COLLECTION));
-    
+    let isFirstSnapshot = true;
+
     return onSnapshot(
       q,
       (snapshot) => {
         options?.onFromCache?.(snapshot.metadata.fromCache);
+
+        // Detect changes that came from another device (see comment above the
+        // recentLocalWriteIds tracker). Skip the very first snapshot (initial
+        // load is not "an update"), and skip our own writes echoing back.
+        if (!isFirstSnapshot && !snapshot.metadata.hasPendingWrites) {
+          const externalChange = snapshot.docChanges().some(
+            (change) => !isRecentLocalWrite(change.doc.id)
+          );
+          if (externalChange) {
+            options?.onExternalChange?.();
+          }
+        }
+        isFirstSnapshot = false;
+
         const rolls: FoilRoll[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as FoilRoll;
@@ -182,26 +229,49 @@ export function subscribeToFoilRolls(
  * and intelligent limit to minimize read consumption
  */
 export function subscribeToStockCutRecords(
-  onUpdate: (records: StockCutRecord[]) => void,
+  onUpdate: (records: StockCutRecord[], removedIds: string[]) => void,
   onError?: (err: Error) => void,
-  options?: SubscriptionOptions
+  options?: SubscriptionOptions & { onExternalChange?: () => void }
 ): () => void {
   try {
     const q = options?.limitCount
       ? query(collection(db, RECORDS_COLLECTION), limit(options.limitCount))
       : query(collection(db, RECORDS_COLLECTION));
 
+    let isFirstSnapshot = true;
+
     return onSnapshot(
       q,
       (snapshot) => {
         options?.onFromCache?.(snapshot.metadata.fromCache);
+
+        if (!isFirstSnapshot && !snapshot.metadata.hasPendingWrites) {
+          const externalChange = snapshot.docChanges().some(
+            (change) => !isRecentLocalWrite(change.doc.id)
+          );
+          if (externalChange) {
+            options?.onExternalChange?.();
+          }
+        }
+        isFirstSnapshot = false;
+
+        // Track ids removed from this query window so callers merging this
+        // windowed result with a broader local cache can actually drop them —
+        // otherwise a record deleted on the server (e.g. cancelling an SO cut)
+        // would never disappear locally, since a naive "union with existing
+        // cache" merge only ever adds/updates and never removes.
+        const removedIds = snapshot
+          .docChanges()
+          .filter((change) => change.type === 'removed')
+          .map((change) => change.doc.id);
+
         const records: StockCutRecord[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as StockCutRecord;
           records.push({ ...data, pattern: normalizePattern(data.pattern) });
         });
         records.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        onUpdate(records);
+        onUpdate(records, removedIds);
       },
       (err) => {
         // Use console.warn instead of console.error to avoid failing the applet test runner
@@ -263,70 +333,122 @@ export async function deleteFoilRollFromFirestore(rollId: string): Promise<void>
 /**
  * Atomic batch cut: creates all cut records and updates the foil roll in one Firestore batch
  */
+/**
+ * Atomic single-roll cut: runs as a Firestore TRANSACTION so the deduction is
+ * always applied against the roll's true, up-to-the-millisecond remaining
+ * meters on the server — never against a value cached on this device.
+ *
+ * Why this matters: if two devices cut from the same roll at nearly the same
+ * time using a plain batch write (the old approach), each device computes its
+ * own "new remaining" from its own possibly-stale local copy and overwrites
+ * the field outright — whichever write lands last silently wins, and the
+ * other device's deduction is lost forever (the roll ends up showing MORE
+ * stock than actually remains). A transaction prevents this: Firestore
+ * automatically retries the transaction if the roll document changed between
+ * the read and the write, so the deduction is always applied on top of the
+ * latest committed value.
+ *
+ * Also guards against duplicate submits: if a record with this id was already
+ * written (e.g. a retried request after a flaky connection), the transaction
+ * skips re-deducting it again.
+ *
+ * Returns the roll's true post-cut state as committed to Firestore, so the
+ * caller can sync local state to the authoritative number instead of trusting
+ * its own pre-cut calculation.
+ */
 export async function executeCutBatchInFirestore(
   batchRecords: StockCutRecord[],
-  updatedRoll: FoilRoll
-): Promise<void> {
-  try {
-    const batch = writeBatch(db);
+  rollId: string
+): Promise<FoilRoll> {
+  const rollRef = doc(db, ROLLS_COLLECTION, rollId);
 
-    // Prepare updated recent cuts for roll document
+  const finalRoll = await runTransaction(db, async (tx) => {
+    // 1. Read the roll fresh from the server — this is the "read the SO sheet's
+    //    real value before showing/saving" requirement.
+    const rollSnap = await tx.get(rollRef);
+    if (!rollSnap.exists()) {
+      throw new Error('ไม่พบม้วนฟอยล์นี้ในระบบ (อาจถูกลบไปแล้วจากเครื่องอื่น)');
+    }
+    const serverRoll = rollSnap.data() as FoilRoll;
+
+    // 2. Duplicate-write guard: check which of these record ids already exist
+    //    (idempotency — a retried/duplicated submit must not double-deduct).
+    const existingFlags = await Promise.all(
+      batchRecords.map((r) => tx.get(doc(db, RECORDS_COLLECTION, r.id)))
+    );
+    const newRecords = batchRecords.filter((_, idx) => !existingFlags[idx].exists());
+
+    if (newRecords.length === 0) {
+      // Everything in this batch was already written before — nothing new to do.
+      return serverRoll;
+    }
+
+    // 3. Validate against the FRESH server remaining meters (not the client's copy).
+    const totalUsed = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.usedMeters || 0)), 0));
+    const totalNg = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.ngMeters || 0)), 0));
+    const totalDeduct = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.totalDeducted || 0)), 0)) || round2(totalUsed + totalNg);
+    const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
+
+    if (totalDeduct > freshRemaining + 0.01) {
+      throw new Error(
+        `สต๊อกไม่พอ! ยอดคงเหลือจริงในระบบตอนนี้คือ ${freshRemaining.toLocaleString()} ม. แต่พยายามตัด ${totalDeduct.toLocaleString()} ม. (อาจมีเครื่องอื่นตัดสต๊อกม้วนนี้ไปก่อนหน้านี้แล้ว กรุณารีเฟรชหน้าจอแล้วลองใหม่)`
+      );
+    }
+
+    const newRemaining = round2(Math.max(0, freshRemaining - totalDeduct));
+    const newUsed = round2(Math.max(0, Number(serverRoll.usedMeters || 0) + totalUsed));
+    const newNg = round2(Math.max(0, Number(serverRoll.ngMeters || 0) + totalNg));
+
     const rollCuts = [
-      ...batchRecords.map((r) => ({
+      ...newRecords.map((r) => ({
         id: r.id,
         soNumber: r.soNumber || '',
         cutType: r.cutType || 'so',
         usedMeters: Math.abs(Number(r.usedMeters || 0)),
         ngMeters: Math.abs(Number(r.ngMeters || 0)),
         totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
-        remainingAfter: Math.max(0, Number(r.remainingAfter ?? 0)),
+        remainingAfter: newRemaining,
         usageDate: r.usageDate || new Date().toISOString().split('T')[0],
         recordedDate: r.recordedDate || new Date().toISOString().split('T')[0],
         recordedBy: r.recordedBy || '',
         notes: r.notes || '',
       })),
-      ...(updatedRoll.recentCuts || []),
-    ].slice(0, 50); // keep up to 50 most recent SOs embedded in roll
+      ...(serverRoll.recentCuts || []),
+    ].slice(0, 50);
 
-    const finalRoll: FoilRoll = {
-      ...updatedRoll,
-      remainingMeters: Math.max(0, Number(updatedRoll.remainingMeters || 0)),
-      usedMeters: Math.max(0, Number(updatedRoll.usedMeters || 0)),
-      ngMeters: Math.max(0, Number(updatedRoll.ngMeters || 0)),
+    const updatedRoll: FoilRoll = {
+      ...serverRoll,
+      remainingMeters: newRemaining,
+      usedMeters: newUsed,
+      ngMeters: newNg,
+      status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
       recentCuts: rollCuts,
     };
 
-    // 1. Update the Foil Roll in foil_rolls
-    const rollRef = doc(db, ROLLS_COLLECTION, finalRoll.id);
-    batch.set(rollRef, sanitizeForFirestore(finalRoll), { merge: true });
+    // 4. Write everything atomically within the transaction.
+    tx.set(rollRef, sanitizeForFirestore(updatedRoll), { merge: true });
 
-    // 2. Insert all new Cut Records in root collection and subcollection `cut_history`
-    batchRecords.forEach((record) => {
-      // Ensure positive values mathematically
+    newRecords.forEach((record) => {
       const safeCutMeters = Math.abs(Number(record.usedMeters || 0));
       const safeNgMeters = Math.abs(Number(record.ngMeters || 0));
       const safeTotalDeducted = Math.abs(Number(record.totalDeducted || (safeCutMeters + safeNgMeters)));
-      const safeRemainingBefore = Math.max(0, Number(record.remainingBefore ?? 0));
-      const safeRemainingAfter = Math.max(0, Number(record.remainingAfter ?? 0));
 
       const safeRecord: StockCutRecord = {
         ...record,
         usedMeters: safeCutMeters,
         ngMeters: safeNgMeters,
         totalDeducted: safeTotalDeducted,
-        remainingBefore: safeRemainingBefore,
-        remainingAfter: safeRemainingAfter,
+        remainingBefore: freshRemaining,
+        remainingAfter: newRemaining,
         notes: record.notes || '',
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
         usageDate: record.usageDate || new Date().toISOString().split('T')[0],
         recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
       };
 
-      // Root collection for global search & yearly summaries
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
-      batch.set(recordRef, sanitizeForFirestore(safeRecord));
+      tx.set(recordRef, sanitizeForFirestore(safeRecord));
 
-      // Subcollection `cut_history` per requirement: foil_rolls/{rollId}/cut_history
       const historyItem: CutHistoryItem = {
         id: record.id,
         soNumber: record.soNumber || '',
@@ -334,8 +456,8 @@ export async function executeCutBatchInFirestore(
         usedMeters: safeCutMeters,
         ngMeters: safeNgMeters,
         totalDeducted: safeTotalDeducted,
-        remainingBefore: safeRemainingBefore,
-        remainingAfter: safeRemainingAfter,
+        remainingBefore: freshRemaining,
+        remainingAfter: newRemaining,
         cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
         recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
@@ -344,144 +466,244 @@ export async function executeCutBatchInFirestore(
         createdAt: record.createdAt || new Date().toISOString(),
         cutType: record.cutType || 'so',
         nonSoReason: record.nonSoReason || '',
-        rollId: finalRoll.id,
-        lotNumber: finalRoll.lotNumber,
-        rollNumber: finalRoll.rollNumber,
-        width: finalRoll.width,
-        pattern: finalRoll.pattern,
+        rollId: updatedRoll.id,
+        lotNumber: updatedRoll.lotNumber,
+        rollNumber: updatedRoll.rollNumber,
+        width: updatedRoll.width,
+        pattern: updatedRoll.pattern,
       };
 
-      const historyRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cut_history', record.id);
-      batch.set(historyRef, sanitizeForFirestore(historyItem));
+      const historyRef = doc(db, ROLLS_COLLECTION, updatedRoll.id, 'cut_history', record.id);
+      tx.set(historyRef, sanitizeForFirestore(historyItem));
 
-      // Also maintain legacy cuts subcollection for backwards compatibility
-      const cutsRef = doc(db, ROLLS_COLLECTION, finalRoll.id, 'cuts', record.id);
-      batch.set(cutsRef, sanitizeForFirestore(historyItem));
+      const cutsRef = doc(db, ROLLS_COLLECTION, updatedRoll.id, 'cuts', record.id);
+      tx.set(cutsRef, sanitizeForFirestore(historyItem));
     });
 
-    await batch.commit();
-  } catch (err: any) {
-    console.warn('Notice: Could not execute cut batch in Firestore:', err?.message || err);
-    throw err;
-  }
+    return updatedRoll;
+  });
+
+  // Mark these ids as "our own write" for a few seconds so the realtime
+  // listener doesn't mistake the echo of this very write for an external change.
+  markLocalWrite([rollId, ...batchRecords.map((r) => r.id)]);
+
+  return finalRoll;
 }
 
 /**
- * Multi-roll batch cut: for batch imports touching multiple foil rolls
+ * Multi-roll batch cut (e.g. SO batch import touching several rolls at once).
+ * Each affected roll is read fresh and validated inside a single transaction,
+ * for the same concurrency-safety reasons as executeCutBatchInFirestore above.
  */
 export async function executeMultiRollCutBatchInFirestore(
-  batchRecords: StockCutRecord[],
-  updatedRolls: FoilRoll[]
-): Promise<void> {
-  try {
-    const CHUNK_SIZE = 250;
-    // Process in chunks to respect Firestore 500 ops limit
-    for (let i = 0; i < batchRecords.length; i += CHUNK_SIZE) {
-      const recordsChunk = batchRecords.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(db);
+  batchRecords: StockCutRecord[]
+): Promise<FoilRoll[]> {
+  const recordsByRoll = new Map<string, StockCutRecord[]>();
+  batchRecords.forEach((r) => {
+    const list = recordsByRoll.get(r.foilId) || [];
+    list.push(r);
+    recordsByRoll.set(r.foilId, list);
+  });
+  const rollIds = Array.from(recordsByRoll.keys());
 
-      // Add records
-      recordsChunk.forEach((rec) => {
-        const safeCutMeters = Math.abs(Number(rec.usedMeters || 0));
-        const safeNgMeters = Math.abs(Number(rec.ngMeters || 0));
-        const safeTotalDeducted = Math.abs(Number(rec.totalDeducted || (safeCutMeters + safeNgMeters)));
-        const safeRemainingBefore = Math.max(0, Number(rec.remainingBefore ?? 0));
-        const safeRemainingAfter = Math.max(0, Number(rec.remainingAfter ?? 0));
+  const finalRolls = await runTransaction(db, async (tx) => {
+    // 1. Read every affected roll fresh (all reads must happen before any writes
+    //    in a Firestore transaction).
+    const rollRefs = rollIds.map((id) => doc(db, ROLLS_COLLECTION, id));
+    const rollSnaps = await Promise.all(rollRefs.map((ref) => tx.get(ref)));
 
-        const safeRecord: StockCutRecord = {
-          ...rec,
-          usedMeters: safeCutMeters,
-          ngMeters: safeNgMeters,
-          totalDeducted: safeTotalDeducted,
-          remainingBefore: safeRemainingBefore,
-          remainingAfter: safeRemainingAfter,
-        };
+    const existingRecordSnaps = await Promise.all(
+      batchRecords.map((r) => tx.get(doc(db, RECORDS_COLLECTION, r.id)))
+    );
+    const alreadyWrittenIds = new Set(
+      batchRecords.filter((_, idx) => existingRecordSnaps[idx].exists()).map((r) => r.id)
+    );
 
-        const recordRef = doc(db, RECORDS_COLLECTION, rec.id);
-        batch.set(recordRef, sanitizeForFirestore(safeRecord));
+    const updatedRolls: FoilRoll[] = [];
 
-        const historyItem: CutHistoryItem = {
-          id: rec.id,
-          soNumber: rec.soNumber || '',
-          cutMeters: safeCutMeters,
-          usedMeters: safeCutMeters,
-          ngMeters: safeNgMeters,
-          totalDeducted: safeTotalDeducted,
-          remainingBefore: safeRemainingBefore,
-          remainingAfter: safeRemainingAfter,
-          cutDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
-          usageDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
-          recordedDate: rec.recordedDate || new Date().toISOString().split('T')[0],
-          recordedBy: rec.recordedBy || 'ช่างคุมเครื่อง',
-          notes: rec.notes || '',
-          createdAt: rec.createdAt || new Date().toISOString(),
-          cutType: rec.cutType || 'so',
-          nonSoReason: rec.nonSoReason || '',
-          rollId: rec.foilId,
-          lotNumber: rec.lotNumber,
-          rollNumber: rec.rollNumber,
-          width: rec.width,
-          pattern: rec.pattern,
-        };
+    rollIds.forEach((rollId, idx) => {
+      const snap = rollSnaps[idx];
+      if (!snap.exists()) {
+        throw new Error(`ไม่พบม้วนฟอยล์ ${rollId} ในระบบ (อาจถูกลบไปแล้ว)`);
+      }
+      const serverRoll = snap.data() as FoilRoll;
+      const newRecordsForRoll = (recordsByRoll.get(rollId) || []).filter((r) => !alreadyWrittenIds.has(r.id));
+      if (newRecordsForRoll.length === 0) {
+        updatedRolls.push(serverRoll);
+        return;
+      }
 
-        const subHistoryRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cut_history', rec.id);
-        batch.set(subHistoryRef, sanitizeForFirestore(historyItem));
+      const totalUsed = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.usedMeters || 0)), 0));
+      const totalNg = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.ngMeters || 0)), 0));
+      const totalDeduct = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.totalDeducted || 0)), 0)) || round2(totalUsed + totalNg);
+      const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
 
-        const subCutsRef = doc(db, ROLLS_COLLECTION, rec.foilId, 'cuts', rec.id);
-        batch.set(subCutsRef, sanitizeForFirestore(historyItem));
-      });
+      if (totalDeduct > freshRemaining + 0.01) {
+        throw new Error(
+          `สต๊อกม้วน ${serverRoll.lotNumber || rollId} ไม่พอ! คงเหลือจริง ${freshRemaining.toLocaleString()} ม. แต่พยายามตัด ${totalDeduct.toLocaleString()} ม.`
+        );
+      }
 
-      // Add affected rolls in this chunk
-      const rollIdsInChunk = new Set(recordsChunk.map((r) => r.foilId));
-      const rollsInChunk = updatedRolls.filter((r) => rollIdsInChunk.has(r.id));
-      rollsInChunk.forEach((r) => {
-        const safeRoll: FoilRoll = {
-          ...r,
-          remainingMeters: Math.max(0, Number(r.remainingMeters || 0)),
-          usedMeters: Math.max(0, Number(r.usedMeters || 0)),
-          ngMeters: Math.max(0, Number(r.ngMeters || 0)),
-        };
-        const rollRef = doc(db, ROLLS_COLLECTION, r.id);
-        batch.set(rollRef, sanitizeForFirestore(safeRoll), { merge: true });
-      });
+      const newRemaining = round2(Math.max(0, freshRemaining - totalDeduct));
+      const newUsed = round2(Math.max(0, Number(serverRoll.usedMeters || 0) + totalUsed));
+      const newNg = round2(Math.max(0, Number(serverRoll.ngMeters || 0) + totalNg));
 
-      await batch.commit();
-    }
-  } catch (err: any) {
-    console.warn('Notice: Multi-roll cut batch in Firestore incomplete:', err?.message || err);
-    throw err;
-  }
+      const rollCuts = [
+        ...newRecordsForRoll.map((r) => ({
+          id: r.id,
+          soNumber: r.soNumber || '',
+          cutType: r.cutType || 'so',
+          usedMeters: Math.abs(Number(r.usedMeters || 0)),
+          ngMeters: Math.abs(Number(r.ngMeters || 0)),
+          totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
+          remainingAfter: newRemaining,
+          usageDate: r.usageDate || new Date().toISOString().split('T')[0],
+          recordedDate: r.recordedDate || new Date().toISOString().split('T')[0],
+          recordedBy: r.recordedBy || '',
+          notes: r.notes || '',
+        })),
+        ...(serverRoll.recentCuts || []),
+      ].slice(0, 50);
+
+      updatedRolls.push({
+        ...serverRoll,
+        remainingMeters: newRemaining,
+        usedMeters: newUsed,
+        ngMeters: newNg,
+        status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+        recentCuts: rollCuts,
+        _freshRemainingBefore: freshRemaining,
+      } as any);
+    });
+
+    // 2. Write everything atomically.
+    updatedRolls.forEach((r: any) => {
+      const { _freshRemainingBefore, ...rollToSave } = r;
+      const rollRef = doc(db, ROLLS_COLLECTION, r.id);
+      tx.set(rollRef, sanitizeForFirestore(rollToSave), { merge: true });
+    });
+
+    batchRecords.forEach((record) => {
+      if (alreadyWrittenIds.has(record.id)) return;
+      const parentRoll: any = updatedRolls.find((r) => r.id === record.foilId);
+      const freshRemainingBefore = parentRoll?._freshRemainingBefore ?? record.remainingBefore ?? 0;
+      const remainingAfterRoll = parentRoll?.remainingMeters ?? record.remainingAfter ?? 0;
+
+      const safeCutMeters = Math.abs(Number(record.usedMeters || 0));
+      const safeNgMeters = Math.abs(Number(record.ngMeters || 0));
+      const safeTotalDeducted = Math.abs(Number(record.totalDeducted || (safeCutMeters + safeNgMeters)));
+
+      const safeRecord: StockCutRecord = {
+        ...record,
+        usedMeters: safeCutMeters,
+        ngMeters: safeNgMeters,
+        totalDeducted: safeTotalDeducted,
+        remainingBefore: freshRemainingBefore,
+        remainingAfter: remainingAfterRoll,
+      };
+      const recordRef = doc(db, RECORDS_COLLECTION, record.id);
+      tx.set(recordRef, sanitizeForFirestore(safeRecord));
+
+      const historyItem: CutHistoryItem = {
+        id: record.id,
+        soNumber: record.soNumber || '',
+        cutMeters: safeCutMeters,
+        usedMeters: safeCutMeters,
+        ngMeters: safeNgMeters,
+        totalDeducted: safeTotalDeducted,
+        remainingBefore: freshRemainingBefore,
+        remainingAfter: remainingAfterRoll,
+        cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
+        recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
+        notes: record.notes || '',
+        createdAt: record.createdAt || new Date().toISOString(),
+        cutType: record.cutType || 'so',
+        nonSoReason: record.nonSoReason || '',
+        rollId: record.foilId,
+        lotNumber: record.lotNumber,
+        rollNumber: record.rollNumber,
+        width: record.width,
+        pattern: record.pattern,
+      };
+      tx.set(doc(db, ROLLS_COLLECTION, record.foilId, 'cut_history', record.id), sanitizeForFirestore(historyItem));
+      tx.set(doc(db, ROLLS_COLLECTION, record.foilId, 'cuts', record.id), sanitizeForFirestore(historyItem));
+    });
+
+    return updatedRolls.map((r: any) => {
+      const { _freshRemainingBefore, ...clean } = r;
+      return clean as FoilRoll;
+    });
+  });
+
+  markLocalWrite([...rollIds, ...batchRecords.map((r) => r.id)]);
+
+  return finalRolls;
 }
 
 /**
- * Revert a cut record and restore the roll's remaining meters atomically
+ * Revert (delete/cancel) a cut record and restore the roll's remaining meters,
+ * atomically and against the roll's FRESH server state — same reasoning as
+ * executeCutBatchInFirestore: another device may have cut more from this roll
+ * since this record was created, so the restore must be applied on top of
+ * whatever the roll's remaining meters truly are right now, not a value
+ * computed earlier on this device.
  */
 export async function revertCutRecordInFirestore(
   recordId: string,
-  updatedRoll: FoilRoll
-): Promise<void> {
-  try {
-    const batch = writeBatch(db);
+  rollId: string
+): Promise<FoilRoll> {
+  const rollRef = doc(db, ROLLS_COLLECTION, rollId);
+  const recordRef = doc(db, RECORDS_COLLECTION, recordId);
 
-    // 1. Delete the record from root collection
-    const recordRef = doc(db, RECORDS_COLLECTION, recordId);
-    batch.delete(recordRef);
+  const updatedRoll = await runTransaction(db, async (tx) => {
+    const [rollSnap, recordSnap] = await Promise.all([tx.get(rollRef), tx.get(recordRef)]);
 
-    // 2. Delete from subcollection cut_history and cuts
-    const historyRef = doc(db, ROLLS_COLLECTION, updatedRoll.id, 'cut_history', recordId);
-    batch.delete(historyRef);
-    const cutsRef = doc(db, ROLLS_COLLECTION, updatedRoll.id, 'cuts', recordId);
-    batch.delete(cutsRef);
+    if (!recordSnap.exists()) {
+      // Already deleted (e.g. by another device, or a previous retry) — nothing to do.
+      if (rollSnap.exists()) return rollSnap.data() as FoilRoll;
+      throw new Error('ไม่พบรายการตัดสต๊อกนี้แล้ว (อาจถูกลบไปก่อนหน้านี้)');
+    }
+    if (!rollSnap.exists()) {
+      throw new Error('ไม่พบม้วนฟอยล์นี้ในระบบ (อาจถูกลบไปแล้ว)');
+    }
 
-    // 3. Update roll
-    const rollRef = doc(db, ROLLS_COLLECTION, updatedRoll.id);
-    batch.set(rollRef, updatedRoll, { merge: true });
+    const record = recordSnap.data() as StockCutRecord;
+    const serverRoll = rollSnap.data() as FoilRoll;
 
-    await batch.commit();
-  } catch (err: any) {
-    console.warn('Notice: Could not revert cut record in Firestore:', err?.message || err);
-    throw err;
-  }
+    const restoredRemaining = Math.min(
+      Number(serverRoll.totalMeters || 0),
+      Number(serverRoll.remainingMeters || 0) + Number(record.totalDeducted || 0)
+    );
+    const restoredUsed = Math.max(0, Number(serverRoll.usedMeters || 0) - Number(record.usedMeters || 0));
+    const restoredNg = Math.max(0, Number(serverRoll.ngMeters || 0) - Number(record.ngMeters || 0));
+
+    const rollObj: FoilRoll = {
+      ...serverRoll,
+      remainingMeters: round2(restoredRemaining),
+      usedMeters: round2(restoredUsed),
+      ngMeters: round2(restoredNg),
+      status: restoredRemaining > 0 ? ('active' as const) : ('depleted' as const),
+      recentCuts: (serverRoll.recentCuts || []).filter((c) => c.id !== recordId),
+    };
+
+    tx.delete(recordRef);
+    tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', recordId));
+    tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cuts', recordId));
+    tx.set(rollRef, sanitizeForFirestore(rollObj), { merge: true });
+
+    return rollObj;
+  });
+
+  markLocalWrite([rollId, recordId]);
+
+  return updatedRoll;
+}
+
+function round2(num: number): number {
+  if (isNaN(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
 }
 
 /**
