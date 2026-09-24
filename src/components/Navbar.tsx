@@ -295,7 +295,25 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden lg:inline">ตั้งค่า & สำรองข้อมูล</span>
               {hasPermissionNotice && (
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              )}
+             </button>
+              
+              <button          
+                type="button"
+                onClick={handleRunMasterAudit}
+                disabled={isRunningIntegrityCheck}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold flex items-center gap-2 shadow-md transition-all active:scale-95"
+            >
+                {isRunningIntegrityCheck ? (
+           <>
+                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>กำลังตรวจสอบระบบ...</span>
+           </>
+              ) : (
+              <>
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>ตรวจสอบระบบ (SO + ยอดฟอยล์)</span>
+           </>
+          )}         
             </button>
           </div>
         </div>
