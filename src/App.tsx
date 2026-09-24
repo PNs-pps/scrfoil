@@ -73,6 +73,10 @@ export default function App() {
   const [isFetchingFromCloud, setIsFetchingFromCloud] = useState(false);
   const [isFetchingFullHistory, setIsFetchingFullHistory] = useState(false);
   const [isCached, setIsCached] = useState(true);
+  // True when the realtime listener detects a change that came from ANOTHER
+  // device (not an echo of our own write) — prompts the user to reload so
+  // they're not looking at a stale page while they keep working.
+  const [externalUpdateAvailable, setExternalUpdateAvailable] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   
   // Modals
@@ -147,17 +151,22 @@ export default function App() {
       {
         onFromCache: (fromCache) => {
           setIsCached(fromCache);
-        }
+        },
+        onExternalChange: () => setExternalUpdateAvailable(true),
       }
     );
 
     // 3. Realtime listener for Cut Records (Optimized with 200 records window to minimize Read quota)
     const unsubRecords = subscribeToStockCutRecords(
-      (firestoreRecords) => {
+      (firestoreRecords, removedIds) => {
         setRecords((prev) => {
           const map = new Map<string, StockCutRecord>();
           // Keep all existing historical records from local cache
           prev.forEach((r) => map.set(r.id, r));
+          // Drop anything the server just told us was deleted (e.g. an SO cut
+          // that was cancelled) — otherwise a plain "add/update only" merge
+          // would keep a deleted record around forever in local cache.
+          (removedIds || []).forEach((id) => map.delete(id));
           // Overlay updated recent records from Firestore
           firestoreRecords.forEach((r) => map.set(r.id, r));
           const merged = Array.from(map.values());
@@ -178,7 +187,8 @@ export default function App() {
         limitCount: 200,
         onFromCache: (fromCache) => {
           setIsCached(fromCache);
-        }
+        },
+        onExternalChange: () => setExternalUpdateAvailable(true),
       }
     );
 
@@ -482,7 +492,12 @@ export default function App() {
   const handleConfirmCutBatch = async (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]): Promise<void> => {
     if (!batchData || batchData.length === 0) return;
 
-    // Strict math sanitization: Ensure all inputs are positive and rounded
+    // Strict math sanitization: Ensure all inputs are positive and rounded.
+    // Note: remainingBefore/remainingAfter here are only used for display in
+    // this device's own optimistic UI before the server confirms — the real,
+    // authoritative remainingAfter is computed server-side inside the
+    // transaction (see firebase.ts) against the roll's fresh remainingMeters,
+    // never against this locally-cached number.
     const now = new Date().toISOString();
     const createdRecords: StockCutRecord[] = batchData.map((item, idx) => {
       const safeUsed = round2(Math.abs(Number(item.usedMeters || 0)));
@@ -503,74 +518,60 @@ export default function App() {
       };
     });
 
-    // Group deductions by rollId
-    const deductionsByRoll = new Map<string, { used: number; ng: number; total: number }>();
-    createdRecords.forEach((rec) => {
-      const existing = deductionsByRoll.get(rec.foilId) || { used: 0, ng: 0, total: 0 };
-      existing.used = round2(existing.used + rec.usedMeters);
-      existing.ng = round2(existing.ng + rec.ngMeters);
-      existing.total = round2(existing.total + rec.totalDeducted);
-      deductionsByRoll.set(rec.foilId, existing);
-    });
-
-    // Calculate updated foil rolls without negative values
-    const updatedRollsList: FoilRoll[] = [];
-    const updatedRolls = rolls.map((r) => {
-      const deduction = deductionsByRoll.get(r.id);
-      if (deduction) {
-        const newRemaining = Math.max(0, round2(r.remainingMeters - deduction.total));
-        const newUsed = Math.max(0, round2(r.usedMeters + deduction.used));
-        const newNg = Math.max(0, round2(r.ngMeters + deduction.ng));
-        const rollObj: FoilRoll = {
-          ...r,
-          remainingMeters: newRemaining,
-          usedMeters: newUsed,
-          ngMeters: newNg,
-          status: newRemaining <= 0 ? ('out_of_stock' as const) : ('active' as const),
-        };
-        updatedRollsList.push(rollObj);
-        return rollObj;
-      }
-      return r;
-    });
-
-    const updatedRecords = [...records, ...createdRecords];
-
-    // 1. Immediately update UI state and LocalStorage for zero-lag operation
-    updateRollsState(updatedRolls);
-    updateRecordsState(updatedRecords);
-    createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
-
+    const rollIdsInvolved = Array.from(new Set(createdRecords.map((r) => r.foilId)));
     const totalDeductedAll = round2(createdRecords.reduce((sum, r) => sum + r.totalDeducted, 0));
     const single = createdRecords[0];
-    const cutDesc = single?.cutType === 'non_so' 
+    const cutDesc = single?.cutType === 'non_so'
       ? `รายการไม่ใช้ SO (${single.nonSoReason || 'สาขายืม/ซ่อม'})`
       : `รหัส SO ${single?.soNumber || ''}`;
 
-    // 2. Commit to Firestore
+    // STRICT DIRECTIVE: read the roll(s) fresh and commit inside a Firestore
+    // transaction FIRST — only update local UI state once the server confirms
+    // the deduction against its true, current remaining meters. This is what
+    // actually keeps "ยอดคงเหลือฟอยล์" in sync with the SO cutting slips even
+    // when another device is cutting the same roll at the same time.
     try {
-      if (updatedRollsList.length === 1) {
-        await executeCutBatchInFirestore(createdRecords, updatedRollsList[0]);
-      } else if (updatedRollsList.length > 1) {
-        await executeMultiRollCutBatchInFirestore(createdRecords, updatedRollsList);
+      let finalRollsById = new Map<string, FoilRoll>();
+
+      if (rollIdsInvolved.length === 1) {
+        const finalRoll = await executeCutBatchInFirestore(createdRecords, rollIdsInvolved[0]);
+        finalRollsById.set(finalRoll.id, finalRoll);
+      } else if (rollIdsInvolved.length > 1) {
+        const finalRolls = await executeMultiRollCutBatchInFirestore(createdRecords);
+        finalRolls.forEach((r) => finalRollsById.set(r.id, r));
       }
+
+      // ✅ Transaction committed successfully — now sync local state to the
+      // server's authoritative roll data (not our own pre-cut calculation).
+      const updatedRolls = rolls.map((r) => finalRollsById.get(r.id) || r);
+      const updatedRecords = [...records, ...createdRecords];
+
+      updateRollsState(updatedRolls);
+      updateRecordsState(updatedRecords);
+      createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
 
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
 
       if (createdRecords.length === 1) {
-        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม. | คงเหลือ ${formatMeters(single.remainingAfter)} ม.) [ซิงค์ Cloud เรียบร้อย]`);
+        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
       } else {
-        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [ซิงค์ Cloud เรียบร้อย]`);
+        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
       }
     } catch (err: any) {
-      console.warn('Firebase batch sync notice (saved locally):', err);
-      if (err?.code === 'permission-denied') {
-        setSyncStatus('permission-denied');
-      } else {
-        setSyncStatus('error');
-      }
-      showToast(`ตัดสต๊อกสำเร็จในเครื่องเรียบร้อย (ระบบจะซิงค์ขึ้น Cloud อัตโนมัติเมื่อออนไลน์)`, 'info');
+      console.error('Firebase transaction error during stock cut:', err);
+      const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
+      setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
+
+      setErrorAlert({
+        isOpen: true,
+        title: 'ตัดสต๊อกไม่สำเร็จ',
+        message: err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ',
+        detail: 'ข้อมูลคงเหลือเดิมยังไม่ถูกเปลี่ยนแปลง กรุณารีเฟรชหน้าจอเพื่อดูยอดล่าสุดแล้วลองใหม่อีกครั้ง',
+      });
+
+      // Reject so the modal knows the cut did not actually go through
+      throw err;
     }
   };
 
@@ -655,42 +656,42 @@ export default function App() {
   };
 
   // Delete / Void a cutting record and restore stock
-  const handleDeleteRecord = (recordId: string) => {
+  const handleDeleteRecord = async (recordId: string) => {
     const targetRecord = records.find((r) => r.id === recordId);
     if (!targetRecord) return;
 
-    // Restore meters to the roll
-    let updatedTargetRoll: FoilRoll | null = null;
-    const updatedRolls = rolls.map((r) => {
-      if (r.id === targetRecord.foilId) {
-        const restoredRemaining = Math.min(r.totalMeters, r.remainingMeters + targetRecord.totalDeducted);
-        const restoredUsed = Math.max(0, r.usedMeters - targetRecord.usedMeters);
-        const restoredNg = Math.max(0, r.ngMeters - targetRecord.ngMeters);
-        const rollObj: FoilRoll = {
-          ...r,
-          remainingMeters: restoredRemaining,
-          usedMeters: restoredUsed,
-          ngMeters: restoredNg,
-          status: restoredRemaining > 0 ? ('active' as const) : ('depleted' as const),
-        };
-        updatedTargetRoll = rollObj;
-        return rollObj;
+    // STRICT DIRECTIVE: run the revert as a transaction against the roll's
+    // FRESH server state first, and only update local UI once it actually
+    // commits. Passing just the ids (not a pre-computed roll object) means
+    // the restore math happens on the server against whatever the roll's true
+    // remaining meters are right now — safe even if another device cut more
+    // from this same roll after this record was created.
+    try {
+      const finalRoll = await revertCutRecordInFirestore(recordId, targetRecord.foilId);
+
+      const updatedRolls = rolls.map((r) => (r.id === finalRoll.id ? finalRoll : r));
+      const updatedRecords = records.filter((r) => r.id !== recordId);
+      updateRollsState(updatedRolls);
+      updateRecordsState(updatedRecords);
+
+      showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
+    } catch (err: any) {
+      console.error('Firebase error while deleting/reverting cut record:', err);
+      const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
+      if (isPermissionError) {
+        setSyncStatus('permission-denied');
       }
-      return r;
-    });
-
-    const updatedRecords = records.filter((r) => r.id !== recordId);
-    updateRollsState(updatedRolls);
-    updateRecordsState(updatedRecords);
-
-    // Revert in Firestore
-    if (updatedTargetRoll) {
-      revertCutRecordInFirestore(recordId, updatedTargetRoll).catch((err) => {
-        console.warn('Notice: Revert cut in Firestore pending/offline:', err?.message || err);
+      setErrorAlert({
+        isOpen: true,
+        title: 'ลบรายการไม่สำเร็จ',
+        message: isPermissionError
+          ? 'ไม่มีสิทธิ์ลบข้อมูลนี้ใน Firebase'
+          : (err?.message || 'ไม่สามารถลบรายการตัด SO นี้ได้'),
+        detail: isPermissionError
+          ? 'กฎความปลอดภัย (Security Rules) ของ Firestore กำลังปฏิเสธการลบข้อมูล กรุณาตรวจสอบสิทธิ์การลบ (delete) ในหน้า Rules แล้วลองใหม่อีกครั้ง ข้อมูลเดิมยังไม่ถูกเปลี่ยนแปลง'
+          : 'กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตหรือสถานะ Cloud แล้วลองใหม่อีกครั้ง ข้อมูลเดิมยังไม่ถูกเปลี่ยนแปลง',
       });
     }
-
-    showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
   };
 
   // Delete a roll
@@ -730,6 +731,27 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased selection:bg-amber-200">
+      {/* External update banner: another device changed data — offer a reload
+          so this device doesn't keep working on a stale page. */}
+      {externalUpdateAvailable && (
+        <div className="sticky top-0 z-[60] bg-blue-600 text-white px-4 py-2.5 flex items-center justify-center gap-3 text-sm font-medium shadow-md">
+          <span>🔄 มีการอัปเดตข้อมูลใหม่จากเครื่องอื่น กรุณารีเฟรชหน้านี้เพื่อดูข้อมูลล่าสุด</span>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-white text-blue-700 font-bold px-3 py-1 rounded-md hover:bg-blue-50 transition-colors shrink-0"
+          >
+            รีเฟรชตอนนี้
+          </button>
+          <button
+            onClick={() => setExternalUpdateAvailable(false)}
+            className="text-blue-100 hover:text-white shrink-0"
+            title="ปิด"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
