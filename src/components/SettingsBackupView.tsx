@@ -70,6 +70,9 @@ interface SettingsBackupViewProps {
   onFetchFullHistory?: () => Promise<void> | void;
   isFetchingFullHistory?: boolean;
   isCached?: boolean;
+  onRunIntegrityCheck?: () => void;
+  isRunningIntegrityCheck?: boolean;
+  integrityCheckState?: { date: string; count: number; lastCheckedAt: string };
 }
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
@@ -93,6 +96,9 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   onFetchFullHistory,
   isFetchingFullHistory = false,
   isCached = true,
+  onRunIntegrityCheck,
+  isRunningIntegrityCheck = false,
+  integrityCheckState,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile'>('backup');
   
@@ -420,6 +426,45 @@ service cloud.firestore {
                   {lastDoubleBackupTime && (
                     <div className="text-[10px] text-slate-500 text-center font-mono">
                       ทำ Double Backup ล่าสุด: {new Date(lastDoubleBackupTime).toLocaleString('th-TH')}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Stock Integrity Check Card */}
+              {onRunIntegrityCheck && (
+                <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                      <ShieldCheck className="w-4 h-4 text-blue-600" />
+                      <span>ตรวจสอบความถูกต้องของสต๊อก</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500 text-white">
+                      อัตโนมัติ 2 ครั้ง/วัน
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    ตรวจว่ายอดคงเหลือของทุกม้วนตรงกับผลรวมของรายการตัด SO จริงหรือไม่ ระบบจะรันให้เองอัตโนมัติสูงสุด 2 ครั้งต่อวัน (ครั้งแรกๆ ที่มีคนเปิดแอปในแต่ละวัน) หรือกดตรวจสอบเองตอนนี้ได้เลย
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onRunIntegrityCheck()}
+                    disabled={isRunningIntegrityCheck}
+                    className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  >
+                    {isRunningIntegrityCheck ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>ตรวจสอบตอนนี้</span>
+                  </button>
+                  {integrityCheckState && (
+                    <div className="text-[10px] text-slate-500 text-center font-mono">
+                      วันนี้ตรวจอัตโนมัติไปแล้ว {integrityCheckState.count}/2 ครั้ง
+                      {integrityCheckState.lastCheckedAt && (
+                        <> • ล่าสุด {new Date(integrityCheckState.lastCheckedAt).toLocaleString('th-TH')}</>
+                      )}
                     </div>
                   )}
                 </div>
