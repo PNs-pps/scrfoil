@@ -1351,6 +1351,16 @@ export async function saveCycleCountSession(session: CycleCountSession): Promise
   }
 }
 
+/** ลบเฉพาะเอกสารงวด Cycle Count — ไม่ลบประวัติตัดบนม้วน (ใบนับสต๊อกใน cut_history ยังอยู่) */
+export async function deleteCycleCountSession(sessionId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, CYCLE_COUNTS_COLLECTION, sessionId));
+  } catch (err: any) {
+    console.warn('deleteCycleCountSession failed:', err?.message || err);
+    throw err;
+  }
+}
+
 export async function fetchCycleCountSessions(limitCount: number = 24): Promise<CycleCountSession[]> {
   try {
     const q = query(collection(db, CYCLE_COUNTS_COLLECTION), orderBy('createdAt', 'desc'), limit(limitCount));
