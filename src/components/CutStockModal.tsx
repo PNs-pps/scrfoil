@@ -394,6 +394,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; // hard guard against double-submit on flaky network / double-tap
     setError(null);
 
     if (!currentRoll) {
@@ -468,7 +469,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-900/70 hover:text-slate-950 p-1.5 rounded-lg hover:bg-slate-950/10 transition-colors cursor-pointer"
+            disabled={isSubmitting}
+            className="text-slate-900/70 hover:text-slate-950 p-1.5 rounded-lg hover:bg-slate-950/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            title={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่...' : 'ปิด'}
           >
             <X className="w-5 h-5" />
           </button>
@@ -989,7 +992,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+              disabled={isSubmitting}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               ยกเลิก
             </button>

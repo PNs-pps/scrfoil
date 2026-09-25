@@ -101,18 +101,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
 
-              {/* SO Bug Inspector Button */}
+              {/* SO Bug Inspector — compact notification-style badge (text form) */}
               {onOpenSOAudit && (
                 <button
                   type="button"
                   onClick={onOpenSOAudit}
-                  className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50/80 hover:bg-amber-100 border border-amber-200 text-amber-900 text-[11px] font-semibold transition-all cursor-pointer"
                   title="ตรวจหาบัคจากประวัติ SO และตรวจสอบยอดคงเหลือสต๊อก"
                 >
-                  <Bug className="w-3.5 h-3.5 text-amber-600 group-hover:rotate-12 transition-transform" />
-                  <span className="hidden sm:inline">ตรวจบัค SO</span>
+                  <Bug className="w-3 h-3 text-amber-600" />
+                  <span>บัค SO</span>
                   {Boolean(soBugCount && soBugCount > 0) && (
-                    <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-bold animate-pulse">
+                    <span className="ml-0.5 px-1.5 py-0 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-4">
                       {soBugCount}
                     </span>
                   )}

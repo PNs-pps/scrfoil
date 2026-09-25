@@ -173,26 +173,14 @@ export const FirebaseSyncBar: React.FC<FirebaseSyncBarProps> = ({
           )}
         </div>
 
-        {/* Right: Manual Actions */}
+        {/* Right: Manual Actions — Rules button removed (moved to Settings). Fetch/Save stay for quick access; primary home is Settings page. */}
         <div className="flex items-center gap-2">
-          {onOpenRulesModal && !isPermissionDenied && (
-            <button
-              type="button"
-              onClick={onOpenRulesModal}
-              title="ดูโค้ด Firestore Rules สำหรับ Firebase Console"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition-colors cursor-pointer"
-            >
-              <Code className="w-3 h-3 text-amber-400" />
-              <span>Rules</span>
-            </button>
-          )}
-
           <button
             type="button"
             id="btn-fetch-cloud"
             onClick={onManualFetchFromCloud}
             disabled={isFetching || isSaving}
-            title="ดึงข้อมูลล่าสุดจาก Firebase Firestore"
+            title="ดึงข้อมูลล่าสุดจาก Firebase Firestore (หรือไปที่หน้าตั้งค่า)"
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 transition-all text-xs font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isFetching ? 'animate-spin' : ''}`} />

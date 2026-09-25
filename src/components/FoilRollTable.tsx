@@ -888,8 +888,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
                 statusFilter === 'depleted' ? 'bg-white text-rose-700 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
+              title="ม้วนที่หมดแล้วถูกแยกไปคลังข้อมูลเก่า (โหลดเฉพาะเมื่อต้องการ) เพื่อลดการอ่านข้อมูล"
             >
-              หมดแล้ว ({rolls.filter(r => r.remainingMeters <= 0).length})
+              หมดแล้ว / Archive ({rolls.filter(r => r.remainingMeters <= 0).length})
             </button>
           </div>
 

@@ -90,8 +90,17 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
   }, [auditResults]);
 
   // Filter rolls by tab and search query
+  // Per product feedback: isZeroedOut rolls should NOT appear on the bug-check page
+  // (they are already closed). Pure SO-duplicate issues should be handled in the
+  // roll's cutting history, not here — so we exclude rolls whose ONLY issues are
+  // SO duplicates unless the user explicitly opens the "SO ซ้ำซ้อน" tab.
   const filteredAuditResults = useMemo(() => {
     return auditResults.filter((res) => {
+      // Never show zeroed-out rolls on this page (except explicit "zeroed" tab if kept for reference)
+      if (res.isZeroedOut && activeFilter !== 'zeroed') {
+        return false;
+      }
+
       // Search
       const q = searchQuery.toLowerCase().trim();
       let matchQuery = true;
@@ -105,8 +114,17 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
 
       // Tab filter
       let matchTab = true;
-      if (activeFilter === 'issues_only') {
-        matchTab = res.issues.length > 0;
+      if (activeFilter === 'all' || activeFilter === 'issues_only') {
+        // Exclude rolls whose only problems are SO duplicates
+        const nonDupIssues = res.issues.filter(
+          (i) => i.type !== 'DUPLICATE_SO_EXACT' && i.type !== 'DUPLICATE_SO_MULTIPLE'
+        );
+        if (activeFilter === 'issues_only') {
+          matchTab = nonDupIssues.length > 0;
+        } else {
+          // 'all' still hides pure-duplicate-only and zeroed (already filtered)
+          matchTab = nonDupIssues.length > 0 || res.issues.length === 0;
+        }
       } else if (activeFilter === 'duplicates') {
         matchTab = res.issues.some((i) => i.type === 'DUPLICATE_SO_EXACT' || i.type === 'DUPLICATE_SO_MULTIPLE');
       } else if (activeFilter === 'jumps') {

@@ -245,7 +245,25 @@ service cloud.firestore {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onManualFetchFromCloud()}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+              title="ดึงข้อมูลล่าสุดจาก Cloud Firestore"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>ดึงข้อมูล (Fetch)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onManualSaveToCloud()}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+              title="บันทึกข้อมูลปัจจุบันลง Cloud Firestore"
+            >
+              <Save className="w-4 h-4" />
+              <span>บันทึกลง Cloud (Save)</span>
+            </button>
             <button
               onClick={handleBackupNow}
               disabled={isBackingUpNow}
@@ -434,100 +452,79 @@ service cloud.firestore {
                 </div>
               )}
 
-              {/* Stock Integrity Check Card */}
-              {onRunIntegrityCheck && (
-                <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/30 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
-                      <ShieldCheck className="w-4 h-4 text-blue-600" />
-                      <span>ตรวจสอบความถูกต้องของสต๊อก</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500 text-white">
-                      อัตโนมัติ 2 ครั้ง/วัน
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    ตรวจว่ายอดคงเหลือของทุกม้วนตรงกับผลรวมของรายการตัด SO จริงหรือไม่ ระบบจะรันให้เองอัตโนมัติสูงสุด 2 ครั้งต่อวัน (ครั้งแรกๆ ที่มีคนเปิดแอปในแต่ละวัน) หรือกดตรวจสอบเองตอนนี้ได้เลย
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => onRunIntegrityCheck()}
-                    disabled={isRunningIntegrityCheck}
-                    className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
-                  >
-                    {isRunningIntegrityCheck ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                    )}
-                    <span>ตรวจสอบตอนนี้</span>
-                  </button>
-                  {integrityCheckState && (
-                    <div className="text-[10px] text-slate-500 text-center font-mono">
-                      วันนี้ตรวจอัตโนมัติไปแล้ว {integrityCheckState.count}/2 ครั้ง
-                      {integrityCheckState.lastCheckedAt && (
-                        <> • ล่าสุด {new Date(integrityCheckState.lastCheckedAt).toLocaleString('th-TH')}</>
+              {/* Combined Stock Integrity + SO Bug Inspector (รวมเข้าด้วยกัน) */}
+              {(onRunIntegrityCheck || onOpenSOAudit) && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden space-y-0">
+                  {onRunIntegrityCheck && (
+                    <div className="p-3.5 bg-blue-500/10 border-b border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                          <ShieldCheck className="w-4 h-4 text-blue-600" />
+                          <span>ตรวจสอบความถูกต้องของสต๊อก</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500 text-white">
+                          อัตโนมัติ 2 ครั้ง/วัน
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        ตรวจว่ายอดคงเหลือของทุกม้วนตรงกับผลรวมของรายการตัด SO จริงหรือไม่ ระบบจะรันให้เองอัตโนมัติสูงสุด 2 ครั้งต่อวัน (ครั้งแรกๆ ที่มีคนเปิดแอปในแต่ละวัน) หรือกดตรวจสอบเองตอนนี้ได้เลย
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => onRunIntegrityCheck()}
+                        disabled={isRunningIntegrityCheck}
+                        className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      >
+                        {isRunningIntegrityCheck ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                        )}
+                        <span>ตรวจสอบตอนนี้</span>
+                      </button>
+                      {integrityCheckState && (
+                        <div className="text-[10px] text-slate-500 text-center font-mono">
+                          วันนี้ตรวจอัตโนมัติไปแล้ว {integrityCheckState.count}/2 ครั้ง
+                          {integrityCheckState.lastCheckedAt && (
+                            <> • ล่าสุด {new Date(integrityCheckState.lastCheckedAt).toLocaleString('th-TH')}</>
+                          )}
+                        </div>
                       )}
+                    </div>
+                  )}
+
+                  {onOpenSOAudit && (
+                    <div className="p-3.5 bg-amber-500/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                          <Bug className="w-4 h-4 text-amber-600" />
+                          <span>ตรวจหาบัคจากประวัติ SO แต่ละลูก</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950">
+                          ตรวจจับข้อผิดพลาด
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        วิเคราะห์ประวัติการตัด SO รายม้วนอย่างละเอียด ตรวจสอบยอดคงเหลือโซ่ขาด (ยอดกระโดด) และเปรียบเทียบยอดคงเหลือจริง พร้อมฟังก์ชันปรับยอดอัตโนมัติด้วยความยินยอม
+                        <br />
+                        <span className="text-slate-500">หมายเหตุ: ม้วนที่ตัดเป็น 0 แล้ว และ SO ซ้ำซ้อน จะไม่แสดงที่นี่ — ดูได้ในประวัติตัด SO ของแต่ละม้วน</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={onOpenSOAudit}
+                        className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Bug className="w-3.5 h-3.5 text-amber-400" />
+                        <span>เปิดระบบตรวจหาบัค SO เชิงลึก</span>
+                      </button>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* SO History Bug Inspector Card */}
-              {onOpenSOAudit && (
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
-                      <Bug className="w-4 h-4 text-amber-600" />
-                      <span>ตรวจหาบัคจากประวัติ SO แต่ละลูก</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950">
-                      ตรวจจับข้อผิดพลาด
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    วิเคราะห์ประวัติการตัด SO รายม้วนอย่างละเอียด ตรวจสอบการบันทึก SO ซ้ำซ้อน ยอดคงเหลือโซ่ขาด (ยอดกระโดด) และเปรียบเทียบยอดคงเหลือจริง พร้อมฟังก์ชันปรับยอดอัตโนมัติด้วยความยินยอม (ยกเว้นม้วนที่ตัดเป็น 0)
-                  </p>
-                  <button
-                    type="button"
-                    onClick={onOpenSOAudit}
-                    className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Bug className="w-3.5 h-3.5 text-amber-400" />
-                    <span>เปิดระบบตรวจหาบัค SO เชิงลึก</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Read Quota Optimization & Persistent Cache Status */}
-              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
-                    <Zap className="w-4 h-4 text-emerald-600" />
-                    <span>ระบบลดการใช้ Read (Firestore Optimization)</span>
-                  </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    {isCached ? 'แคชในเครื่องทำงาน' : 'เปิดใช้งานแล้ว'}
-                  </span>
-                </div>
-
-                <div className="space-y-1 text-[11px] text-slate-600 leading-relaxed">
-                  <div className="flex items-start gap-1.5">
-                    <span className="text-emerald-600 font-bold shrink-0">•</span>
-                    <span><strong>IndexedDB Persistent Cache:</strong> ข้อมูลที่ไม่เปลี่ยนแปลงจะดึงจากเครื่องโดยตรง (0 Read สำหรับการรีเฟรชหรือเปิดหน้าซ้ำ)</span>
-                  </div>
-                  <div className="flex items-start gap-1.5">
-                    <span className="text-emerald-600 font-bold shrink-0">•</span>
-                    <span><strong>Multi-Tab Sync:</strong> เปิดหลายแท็บพร้อมกันได้โดยใช้ Cache ร่วมกัน ไม่ดาวน์โหลดซ้ำ</span>
-                  </div>
-                  <div className="flex items-start gap-1.5">
-                    <span className="text-emerald-600 font-bold shrink-0">•</span>
-                    <span><strong>Smart Realtime Window:</strong> ฟังประวัติล่าสุด 200 รายการ ช่วยประหยัด Read มหาศาลเมื่อเอกสารสะสมเยอะ</span>
-                  </div>
-                </div>
-
-                {onFetchFullHistory && (
+              {/* Force Full History Fetch (kept, optimization card removed per UI feedback) */}
+              {onFetchFullHistory && (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                   <button
                     type="button"
                     onClick={() => onFetchFullHistory()}
@@ -542,8 +539,8 @@ service cloud.firestore {
                     )}
                     <span>ดึงประวัติย้อนหลังทั้งหมดจาก Cloud (Force Full Fetch)</span>
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Export / Import File Actions */}
               <div className="pt-2 border-t border-slate-100 space-y-2">
