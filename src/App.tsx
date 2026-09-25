@@ -1376,6 +1376,7 @@ export default function App() {
         isOpen={isCycleCountHistoryOpen}
         onClose={() => setIsCycleCountHistoryOpen(false)}
         showToast={showToast}
+        canEdit={userMode === 'editor'}
       />
 
       {/* Firebase Rules Configuration Guide Modal */}
