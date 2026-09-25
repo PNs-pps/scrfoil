@@ -16,6 +16,7 @@ import {
   query,
   limit,
   orderBy,
+  where,
   Firestore
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
@@ -175,10 +176,18 @@ export interface SubscriptionOptions {
 export function subscribeToFoilRolls(
   onUpdate: (rolls: FoilRoll[]) => void,
   onError?: (err: Error) => void,
-  options?: { onFromCache?: (isFromCache: boolean) => void; onExternalChange?: () => void }
+  options?: {
+    onFromCache?: (isFromCache: boolean) => void;
+    onExternalChange?: () => void;
+    /** When true (default), only subscribe to status === 'active' rolls to avoid loading thousands of depleted rolls. */
+    activeOnly?: boolean;
+  }
 ): () => void {
   try {
-    const q = query(collection(db, ROLLS_COLLECTION));
+    const activeOnly = options?.activeOnly !== false; // default true for scalability
+    const q = activeOnly
+      ? query(collection(db, ROLLS_COLLECTION), where('status', '==', 'active'))
+      : query(collection(db, ROLLS_COLLECTION));
     let isFirstSnapshot = true;
 
     return onSnapshot(
@@ -221,6 +230,27 @@ export function subscribeToFoilRolls(
     console.warn('Could not attach foil rolls subscription:', err?.message || err);
     onError?.(err);
     return () => {};
+  }
+}
+
+/**
+ * On-demand fetch of depleted / archived foil rolls (status === 'depleted').
+ * Use for "คลังข้อมูลเก่า (Archive)" page — do not keep a realtime listener on these.
+ */
+export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
+  try {
+    const q = query(collection(db, ROLLS_COLLECTION), where('status', '==', 'depleted'));
+    const snapshot = await getDocs(q);
+    const rolls: FoilRoll[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as FoilRoll;
+      rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
+    });
+    rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return rolls;
+  } catch (err: any) {
+    console.warn('fetchArchivedFoilRolls failed:', err?.message || err);
+    return [];
   }
 }
 
