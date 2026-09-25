@@ -25,7 +25,8 @@ import {
   Lock,
   RefreshCw,
   Zap,
-  Bug
+  Bug,
+  ClipboardList
 } from 'lucide-react';
 import { 
   AutoBackupConfig, 
@@ -75,6 +76,7 @@ interface SettingsBackupViewProps {
   isRunningIntegrityCheck?: boolean;
   integrityCheckState?: { date: string; count: number; lastCheckedAt: string };
   onOpenSOAudit?: () => void;
+  onOpenCycleCount?: () => void;
 }
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
@@ -102,6 +104,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   isRunningIntegrityCheck = false,
   integrityCheckState,
   onOpenSOAudit,
+  onOpenCycleCount,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile'>('backup');
   
@@ -519,6 +522,33 @@ service cloud.firestore {
                       </button>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Physical Cycle Count */}
+              {onOpenCycleCount && (
+                <div className="p-3.5 rounded-xl bg-violet-500/10 border border-violet-300/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                      <ClipboardList className="w-4 h-4 text-violet-600" />
+                      <span>ตรวจนับสต๊อกประจำเดือน (Cycle Count)</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-600 text-white">
+                      Variance
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    นับยอดจริงรายม้วน เปรียบเทียบกับยอดในระบบ บันทึกส่วนต่าง (Variance) พร้อมเหตุผล
+                    และเลือกปรับยอดในระบบให้ตรงของจริงได้เมื่อปิดงวด
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onOpenCycleCount}
+                    className="w-full py-2 px-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ClipboardList className="w-3.5 h-3.5" />
+                    <span>เปิดระบบตรวจนับสต๊อกประจำเดือน</span>
+                  </button>
                 </div>
               )}
 
