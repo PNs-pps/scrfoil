@@ -69,5 +69,10 @@ service cloud.firestore {
     match /pu_sandwich_cuts/{recordId} {
       allow read, write: if true;
     }
+
+    // Physical Cycle Count sessions (monthly stock count + variance)
+    match /cycle_counts/{sessionId} {
+      allow read, write: if true;
+    }
   }
 }
