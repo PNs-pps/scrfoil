@@ -1377,31 +1377,161 @@ export async function fetchCycleCountSessions(limitCount: number = 24): Promise<
   }
 }
 
+export interface CycleCountAdjustmentLine {
+  rollId: string;
+  physicalCount: number;
+  /** ยอดระบบก่อนปรับ (ใช้คำนวณ totalDeducted เพื่อให้ integrity / SO audit ตรง) */
+  systemRemaining: number;
+  lotNumber?: string;
+  rollNumber?: string;
+  width?: number | string;
+  pattern?: string;
+  reason?: string;
+}
+
 /**
- * Apply variance adjustments: set roll remainingMeters to physicalCount for lines with adjusted=true.
+ * Apply Cycle Count variance adjustments:
+ * 1) ตั้ง remainingMeters = physicalCount
+ * 2) บันทึก StockCutRecord ชนิด non_so ลงประวัติม้วน (stock_cut_records + cut_history + recentCuts)
+ *    โดย totalDeducted = systemRemaining - physicalCount
+ *    เพื่อให้สูตร expectedRemaining = totalMeters - sum(totalDeducted) ตรงกับของจริง
+ *    และไม่ถูกระบบตรวจบัค / integrity แจ้งเป็นข้อผิดพลาด
  */
 export async function applyCycleCountAdjustments(
-  lines: { rollId: string; physicalCount: number }[]
-): Promise<FoilRoll[]> {
-  const updated: FoilRoll[] = [];
+  lines: CycleCountAdjustmentLine[],
+  meta?: { period?: string; countedBy?: string }
+): Promise<{ updatedRolls: FoilRoll[]; createdRecords: StockCutRecord[] }> {
+  const updatedRolls: FoilRoll[] = [];
+  const createdRecords: StockCutRecord[] = [];
+  const periodLabel = meta?.period || new Date().toISOString().slice(0, 7);
+  const countedBy = (meta?.countedBy || 'Cycle Count').trim() || 'Cycle Count';
+  const today = new Date().toISOString().slice(0, 10);
+
   for (const line of lines) {
     const rollRef = doc(db, ROLLS_COLLECTION, line.rollId);
+    const safePhysical = Math.max(0, Number(line.physicalCount) || 0);
+    const systemBefore = Number(line.systemRemaining);
+    // totalDeducted ที่ต้องเพิ่มเพื่อให้ integrity ตรง:
+    // expected = totalMeters - (oldSum + thisDeducted) = physical
+    // thisDeducted ≈ systemBefore - physical (เมื่อ systemBefore สะท้อนยอดระบบก่อนปรับ)
+    const deduct = Math.round((systemBefore - safePhysical) * 100) / 100;
+    if (Math.abs(deduct) < 0.001) continue;
+
+    const recordId = `cc_${line.rollId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const soNumber = `นับสต๊อก ${periodLabel}`;
+    const reasonText =
+      line.reason?.trim() ||
+      (deduct > 0
+        ? `Cycle Count: ของจริงน้อยกว่าระบบ ${Math.abs(deduct)} ม.`
+        : `Cycle Count: ของจริงมากกว่าระบบ ${Math.abs(deduct)} ม.`);
+
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(rollRef);
       if (!snap.exists()) return;
       const serverRoll = snap.data() as FoilRoll;
-      const safePhysical = Math.max(0, Number(line.physicalCount) || 0);
+      const remainingBefore = Number(serverRoll.remainingMeters || 0);
+      // ใช้ยอดจริงบน server ณ ตอนปรับ เพื่อ consistency
+      const effectiveDeduct = Math.round((remainingBefore - safePhysical) * 100) / 100;
+      if (Math.abs(effectiveDeduct) < 0.001) return;
+
+      const usedPart = effectiveDeduct > 0 ? effectiveDeduct : 0;
+      const record: StockCutRecord = {
+        id: recordId,
+        foilId: line.rollId,
+        lotNumber: line.lotNumber || serverRoll.lotNumber,
+        rollNumber: line.rollNumber || serverRoll.rollNumber,
+        width: (line.width ?? serverRoll.width) as any,
+        pattern: (line.pattern || serverRoll.pattern) as any,
+        soNumber,
+        cutType: 'non_so',
+        nonSoReason: reasonText,
+        usedMeters: usedPart,
+        ngMeters: 0,
+        // อนุญาตค่าติดลบเมื่อของจริง > ระบบ (คืนยอดเข้าสต๊อก)
+        totalDeducted: effectiveDeduct,
+        remainingBefore,
+        remainingAfter: safePhysical,
+        usageDate: today,
+        recordedDate: today,
+        recordedBy: countedBy,
+        notes: `Cycle Count ${periodLabel}${line.reason ? ` | ${line.reason}` : ''}`,
+        createdAt: new Date().toISOString(),
+      };
+
       const next: FoilRoll = {
         ...serverRoll,
         remainingMeters: safePhysical,
-        usedMeters: Math.max(0, (serverRoll.totalMeters || 0) - safePhysical - (serverRoll.ngMeters || 0)),
+        usedMeters: Math.max(
+          0,
+          Math.round(
+            ((serverRoll.usedMeters || 0) + (effectiveDeduct > 0 ? effectiveDeduct : 0)) * 100
+          ) / 100
+        ),
         status: safePhysical > 0 ? ('active' as const) : ('depleted' as const),
-        isZeroedOut: safePhysical <= 0 ? (serverRoll.isZeroedOut ?? true) : false,
+        isZeroedOut: safePhysical <= 0 ? true : false,
+        recentCuts: [
+          {
+            id: record.id,
+            soNumber: record.soNumber,
+            cutType: 'non_so',
+            usedMeters: record.usedMeters,
+            ngMeters: 0,
+            totalDeducted: record.totalDeducted,
+            remainingAfter: safePhysical,
+            usageDate: today,
+            recordedDate: today,
+            recordedBy: countedBy,
+            notes: record.notes,
+          },
+          ...(serverRoll.recentCuts || []),
+        ].slice(0, 50),
       };
+
+      const historyItem: CutHistoryItem = {
+        id: record.id,
+        soNumber: record.soNumber,
+        cutMeters: record.totalDeducted,
+        usedMeters: record.usedMeters,
+        ngMeters: 0,
+        createdAt: record.createdAt,
+        rollId: line.rollId,
+        lotNumber: record.lotNumber,
+        rollNumber: record.rollNumber,
+        width: record.width as any,
+        pattern: record.pattern as any,
+        totalDeducted: record.totalDeducted,
+        remainingBefore,
+        remainingAfter: safePhysical,
+        cutDate: today,
+        usageDate: today,
+        recordedDate: today,
+        recordedBy: countedBy,
+        cutType: 'non_so',
+        nonSoReason: reasonText,
+        notes: record.notes,
+      };
+
       tx.set(rollRef, sanitizeForFirestore(next), { merge: true });
-      updated.push(next);
+      tx.set(doc(db, RECORDS_COLLECTION, record.id), sanitizeForFirestore(record));
+      tx.set(
+        doc(db, ROLLS_COLLECTION, line.rollId, 'cut_history', record.id),
+        sanitizeForFirestore(historyItem)
+      );
+      tx.set(
+        doc(db, ROLLS_COLLECTION, line.rollId, 'cuts', record.id),
+        sanitizeForFirestore(historyItem)
+      );
+
+      updatedRolls.push(next);
+      createdRecords.push(record);
     });
   }
-  return updated;
+
+  markLocalWrite([
+    ...updatedRolls.map((r) => r.id),
+    ...createdRecords.map((r) => r.id),
+  ]);
+
+  return { updatedRolls, createdRecords };
 }
 
