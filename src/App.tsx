@@ -57,6 +57,7 @@ import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { IntegrityCheckModal } from './components/IntegrityCheckModal';
 import { SOBugInspectorModal } from './components/SOBugInspectorModal';
 import { CycleCountModal } from './components/CycleCountModal';
+import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
@@ -166,6 +167,7 @@ export default function App() {
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
   const [isCycleCountOpen, setIsCycleCountOpen] = useState(false);
+  const [isCycleCountHistoryOpen, setIsCycleCountHistoryOpen] = useState(false);
 
   // Error Alert Modal State
   const [errorAlert, setErrorAlert] = useState<{
@@ -1193,6 +1195,7 @@ export default function App() {
             integrityCheckState={getCheckState()}
             onOpenSOAudit={() => handleOpenSOAudit()}
             onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
+            onOpenCycleCountHistory={() => setIsCycleCountHistoryOpen(true)}
           />
         )}
       </main>
@@ -1366,6 +1369,13 @@ export default function App() {
         onSaveSession={handleSaveCycleCount}
         showToast={showToast}
         canEdit={userMode === 'editor'}
+      />
+
+      {/* Cycle Count History / Compare Modal */}
+      <CycleCountHistoryModal
+        isOpen={isCycleCountHistoryOpen}
+        onClose={() => setIsCycleCountHistoryOpen(false)}
+        showToast={showToast}
       />
 
       {/* Firebase Rules Configuration Guide Modal */}
