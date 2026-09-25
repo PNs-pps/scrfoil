@@ -28,10 +28,14 @@ import {
   uploadAllToFirestore,
   testFirestoreConnection,
   fetchAllCutRecordsFromFirestore,
+  fetchArchivedFoilRolls,
+  saveCycleCountSession,
+  applyCycleCountAdjustments,
   firebaseConfig,
   activeTarget,
   setActiveTarget
 } from './lib/firebase';
+import { CycleCountSession } from './types';
 import { Navbar } from './components/Navbar';
 import { FirebaseSyncBar } from './components/FirebaseSyncBar';
 import { FirebaseRulesModal } from './components/FirebaseRulesModal';
@@ -52,6 +56,7 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { IntegrityCheckModal } from './components/IntegrityCheckModal';
 import { SOBugInspectorModal } from './components/SOBugInspectorModal';
+import { CycleCountModal } from './components/CycleCountModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
@@ -63,6 +68,9 @@ type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'setting
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
+  const [archivedRolls, setArchivedRolls] = useState<FoilRoll[]>([]);
+  const [archiveLoaded, setArchiveLoaded] = useState(false);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
   
@@ -157,6 +165,7 @@ export default function App() {
   const [editingRoll, setEditingRoll] = useState<FoilRoll | null>(null);
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
+  const [isCycleCountOpen, setIsCycleCountOpen] = useState(false);
 
   // Error Alert Modal State
   const [errorAlert, setErrorAlert] = useState<{
@@ -900,6 +909,37 @@ export default function App() {
     setIsCutModalOpen(true);
   };
 
+  const handleSaveCycleCount = async (session: CycleCountSession, applyAdjustments: boolean) => {
+    await saveCycleCountSession(session);
+    if (applyAdjustments) {
+      const toAdjust = session.lines
+        .filter((l) => l.adjusted && Math.abs(l.variance) > 0.001)
+        .map((l) => ({ rollId: l.rollId, physicalCount: l.physicalCount }));
+      if (toAdjust.length > 0) {
+        const updated = await applyCycleCountAdjustments(toAdjust);
+        if (updated.length > 0) {
+          setRolls((prev) => {
+            const byId = new Map(prev.map((r) => [r.id, r]));
+            updated.forEach((u) => {
+              if (u.status === 'active' && u.remainingMeters > 0) {
+                byId.set(u.id, u);
+              } else {
+                byId.delete(u.id);
+              }
+            });
+            const next = Array.from(byId.values());
+            saveStoredRolls(next);
+            return next;
+          });
+          // If any became depleted, refresh archive cache next time
+          if (updated.some((u) => u.status === 'depleted' || u.remainingMeters <= 0)) {
+            setArchiveLoaded(false);
+          }
+        }
+      }
+    }
+  };
+
   // Aggregate metrics
   const totalRemainingMeters = rolls.reduce((sum, r) => sum + r.remainingMeters, 0);
   const activeRollsCount = rolls.filter((r) => r.remainingMeters > 0).length;
@@ -1022,6 +1062,23 @@ export default function App() {
         {activeTab === 'rolls' && (
           <FoilRollTable
             rolls={rolls}
+            archivedRolls={archivedRolls}
+            archiveLoaded={archiveLoaded}
+            isLoadingArchive={isLoadingArchive}
+            onLoadArchive={async () => {
+              if (isLoadingArchive) return;
+              setIsLoadingArchive(true);
+              try {
+                const archived = await fetchArchivedFoilRolls();
+                setArchivedRolls(archived);
+                setArchiveLoaded(true);
+                showToast(`โหลดคลังข้อมูลเก่าแล้ว ${archived.length} ม้วน`, 'info');
+              } catch (err: any) {
+                showToast(err?.message || 'โหลดคลังข้อมูลเก่าไม่สำเร็จ', 'info');
+              } finally {
+                setIsLoadingArchive(false);
+              }
+            }}
             onOpenCutModal={(rollId) => requireEditorPermission(() => handleOpenCutForRoll(rollId))}
             onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
             onViewRollHistory={(roll) => setDetailRoll(roll)}
@@ -1112,6 +1169,7 @@ export default function App() {
             isRunningIntegrityCheck={isRunningIntegrityCheck}
             integrityCheckState={getCheckState()}
             onOpenSOAudit={() => handleOpenSOAudit()}
+            onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
           />
         )}
       </main>
@@ -1274,6 +1332,16 @@ export default function App() {
         onFixMultipleRolls={handleFixMultipleRolls}
         onRealignChain={handleRealignChain}
         onDeleteRecord={handleDeleteRecord}
+        canEdit={userMode === 'editor'}
+      />
+
+      {/* Physical Cycle Count Modal */}
+      <CycleCountModal
+        isOpen={isCycleCountOpen}
+        onClose={() => setIsCycleCountOpen(false)}
+        rolls={rolls}
+        onSaveSession={handleSaveCycleCount}
+        showToast={showToast}
         canEdit={userMode === 'editor'}
       />
 
