@@ -20,7 +20,7 @@ import {
   Firestore
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
-import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord } from '../types';
+import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 
 // User's custom configuration as requested
@@ -1334,5 +1334,74 @@ export async function deletePuSandwichCutFromFirestore(recordId: string): Promis
     console.warn('Notice: Failed to delete PU sandwich cut from Firestore:', err?.message || err);
     throw err;
   }
+}
+
+// ----------------------------------------------------
+// Physical Cycle Count (ตรวจนับสต๊อกประจำเดือน)
+// ----------------------------------------------------
+export const CYCLE_COUNTS_COLLECTION = 'cycle_counts';
+
+export async function saveCycleCountSession(session: CycleCountSession): Promise<void> {
+  try {
+    const docRef = doc(db, CYCLE_COUNTS_COLLECTION, session.id);
+    await setDoc(docRef, sanitizeForFirestore(session), { merge: true });
+  } catch (err: any) {
+    console.warn('saveCycleCountSession failed:', err?.message || err);
+    throw err;
+  }
+}
+
+export async function fetchCycleCountSessions(limitCount: number = 24): Promise<CycleCountSession[]> {
+  try {
+    const q = query(collection(db, CYCLE_COUNTS_COLLECTION), orderBy('createdAt', 'desc'), limit(limitCount));
+    const snapshot = await getDocs(q);
+    const items: CycleCountSession[] = [];
+    snapshot.forEach((docSnap) => {
+      items.push(docSnap.data() as CycleCountSession);
+    });
+    return items;
+  } catch (err: any) {
+    // Fallback without orderBy if index missing
+    try {
+      const snapshot = await getDocs(collection(db, CYCLE_COUNTS_COLLECTION));
+      const items: CycleCountSession[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as CycleCountSession);
+      });
+      items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      return items.slice(0, limitCount);
+    } catch (err2: any) {
+      console.warn('fetchCycleCountSessions failed:', err2?.message || err2);
+      return [];
+    }
+  }
+}
+
+/**
+ * Apply variance adjustments: set roll remainingMeters to physicalCount for lines with adjusted=true.
+ */
+export async function applyCycleCountAdjustments(
+  lines: { rollId: string; physicalCount: number }[]
+): Promise<FoilRoll[]> {
+  const updated: FoilRoll[] = [];
+  for (const line of lines) {
+    const rollRef = doc(db, ROLLS_COLLECTION, line.rollId);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(rollRef);
+      if (!snap.exists()) return;
+      const serverRoll = snap.data() as FoilRoll;
+      const safePhysical = Math.max(0, Number(line.physicalCount) || 0);
+      const next: FoilRoll = {
+        ...serverRoll,
+        remainingMeters: safePhysical,
+        usedMeters: Math.max(0, (serverRoll.totalMeters || 0) - safePhysical - (serverRoll.ngMeters || 0)),
+        status: safePhysical > 0 ? ('active' as const) : ('depleted' as const),
+        isZeroedOut: safePhysical <= 0 ? (serverRoll.isZeroedOut ?? true) : false,
+      };
+      tx.set(rollRef, sanitizeForFirestore(next), { merge: true });
+      updated.push(next);
+    });
+  }
+  return updated;
 }
 
