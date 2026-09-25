@@ -195,9 +195,14 @@ export default function App() {
     let isInitialRollsFetch = true;
     const unsubRolls = subscribeToFoilRolls(
       (firestoreRolls) => {
-        if (firestoreRolls.length > 0) {
-          setRolls(firestoreRolls);
-          saveStoredRolls(firestoreRolls);
+        // activeOnly query already filters status==='active'; also drop any legacy
+        // depleted/zeroed that slipped through so the main list stays lean.
+        const activeRolls = firestoreRolls.filter(
+          (r) => r.status === 'active' && (r.remainingMeters > 0 || !r.isZeroedOut)
+        );
+        if (activeRolls.length > 0 || firestoreRolls.length === 0) {
+          setRolls(activeRolls.length > 0 ? activeRolls : firestoreRolls);
+          saveStoredRolls(activeRolls.length > 0 ? activeRolls : firestoreRolls);
         } else if (isInitialRollsFetch && loadedRolls.length > 0) {
           // If cloud is initially empty, seed from existing local rolls
           uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
@@ -217,6 +222,7 @@ export default function App() {
         }
       },
       {
+        activeOnly: true,
         onFromCache: (fromCache) => {
           setIsCached(fromCache);
         },
