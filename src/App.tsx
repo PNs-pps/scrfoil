@@ -914,13 +914,25 @@ export default function App() {
     if (applyAdjustments) {
       const toAdjust = session.lines
         .filter((l) => l.adjusted && Math.abs(l.variance) > 0.001)
-        .map((l) => ({ rollId: l.rollId, physicalCount: l.physicalCount }));
+        .map((l) => ({
+          rollId: l.rollId,
+          physicalCount: l.physicalCount,
+          systemRemaining: l.systemRemaining,
+          lotNumber: l.lotNumber,
+          rollNumber: l.rollNumber,
+          width: l.width,
+          pattern: l.pattern,
+          reason: l.reason,
+        }));
       if (toAdjust.length > 0) {
-        const updated = await applyCycleCountAdjustments(toAdjust);
-        if (updated.length > 0) {
+        const { updatedRolls, createdRecords } = await applyCycleCountAdjustments(toAdjust, {
+          period: session.period,
+          countedBy: session.countedBy,
+        });
+        if (updatedRolls.length > 0) {
           setRolls((prev) => {
             const byId = new Map(prev.map((r) => [r.id, r]));
-            updated.forEach((u) => {
+            updatedRolls.forEach((u) => {
               if (u.status === 'active' && u.remainingMeters > 0) {
                 byId.set(u.id, u);
               } else {
@@ -931,10 +943,21 @@ export default function App() {
             saveStoredRolls(next);
             return next;
           });
-          // If any became depleted, refresh archive cache next time
-          if (updated.some((u) => u.status === 'depleted' || u.remainingMeters <= 0)) {
+          if (updatedRolls.some((u) => u.status === 'depleted' || u.remainingMeters <= 0)) {
             setArchiveLoaded(false);
           }
+        }
+        // ใส่รายการ Cycle Count ลงประวัติตัด (records) เพื่อให้ integrity / SO audit คำนวณยอดตรง
+        if (createdRecords.length > 0) {
+          setRecords((prev) => {
+            const byId = new Map(prev.map((r) => [r.id, r]));
+            createdRecords.forEach((r) => byId.set(r.id, r));
+            const merged = Array.from(byId.values()).sort((a, b) =>
+              (b.createdAt || '').localeCompare(a.createdAt || '')
+            );
+            saveStoredCutRecords(merged);
+            return merged;
+          });
         }
       }
     }
