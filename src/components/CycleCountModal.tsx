@@ -15,6 +15,18 @@ import { formatMeters, round2 } from '../utils/formatters';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { getPatternStyle } from '../utils/patternStyles';
 
+/** เหตุผลการนับส่วนต่าง — ใช้เป็นตัวเลือกในฟอร์ม */
+export const CYCLE_COUNT_REASONS = [
+  'เสียหาย / NG',
+  'นับผิดพลาดรอบก่อน',
+  'ตัดลืมบันทึกในระบบ',
+  'บันทึกซ้ำ / ตัดเกิน',
+  'พบของเพิ่ม / คืนยอด',
+  'ของจริงไม่ตรงระบบ (ไม่ทราบสาเหตุ)',
+  'ย้ายม้วน / สลับเบอร์',
+  'อื่นๆ',
+] as const;
+
 interface CycleCountModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -442,18 +454,27 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
                       >
                         {hasVar ? (line.variance > 0 ? '+' : '') + formatMeters(line.variance) : '—'}
                       </td>
-                      <td className="px-3 py-2 min-w-[140px]">
+                      <td className="px-3 py-2 min-w-[160px]">
                         {hasVar ? (
-                          <input
-                            type="text"
+                          <select
                             disabled={!canEdit || isSubmitting}
                             value={reasonMap[line.rollId] || ''}
                             onChange={(e) =>
                               setReasonMap((prev) => ({ ...prev, [line.rollId]: e.target.value }))
                             }
-                            placeholder="เช่น เสียหาย / นับผิด / ตัดลืมบันทึก"
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-amber-300 bg-white text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:bg-slate-50"
-                          />
+                            className={`w-full px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:bg-slate-50 cursor-pointer ${
+                              reasonMap[line.rollId]
+                                ? 'border-amber-300 bg-white text-slate-900'
+                                : 'border-rose-300 bg-rose-50/50 text-slate-500'
+                            }`}
+                          >
+                            <option value="">— เลือกเหตุผล —</option>
+                            {CYCLE_COUNT_REASONS.map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
                         ) : (
                           <span className="text-slate-300">—</span>
                         )}

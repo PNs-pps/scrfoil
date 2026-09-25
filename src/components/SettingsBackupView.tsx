@@ -77,6 +77,7 @@ interface SettingsBackupViewProps {
   integrityCheckState?: { date: string; count: number; lastCheckedAt: string };
   onOpenSOAudit?: () => void;
   onOpenCycleCount?: () => void;
+  onOpenCycleCountHistory?: () => void;
 }
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
@@ -105,6 +106,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   integrityCheckState,
   onOpenSOAudit,
   onOpenCycleCount,
+  onOpenCycleCountHistory,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile'>('backup');
   
@@ -526,7 +528,7 @@ service cloud.firestore {
               )}
 
               {/* Physical Cycle Count */}
-              {onOpenCycleCount && (
+              {(onOpenCycleCount || onOpenCycleCountHistory) && (
                 <div className="p-3.5 rounded-xl bg-violet-500/10 border border-violet-300/40 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
@@ -539,16 +541,30 @@ service cloud.firestore {
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
                     นับยอดจริงรายม้วน เปรียบเทียบกับยอดในระบบ บันทึกส่วนต่าง (Variance) พร้อมเหตุผล
-                    และเลือกปรับยอดในระบบให้ตรงของจริงได้เมื่อปิดงวด
+                    และเลือกปรับยอดในระบบให้ตรงของจริงได้เมื่อปิดงวด · ดูย้อนหลังและเปรียบเทียบงวดได้
                   </p>
-                  <button
-                    type="button"
-                    onClick={onOpenCycleCount}
-                    className="w-full py-2 px-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <ClipboardList className="w-3.5 h-3.5" />
-                    <span>เปิดระบบตรวจนับสต๊อกประจำเดือน</span>
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {onOpenCycleCount && (
+                      <button
+                        type="button"
+                        onClick={onOpenCycleCount}
+                        className="w-full py-2 px-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <ClipboardList className="w-3.5 h-3.5" />
+                        <span>นับสต๊อกงวดนี้</span>
+                      </button>
+                    )}
+                    {onOpenCycleCountHistory && (
+                      <button
+                        type="button"
+                        onClick={onOpenCycleCountHistory}
+                        className="w-full py-2 px-3 rounded-lg bg-white hover:bg-violet-50 text-violet-800 border border-violet-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        <span>ประวัติ / เปรียบเทียบงวด</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
