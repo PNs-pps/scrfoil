@@ -152,3 +152,31 @@ export interface PuSandwichCutRecord {
   notes?: string;                 // หมายเหตุ
   createdAt: string;              // Timestamp บันทึก
 }
+
+/**
+ * ระบบตรวจนับสต๊อกประจำเดือน (Physical Cycle Count)
+ * เปรียบเทียบยอดในระบบ vs ของจริง และบันทึกเหตุผลส่วนต่าง
+ */
+export interface CycleCountLine {
+  rollId: string;
+  lotNumber: string;
+  rollNumber: string;
+  width: number | string;
+  pattern: string;
+  systemRemaining: number;   // ยอดในระบบ ณ เวลานับ
+  physicalCount: number;     // ยอดนับจริง
+  variance: number;          // physical - system
+  reason?: string;           // บังคับเมื่อ variance !== 0
+  adjusted?: boolean;        // ปรับยอดระบบให้เท่าของจริงแล้วหรือยัง
+}
+
+export interface CycleCountSession {
+  id: string;
+  period: string;            // YYYY-MM
+  status: 'draft' | 'completed';
+  countedBy?: string;
+  notes?: string;
+  lines: CycleCountLine[];
+  createdAt: string;
+  completedAt?: string;
+}
