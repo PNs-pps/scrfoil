@@ -9,15 +9,17 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Trash2,
 } from 'lucide-react';
 import { CycleCountSession, CycleCountLine } from '../types';
 import { formatMeters, round2 } from '../utils/formatters';
-import { fetchCycleCountSessions } from '../lib/firebase';
+import { fetchCycleCountSessions, deleteCycleCountSession } from '../lib/firebase';
 
 interface CycleCountHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   showToast?: (text: string, type?: 'success' | 'info') => void;
+  canEdit?: boolean;
 }
 
 type ViewMode = 'list' | 'detail' | 'compare';
@@ -26,9 +28,11 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
   isOpen,
   onClose,
   showToast,
+  canEdit = false,
 }) => {
   const [sessions, setSessions] = useState<CycleCountSession[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -65,6 +69,33 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  const handleDelete = async (session: CycleCountSession, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!canEdit || deletingId) return;
+    const label = `${session.period} (${session.status === 'completed' ? 'เสร็จสิ้น' : 'แบบร่าง'})`;
+    const ok = window.confirm(
+      `ลบประวัติ Cycle Count งวด ${label} ใช่หรือไม่?\n\nลบเฉพาะเอกสารประวัติงวดนี้ ไม่ลบใบปรับยอดที่บันทึกในประวัติม้วนฟอยล์แล้ว`
+    );
+    if (!ok) return;
+    setDeletingId(session.id);
+    try {
+      await deleteCycleCountSession(session.id);
+      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+      if (selectedId === session.id) {
+        setSelectedId(null);
+        setViewMode('list');
+      }
+      if (compareA === session.id) setCompareA('');
+      if (compareB === session.id) setCompareB('');
+      showToast?.(`ลบประวัติ Cycle Count งวด ${session.period} แล้ว`, 'info');
+    } catch (err: any) {
+      setError(err?.message || 'ลบประวัติไม่สำเร็จ');
+      showToast?.(err?.message || 'ลบประวัติไม่สำเร็จ', 'info');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const byPeriod = useMemo(() => {
     const map = new Map<string, CycleCountSession[]>();
@@ -280,16 +311,18 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
                         {list.map((s) => {
                           const sum = sessionSummary(s);
                           return (
-                            <button
+                            <div
                               key={s.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedId(s.id);
-                                setViewMode('detail');
-                              }}
-                              className="w-full px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-4 text-left hover:bg-amber-50/50 cursor-pointer transition-colors"
+                              className="px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-3 hover:bg-amber-50/50 transition-colors"
                             >
-                              <div className="flex-1 min-w-[140px]">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedId(s.id);
+                                  setViewMode('detail');
+                                }}
+                                className="flex-1 min-w-[140px] text-left cursor-pointer"
+                              >
                                 <div className="flex items-center gap-2">
                                   <span
                                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -310,7 +343,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
                                   ผู้ตรวจนับ: <strong>{s.countedBy || '—'}</strong>
                                   {s.notes ? ` · ${s.notes}` : ''}
                                 </p>
-                              </div>
+                              </button>
                               <div className="flex items-center gap-3 text-[11px] text-slate-600">
                                 <span className="inline-flex items-center gap-1">
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -324,8 +357,29 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
                                   ปรับยอด {sum.adjusted}
                                 </span>
                               </div>
-                              <span className="text-[11px] text-amber-700 font-bold">ดูรายละเอียด →</span>
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedId(s.id);
+                                  setViewMode('detail');
+                                }}
+                                className="text-[11px] text-amber-700 font-bold cursor-pointer hover:underline"
+                              >
+                                ดูรายละเอียด
+                              </button>
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDelete(s, e)}
+                                  disabled={deletingId === s.id}
+                                  title="ลบประวัติงวดนี้ (โหมด Editor)"
+                                  className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  {deletingId === s.id ? 'กำลังลบ...' : 'ลบ'}
+                                </button>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -347,11 +401,24 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
                 >
                   ← กลับรายการ
                 </button>
-                <div className="text-xs text-slate-500">
-                  งวด <strong className="text-slate-800">{formatPeriod(selectedSession.period)}</strong>
-                  {' · '}
-                  {selectedSession.status === 'completed' ? 'เสร็จสิ้น' : 'แบบร่าง'}
-                  {selectedSession.countedBy ? ` · ${selectedSession.countedBy}` : ''}
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-slate-500">
+                    งวด <strong className="text-slate-800">{formatPeriod(selectedSession.period)}</strong>
+                    {' · '}
+                    {selectedSession.status === 'completed' ? 'เสร็จสิ้น' : 'แบบร่าง'}
+                    {selectedSession.countedBy ? ` · ${selectedSession.countedBy}` : ''}
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(selectedSession)}
+                      disabled={deletingId === selectedSession.id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {deletingId === selectedSession.id ? 'กำลังลบ...' : 'ลบประวัติ'}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="overflow-x-auto rounded-xl border border-slate-200">
