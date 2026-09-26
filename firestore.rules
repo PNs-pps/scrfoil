@@ -30,6 +30,25 @@ service cloud.firestore {
         data.recordedBy is string && data.recordedBy.size() <= 150;
     }
 
+    // Physical Cycle Count entries: server-enforced rule that closes the
+    // "reason is only checked client-side" gap WITHOUT needing a Cloud
+    // Function. Firestore rejects the write itself (permission-denied) if
+    // there's a non-zero variance with no reason attached — a modified or
+    // malicious client can no longer skip this requirement.
+    function isValidCycleCount(data) {
+      return data is map &&
+        data.rollId is string && data.rollId.size() > 0 &&
+        data.sessionId is string && data.sessionId.size() > 0 &&
+        data.systemMeters is number &&
+        data.physicalMeters is number && data.physicalMeters >= 0 &&
+        data.varianceMeters is number &&
+        data.countedBy is string && data.countedBy.size() > 0 &&
+        (
+          data.varianceMeters == 0 ||
+          (('reason' in data) && data.reason is string && data.reason.size() > 0)
+        );
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;
@@ -70,9 +89,13 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Physical Cycle Count sessions (monthly stock count + variance)
-    match /cycle_counts/{sessionId} {
-      allow read, write: if true;
+    // Physical Cycle Count audit trail — read/delete open (internal tool),
+    // but create/update must satisfy isValidCycleCount (reason required
+    // whenever there's a variance). This is what actually stops a variance
+    // being saved with no reason, even if someone tampers with the client.
+    match /cycle_counts/{entryId} {
+      allow read, delete: if true;
+      allow create, update: if isValidCycleCount(request.resource.data);
     }
   }
 }
