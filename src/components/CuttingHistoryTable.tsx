@@ -28,6 +28,7 @@ import { formatMeters, compareLotAndRoll } from '../utils/formatters';
 import { UserMode } from '../utils/auth';
 import { groupCutsByDate, exportCutsDateCSV } from '../utils/dateGrouping';
 import { getPatternStyle } from '../utils/patternStyles';
+import { findHiddenExactDuplicates } from '../utils/soHistoryAudit';
 
 type SortField = 'date' | 'so' | 'lot_roll' | 'width' | 'pattern' | 'used' | 'ng' | 'total' | 'remaining' | 'recorder';
 type SortDirection = 'asc' | 'desc';
@@ -449,417 +450,298 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     );
   };
 
+  // สแกนใบงานซ้ำที่ซ่อนในฐานข้อมูล (SO+ม้วน+ยอดเท่ากัน)
+  const hiddenDups = useMemo(() => findHiddenExactDuplicates(records), [records]);
+  const hiddenDupIdSet = useMemo(() => {
+    const s = new Set<string>();
+    hiddenDups.forEach((g) => g.recordIds.forEach((id) => s.add(id)));
+    return s;
+  }, [hiddenDups]);
+
   return (
-    <div className="space-y-4">
-      {/* Control Header */}
-      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-        {/* Row 1: Search Bar & Scope Selection */}
-        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-          {/* Main Search Box */}
-          <div className="relative flex-1">
-            <div className="relative flex items-center">
-              <Search className="w-4 h-4 text-amber-500 absolute left-3.5 pointer-events-none" />
-              <input
-                id="history-search-input"
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') setSearchQuery('');
-                }}
-                placeholder={
-                  searchScope === 'so'
-                    ? 'ค้นหาเฉพาะรหัส SO เช่น so6909500...'
-                    : searchScope === 'employee'
-                    ? 'ค้นหาเฉพาะชื่อพนักงานผู้ตัด เช่น สมชาย, ช่างคุม...'
-                    : searchScope === 'lot_roll'
-                    ? 'ค้นหาเฉพาะเลขล็อต หรือ เบอร์ม้วน...'
-                    : 'ค้นหารหัส SO หรือ ชื่อพนักงานผู้บันทึก หรือ ล็อต/เบอร์ม้วน...'
-                }
-                className="w-full pl-10 pr-24 py-2.5 text-sm bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-400"
-              />
-              <div className="absolute right-2.5 flex items-center gap-1.5">
-                {searchQuery ? (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    title="ล้างคำค้นหา"
-                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                ) : null}
-                <span className="text-[11px] font-mono text-slate-500 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200 hidden sm:inline">
-                  {filteredRecords.length}/{records.length} รายการ
-                </span>
-              </div>
-            </div>
+    <div className="space-y-3">
+      {/* แจ้งใบงานซ้ำที่ซ่อนอยู่ */}
+      {hiddenDups.length > 0 && (
+        <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-[11px] text-rose-950 space-y-1.5">
+          <div className="flex items-center gap-1.5 font-bold">
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+            พบใบงานซ้ำ {hiddenDups.length} กลุ่ม (หักสต๊อกเบิ้ล)
           </div>
-
-          {/* Search Scope Buttons */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs shrink-0">
-            <button
-              type="button"
-              onClick={() => setSearchScope('all')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer ${
-                searchScope === 'all'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ทั้งหมด
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchScope('so')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                searchScope === 'so'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <FileText className="w-3 h-3" />
-              <span>รหัส SO</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchScope('employee')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                searchScope === 'employee'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <User className="w-3 h-3" />
-              <span>ชื่อพนักงาน</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchScope('lot_roll')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                searchScope === 'lot_roll'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Tag className="w-3 h-3" />
-              <span>ล็อต/ม้วน</span>
-            </button>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleCopyBatchSummary(filteredRecords)}
-              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                copiedBatch
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'border-slate-200 hover:bg-slate-50 text-slate-700 bg-white'
-              }`}
-              title="คัดลอกรายละเอียดรายการที่กรองลงคลิปบอร์ดเพื่อนำไปวางใน LINE"
-            >
-              {copiedBatch ? (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  <span>คัดลอกแล้ว!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5 text-amber-600" />
-                  <span>คัดลอกข้อมูล</span>
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => exportCutRecordsToCSV(filteredRecords)}
-              className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="ส่งออกรายการที่กรองเป็น CSV"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden sm:inline">ส่งออก CSV</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Row 1.5: Dropdown Selection Filters (SO, Lot, Width, Pattern) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2.5 pt-2 border-t border-slate-100 text-xs">
-          {/* Dropdown: SO Number */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-              รหัสคำสั่งซื้อ SO:
-            </label>
-            <select
-              value={selectedSo}
-              onChange={(e) => setSelectedSo(e.target.value)}
-              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-colors cursor-pointer ${
-                selectedSo !== 'all'
-                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
-                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
-              }`}
-            >
-              <option value="all">รหัส SO: ทั้งหมด ({sosList.length})</option>
-              {sosList.map(({ so, count }) => (
-                <option key={so} value={so}>
-                  {so} ({count} ครั้ง)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Dropdown: Lot Number */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-              เลขล็อต (Lot No.):
-            </label>
-            <select
-              value={selectedLot}
-              onChange={(e) => setSelectedLot(e.target.value)}
-              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-colors cursor-pointer ${
-                selectedLot !== 'all'
-                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
-                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
-              }`}
-            >
-              <option value="all">ทุกล็อต ({lotsList.length})</option>
-              {lotsList.map(({ lot, count }) => (
-                <option key={lot} value={lot}>
-                  {lot} ({count} ม้วน/ครั้ง)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Dropdown: Width */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-              หน้ากว้าง (มม.):
-            </label>
-            <select
-              value={selectedWidth}
-              onChange={(e) => setSelectedWidth(e.target.value)}
-              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-medium transition-colors cursor-pointer ${
-                selectedWidth !== 'all'
-                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
-                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
-              }`}
-            >
-              <option value="all">หน้ากว้าง: ทั้งหมด</option>
-              {widthsList.map((w) => (
-                <option key={w} value={String(w)}>
-                  หน้า {w} มม. {WIDTH_SPECIFICATIONS[w] ? `(${WIDTH_SPECIFICATIONS[w]})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Dropdown: Pattern */}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-              ลายท้องฟอยล์:
-            </label>
-            <select
-              value={selectedPattern}
-              onChange={(e) => setSelectedPattern(e.target.value)}
-              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-                selectedPattern !== 'all'
-                  ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
-                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100/70'
-              }`}
-            >
-              <option value="all">ลายท้อง: ทั้งหมด</option>
-              <option value="ขาว">ขาว</option>
-              <option value="ดำ">ดำ</option>
-              <option value="ไม้อ่อน">ไม้อ่อน</option>
-              <option value="ไม้เข้ม">ไม้เข้ม</option>
-              <option value="เทา">เทา</option>
-              <option value="กลีบบัว">กลีบบัว</option>
-            </select>
-          </div>
-
-          {/* Clear Filters Action */}
-          <div className="col-span-2 sm:col-span-4 lg:col-span-1 flex items-end">
-            {hasActiveFilters ? (
-              <button
-                type="button"
-                onClick={handleClearAllFilters}
-                className="w-full px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-2xs"
-              >
-                <X className="w-3.5 h-3.5 text-rose-600" />
-                <span>ล้างตัวกรองทั้งหมด</span>
-              </button>
-            ) : (
-              <div className="text-[11px] text-slate-400 italic py-1.5 flex items-center gap-1">
-                <span>กรองย้อนหลังได้รวดเร็ว</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Row 2: Date Range Filter & Quick Presets */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 pt-2 border-t border-slate-100 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-slate-500 font-semibold text-[11px] flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-amber-600" />
-              <span>ช่วงวันที่ใช้งาน:</span>
-            </span>
-
-            <div className="flex items-center gap-1.5">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                title="จากวันที่"
-                className="px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono focus:border-amber-500 cursor-pointer"
-              />
-              <span className="text-slate-400 text-xs">ถึง</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                title="ถึงวันที่"
-                className="px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono focus:border-amber-500 cursor-pointer"
-              />
-            </div>
-
-            {/* Quick Presets */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => handleDatePreset('today')}
-                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
-              >
-                วันนี้
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDatePreset('7days')}
-                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
-              >
-                7 วันล่าสุด
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDatePreset('30days')}
-                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
-              >
-                30 วันล่าสุด
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDatePreset('this_month')}
-                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium cursor-pointer transition-colors"
-              >
-                เดือนนี้
-              </button>
-              {(startDate || endDate) && (
+          <ul className="space-y-1 max-h-28 overflow-y-auto">
+            {hiddenDups.slice(0, 8).map((g) => (
+              <li key={g.key} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <button
                   type="button"
-                  onClick={() => handleDatePreset('clear')}
-                  className="px-1.5 py-0.5 rounded text-rose-600 hover:bg-rose-50 text-[11px] font-bold cursor-pointer"
+                  className="font-mono font-bold text-amber-900 underline cursor-pointer"
+                  onClick={() => {
+                    setSearchQuery(g.soNumber);
+                    setSearchScope('so');
+                    setSelectedSo(g.soNumber);
+                  }}
                 >
-                  ล้างวันที่
+                  {g.soNumber}
                 </button>
-              )}
-            </div>
-          </div>
+                <span className="text-slate-600">
+                  ล็อต {g.lotNumber} #{g.rollNumber} · {g.pattern}
+                </span>
+                <span className="font-mono">
+                  {formatMeters(g.usedMeters)}+NG{formatMeters(g.ngMeters)} ม. ×{g.count}
+                </span>
+                <span className="text-rose-700 font-semibold">
+                  ควรลบ {g.count - 1} ใบ
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[10px] text-rose-800/80">
+            กดรหัส SO เพื่อกรอง · ลบรายการซ้ำในตาราง (โหมด Editor) เพื่อคืนยอด
+          </p>
+        </div>
+      )}
 
-          {/* Quick Filter Chips (Employees) */}
-          <div className="flex items-center flex-wrap gap-1.5 text-xs">
-            <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
-              <User className="w-3 h-3 text-slate-400" />
-              <span>ผู้บันทึก:</span>
-            </span>
-            {employeesList.slice(0, 5).map((emp) => (
+      {/* แถบค้น/กรอง กระชับ — มือถือไม่เกิน ~3/8 จอ */}
+      <div className="bg-white px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-xl border border-slate-200 shadow-sm space-y-1.5 max-h-[38vh] sm:max-h-none overflow-y-auto">
+        {/* แถว 1: ค้นหา + scope + export */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="relative flex-1 min-w-[140px]">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              id="history-search-input"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setSearchQuery('');
+              }}
+              placeholder={
+                searchScope === 'so'
+                  ? 'SO...'
+                  : searchScope === 'employee'
+                  ? 'ชื่อพนักงาน...'
+                  : searchScope === 'lot_roll'
+                  ? 'ล็อต / เบอร์...'
+                  : 'ค้นหา...'
+              }
+              className="w-full pl-7 pr-7 py-1.5 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30"
+            />
+            {searchQuery ? (
               <button
-                key={emp}
                 type="button"
-                onClick={() => {
-                  if (searchQuery === emp && searchScope === 'employee') {
-                    setSearchQuery('');
-                    setSearchScope('all');
-                  } else {
-                    setSearchQuery(emp);
-                    setSearchScope('employee');
-                  }
-                }}
-                className={`px-2 py-0.5 rounded-md text-[11px] transition-all cursor-pointer border flex items-center gap-1 ${
-                  searchQuery === emp && searchScope === 'employee'
-                    ? 'bg-blue-100 text-blue-900 border-blue-300 font-bold ring-1 ring-blue-400'
-                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                onClick={() => setSearchQuery('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
+          </div>
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[10px] shrink-0">
+            {(
+              [
+                ['all', 'ทั้งหมด'],
+                ['so', 'SO'],
+                ['employee', 'พนักงาน'],
+                ['lot_roll', 'ล็อต'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSearchScope(key)}
+                className={`px-1.5 py-1 rounded-md font-semibold cursor-pointer ${
+                  searchScope === key
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-slate-600'
                 }`}
               >
-                <span>{emp}</span>
+                {label}
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => handleCopyBatchSummary(filteredRecords)}
+            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 cursor-pointer"
+            title="คัดลอก"
+          >
+            {copiedBatch ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => exportCutRecordsToCSV(filteredRecords)}
+            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 cursor-pointer"
+            title="CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+          <span className="text-[10px] font-mono text-slate-400 shrink-0">
+            {filteredRecords.length}/{records.length}
+          </span>
         </div>
 
-        {/* Row 3: View Mode (Flat Table vs Date Folder Grouping) & Folder Collapse Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-          <div className="flex items-center gap-2">
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setViewMode('flat')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  viewMode === 'flat'
-                    ? 'bg-white text-slate-900 font-bold shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Calendar className="w-3.5 h-3.5 text-amber-600" />
-                <span>ตารางแยกตามวันที่ ({filteredRecords.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('date_folder')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  viewMode === 'date_folder'
-                    ? 'bg-white text-slate-900 font-bold shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Folder className="w-3.5 h-3.5 text-amber-600" />
-                <span>โฟลเดอร์ตามวันที่ ({dateGroups.length} วัน)</span>
-              </button>
-            </div>
+        {/* แถว 2: dropdown กระชับ ไม่มี label ยาว */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+          <select
+            value={selectedSo}
+            onChange={(e) => setSelectedSo(e.target.value)}
+            className={`px-1.5 py-1 rounded-lg border text-[11px] font-mono cursor-pointer ${
+              selectedSo !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <option value="all">SO ทั้งหมด</option>
+            {sosList.map(({ so, count }) => (
+              <option key={so} value={so}>
+                {so} ({count})
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedLot}
+            onChange={(e) => setSelectedLot(e.target.value)}
+            className={`px-1.5 py-1 rounded-lg border text-[11px] font-mono cursor-pointer ${
+              selectedLot !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <option value="all">ล็อตทั้งหมด</option>
+            {lotsList.map(({ lot, count }) => (
+              <option key={lot} value={lot}>
+                {lot} ({count})
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedWidth}
+            onChange={(e) => setSelectedWidth(e.target.value)}
+            className={`px-1.5 py-1 rounded-lg border text-[11px] font-mono cursor-pointer ${
+              selectedWidth !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <option value="all">หน้ากว้าง</option>
+            {widthsList.map((w) => (
+              <option key={w} value={String(w)}>
+                {w} มม.
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedPattern}
+            onChange={(e) => setSelectedPattern(e.target.value)}
+            className={`px-1.5 py-1 rounded-lg border text-[11px] cursor-pointer ${
+              selectedPattern !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <option value="all">ลายทั้งหมด</option>
+            <option value="ขาว">ขาว</option>
+            <option value="ดำ">ดำ</option>
+            <option value="ไม้อ่อน">ไม้อ่อน</option>
+            <option value="ไม้เข้ม">ไม้เข้ม</option>
+            <option value="เทา">เทา</option>
+            <option value="กลีบบัว">กลีบบัว</option>
+          </select>
+        </div>
 
-            {/* Folder Expand/Collapse buttons when in date_folder view */}
+        {/* แถว 3: วันที่ + preset + ล้าง */}
+        <div className="flex flex-wrap items-center gap-1">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="px-1.5 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg font-mono cursor-pointer"
+          />
+          <span className="text-[10px] text-slate-400">–</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="px-1.5 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg font-mono cursor-pointer"
+          />
+          {(['today', '7days', '30days', 'this_month'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => handleDatePreset(p)}
+              className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] text-slate-700 cursor-pointer"
+            >
+              {p === 'today' ? 'วันนี้' : p === '7days' ? '7วัน' : p === '30days' ? '30วัน' : 'เดือนนี้'}
+            </button>
+          ))}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 text-[10px] font-bold border border-rose-200 cursor-pointer"
+            >
+              ล้าง
+            </button>
+          )}
+          {employeesList.slice(0, 4).map((emp) => (
+            <button
+              key={emp}
+              type="button"
+              onClick={() => {
+                if (searchQuery === emp && searchScope === 'employee') {
+                  setSearchQuery('');
+                  setSearchScope('all');
+                } else {
+                  setSearchQuery(emp);
+                  setSearchScope('employee');
+                }
+              }}
+              className={`px-1.5 py-0.5 rounded text-[10px] border cursor-pointer ${
+                searchQuery === emp && searchScope === 'employee'
+                  ? 'bg-blue-100 border-blue-300 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-600'
+              }`}
+            >
+              {emp}
+            </button>
+          ))}
+        </div>
+
+        {/* แถว 4: โหมดตาราง */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[10px]">
+            <button
+              type="button"
+              onClick={() => setViewMode('flat')}
+              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
+                viewMode === 'flat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+              }`}
+            >
+              ตาราง ({filteredRecords.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('date_folder')}
+              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
+                viewMode === 'date_folder' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+              }`}
+            >
+              โฟลเดอร์ ({dateGroups.length})
+            </button>
+          </div>
+
             {viewMode === 'date_folder' && (
-              <div className="flex items-center gap-1">
+              <>
                 <button
                   type="button"
                   onClick={() => toggleAllFolders(true)}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium text-xs cursor-pointer shadow-2xs"
+                  className="px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[10px] cursor-pointer"
                 >
-                  📁 เปิดทั้งหมด
+                  เปิดทั้งหมด
                 </button>
                 <button
                   type="button"
                   onClick={() => toggleAllFolders(false)}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium text-xs cursor-pointer shadow-2xs"
+                  className="px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[10px] cursor-pointer"
                 >
-                  📁 ปิดทั้งหมด
+                  ปิดทั้งหมด
                 </button>
-              </div>
+              </>
             )}
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-mono text-slate-600">
-            <div>
-              ผลิตลงแผ่นรวม: <strong className="text-slate-900 font-bold">{formatMeters(totalUsedFiltered)}</strong> ม.
-            </div>
-            <div>
-              NG เสีย: <strong className="text-rose-600 font-bold">{formatMeters(totalNgFiltered)}</strong> ม.
-            </div>
-            <div>
-              รวมตัดออก: <strong className="text-amber-800 font-bold">{formatMeters(totalUsedFiltered + totalNgFiltered)}</strong> ม.
-            </div>
-          </div>
+          <span className="text-[10px] font-mono text-slate-500 ml-auto">
+            ใช้ {formatMeters(totalUsedFiltered)} · NG {formatMeters(totalNgFiltered)} · รวม{' '}
+            {formatMeters(totalUsedFiltered + totalNgFiltered)} ม.
+          </span>
         </div>
       </div>
 
@@ -913,6 +795,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
 
                   return (
                     <React.Fragment key={item.id}>
+                      {/* hiddenDup highlight applied on row below */}
                       {isNewDate && (
                         <tr className="bg-gradient-to-r from-amber-100/90 via-amber-50 to-slate-50 border-y-2 border-amber-300 select-none">
                           <td colSpan={11} className="px-4 py-2.5">
@@ -990,7 +873,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         </tr>
                       )}
 
-                      <tr className="hover:bg-slate-50/80 transition-colors">
+                      <tr
+                        className={`transition-colors ${
+                          hiddenDupIdSet.has(item.id)
+                            ? 'bg-rose-50/90 hover:bg-rose-100/80 ring-1 ring-inset ring-rose-200'
+                            : 'hover:bg-slate-50/80'
+                        }`}
+                      >
                       {/* Usage & Record Date */}
                       <td className="px-4 py-3.5 text-xs whitespace-nowrap">
                         <div className="font-mono text-slate-900 font-bold">{item.usageDate || '-'}</div>
@@ -1295,12 +1184,24 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         {group.records.map((item) => {
                           const patternStyle = getPatternStyle(item.pattern);
                           return (
-                            <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                            <tr
+                              key={item.id}
+                              className={`transition-colors ${
+                                hiddenDupIdSet.has(item.id)
+                                  ? 'bg-rose-50/90 hover:bg-rose-100/80 ring-1 ring-inset ring-rose-200'
+                                  : 'hover:bg-slate-50/70'
+                              }`}
+                            >
                               <td className="px-4 py-3">
                                 <div className="flex flex-wrap items-center gap-1">
                                   <span className="font-mono font-bold text-amber-900 text-xs bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                                     {highlightMatch(item.soNumber, searchQuery)}
                                   </span>
+                                  {hiddenDupIdSet.has(item.id) && (
+                                    <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1 rounded">
+                                      ซ้ำ
+                                    </span>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3">

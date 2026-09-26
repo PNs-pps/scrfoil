@@ -203,54 +203,38 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   }, [safeRecords, searchTerm, steelFilter, selectedMonth, onlyWithNg]);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
-      {/* Top Banner & Action */}
-      <div className="bg-linear-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-3xl p-6 sm:p-7 text-white shadow-md relative overflow-hidden">
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-radial from-white/10 to-transparent pointer-events-none" />
-        
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
-          <div className="space-y-2 max-w-2xl">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-200 text-xs font-bold border border-emerald-400/30 flex items-center gap-1.5">
-                <Factory className="w-3.5 h-3.5" />
-                สายการผลิต PU Sandwich
-              </span>
-              <span className="text-xs text-emerald-200/80">ระบบไม่ตัดเบิกม้วนฟอยล์</span>
-            </div>
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight">
-              บันทึกการตัด SO ผลิต PU Sandwich (ไม่ใช้ฟอยล์)
-            </h2>
-            <p className="text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-              สำหรับงานผลิตหลังคาและผนังแซนวิช บันทึกคอล์ยเหล็ก น้ำหนักก่อนใช้ และน้ำหนักหลังใช้ พร้อมเลือกชนิดเหล็ก (เหล็กนอก / Blue Scope / อื่นๆ) และเรียกดูประวัติย้อนหลังได้ตลอดเวลา
-            </p>
+    <div className="space-y-3 animate-in fade-in duration-200">
+      {/* หัวข้อบาง + ปุ่ม */}
+      <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-2xl px-3.5 py-3 text-white shadow-sm flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Factory className="w-4 h-4 text-emerald-300 shrink-0" />
+            <h2 className="text-sm sm:text-base font-bold truncate">PU Sandwich · ตัด SO ไม่ใช้ฟอยล์</h2>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsMonthlyModalOpen(true)}
-              className="px-4 py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer shadow-md hover:scale-[1.02]"
-              title="เปิดสรุปยอดการผลิต PU Sandwich รายเดือน"
-            >
-              <Calendar className="w-4 h-4" />
-              สรุปรายเดือนแซนวิช
-            </button>
-            <button
-              type="button"
-              onClick={() => exportPuSandwichRecordsToCSV(records)}
-              disabled={records.length === 0}
-              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-40"
-              title="ดาวน์โหลดรายการทั้งหมดเป็นไฟล์ CSV (เปิดใน Excel ได้)"
-            >
-              <Download className="w-4 h-4" />
-              ส่งออก CSV
-            </button>
-          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsMonthlyModalOpen(true)}
+            className="px-2.5 py-1.5 rounded-xl bg-amber-400 text-slate-950 text-[11px] font-bold cursor-pointer inline-flex items-center gap-1"
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            สรุปรายเดือน
+          </button>
+          <button
+            type="button"
+            onClick={() => exportPuSandwichRecordsToCSV(records)}
+            disabled={records.length === 0}
+            className="px-2.5 py-1.5 rounded-xl bg-white/15 text-white text-[11px] font-bold border border-white/20 cursor-pointer disabled:opacity-40 inline-flex items-center gap-1"
+          >
+            <Download className="w-3.5 h-3.5" />
+            CSV
+          </button>
         </div>
       </div>
 
-      {/* KPI 2 แถวสไลด์ — มือถือไม่รก */}
-      <div className="space-y-3">
+      {/* KPI 2 แถวสไลด์ — เห็นทันทีใต้หัวข้อ */}
+      <div className="space-y-2.5">
         <KpiSlideRow
           title="สรุปผลิต · น้ำหนัก & ใบงาน"
           cards={[
