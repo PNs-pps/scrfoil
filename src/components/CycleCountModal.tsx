@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   X,
   ClipboardList,
@@ -8,15 +8,16 @@ import {
   RefreshCw,
   Search,
   RotateCcw,
-  Filter,
   Folder,
   ChevronDown,
   ChevronRight,
+  FileEdit,
 } from 'lucide-react';
 import { FoilRoll, CycleCountLine, CycleCountSession } from '../types';
 import { formatMeters, round2 } from '../utils/formatters';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { getPatternStyle } from '../utils/patternStyles';
+import { fetchDraftCycleCountForPeriod } from '../lib/firebase';
 
 /** เหตุผลการนับส่วนต่าง — ใช้เป็นตัวเลือกในฟอร์ม */
 export const CYCLE_COUNT_REASONS = [
@@ -68,6 +69,11 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterVarianceOnly, setFilterVarianceOnly] = useState(false);
+  /** session id ของแบบร่างที่กำลังแก้ไขต่อ (null = เริ่มใหม่) */
+  const [draftSessionId, setDraftSessionId] = useState<string | null>(null);
+  const [draftCreatedAt, setDraftCreatedAt] = useState<string | null>(null);
+  const [draftUpdatedAt, setDraftUpdatedAt] = useState<string | null>(null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(false);
 
   // Search / filters (คอมแพ็กต์แบบหน้าม้วนฟอยล์)
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,6 +109,76 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
     setSelectedPattern('all');
     setFilterVarianceOnly(false);
   };
+
+  const applyDraftToForm = (draft: CycleCountSession) => {
+    setDraftSessionId(draft.id);
+    setDraftCreatedAt(draft.createdAt || null);
+    setDraftUpdatedAt(draft.updatedAt || draft.createdAt || null);
+    setCountedBy(draft.countedBy || '');
+    setNotes(draft.notes || '');
+    const nextPhysical: Record<string, string> = {};
+    const nextReason: Record<string, string> = {};
+    const nextAdjust: Record<string, boolean> = {};
+    (draft.lines || []).forEach((l) => {
+      nextPhysical[l.rollId] = String(l.physicalCount);
+      if (l.reason) nextReason[l.rollId] = l.reason;
+      if (l.adjusted) nextAdjust[l.rollId] = true;
+    });
+    setPhysicalMap(nextPhysical);
+    setReasonMap(nextReason);
+    setAdjustMap(nextAdjust);
+  };
+
+  const startFresh = () => {
+    setDraftSessionId(null);
+    setDraftCreatedAt(null);
+    setDraftUpdatedAt(null);
+    setCountedBy('');
+    setNotes('');
+    setPhysicalMap({});
+    setReasonMap({});
+    setAdjustMap({});
+    setError(null);
+  };
+
+  // เปิด modal / เปลี่ยนงวด → โหลดแบบร่างล่าสุดของงวดนั้น (ถ้ามี) เพื่อนับต่อข้ามวัน
+  useEffect(() => {
+    if (!isOpen || !period) return;
+    let cancelled = false;
+    const load = async () => {
+      setIsLoadingDraft(true);
+      setError(null);
+      try {
+        const draft = await fetchDraftCycleCountForPeriod(period);
+        if (cancelled) return;
+        if (draft) {
+          applyDraftToForm(draft);
+          showToast?.(
+            `โหลดแบบร่างงวด ${period} แล้ว — แก้ต่อจากครั้งก่อนได้`,
+            'info'
+          );
+        } else {
+          setDraftSessionId(null);
+          setDraftCreatedAt(null);
+          setDraftUpdatedAt(null);
+          setPhysicalMap({});
+          setReasonMap({});
+          setAdjustMap({});
+        }
+      } catch {
+        if (!cancelled) {
+          /* ignore — เริ่มใหม่ได้ */
+        }
+      } finally {
+        if (!cancelled) setIsLoadingDraft(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, period]);
 
   // All lines (for save) — always from full active set
   const allLines: CycleCountLine[] = useMemo(
@@ -208,26 +284,42 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
 
     setIsSubmitting(true);
     try {
+      const nowIso = new Date().toISOString();
+      // แบบร่าง: ใช้ id เดิมถ้ามี เพื่อแก้ต่อข้ามวันได้ / เสร็จสิ้นก็อัปเดต id เดิมถ้ามาจากร่าง
+      const sessionId =
+        draftSessionId || `cc_${period.replace(/-/g, '')}_${Date.now()}`;
       const session: CycleCountSession = {
-        id: `cc_${period}_${Date.now()}`,
+        id: sessionId,
         period,
         status: complete ? 'completed' : 'draft',
         countedBy: countedBy.trim() || undefined,
         notes: notes.trim() || undefined,
         lines: allLines,
-        createdAt: new Date().toISOString(),
-        completedAt: complete ? new Date().toISOString() : undefined,
+        createdAt: draftCreatedAt || nowIso,
+        updatedAt: nowIso,
+        completedAt: complete ? nowIso : undefined,
       };
       const applyAdjustments =
         complete && allLines.some((l) => l.adjusted && Math.abs(l.variance) > 0.001);
       await onSaveSession(session, applyAdjustments);
-      showToast?.(
-        complete
-          ? `บันทึก Cycle Count ${period} เสร็จสิ้น${applyAdjustments ? ' และปรับยอดแล้ว' : ''}`
-          : `บันทึกแบบร่าง Cycle Count ${period} แล้ว`,
-        'success'
-      );
-      onClose();
+
+      if (complete) {
+        showToast?.(
+          `บันทึก Cycle Count ${period} เสร็จสิ้น${applyAdjustments ? ' และปรับยอดแล้ว' : ''}`,
+          'success'
+        );
+        startFresh();
+        onClose();
+      } else {
+        // บันทึกแบบร่างแล้วอยู่ต่อ — เก็บ id เพื่อแก้ต่อ
+        setDraftSessionId(sessionId);
+        setDraftCreatedAt(session.createdAt);
+        setDraftUpdatedAt(nowIso);
+        showToast?.(
+          `บันทึกแบบร่างงวด ${period} แล้ว — ปิดหน้าแล้วเปิดใหม่วันอื่นได้ ระบบจะโหลดต่อให้`,
+          'success'
+        );
+      }
     } catch (err: any) {
       const raw = String(err?.message || err || '');
       const isPermission =
@@ -311,6 +403,49 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* สถานะแบบร่าง — นับต่อข้ามวันได้ */}
+        {(isLoadingDraft || draftSessionId) && (
+          <div className="px-4 sm:px-5 py-2 border-b border-slate-100 bg-sky-50/80 shrink-0">
+            {isLoadingDraft ? (
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                กำลังโหลดแบบร่างงวด {period}...
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 justify-between">
+                <div className="flex items-start gap-2 text-[11px] text-sky-950 min-w-0">
+                  <FileEdit className="w-3.5 h-3.5 text-sky-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">กำลังแก้ไขแบบร่างงวด {period}</span>
+                    <span className="text-sky-800/80 block sm:inline sm:ml-1">
+                      บันทึกล่าสุด{' '}
+                      {draftUpdatedAt
+                        ? new Date(draftUpdatedAt).toLocaleString('th-TH')
+                        : '—'}
+                      {' · '}นับไม่จบวันนี้ เปิดมาแก้ต่อวันอื่นได้
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        'เริ่มนับใหม่ทั้งงวด? ค่าที่กรอกในหน้านี้จะถูกล้าง (แบบร่างเดิมใน Cloud ยังอยู่จนกว่าจะบันทึกทับ)'
+                      )
+                    ) {
+                      startFresh();
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-lg border border-sky-200 bg-white text-sky-800 text-[11px] font-bold cursor-pointer hover:bg-sky-100 shrink-0"
+                >
+                  เริ่มนับใหม่
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* แถบค้นหา/กรองแบบคอมแพ็กต์ — คล้ายหน้าม้วนฟอยล์ */}
         <div className="px-4 sm:px-5 py-2 border-b border-slate-100 bg-white shrink-0">
@@ -606,12 +741,12 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold disabled:opacity-40 cursor-pointer inline-flex items-center gap-1.5 transition-colors"
           >
             {isSubmitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            บันทึกแบบร่าง
+            {draftSessionId ? 'บันทึกแบบร่าง (อัปเดต)' : 'บันทึกแบบร่าง'}
           </button>
           <button
             type="button"
             onClick={() => handleSubmit(true)}
-            disabled={isSubmitting || !canEdit}
+            disabled={isSubmitting || !canEdit || isLoadingDraft}
             className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold disabled:opacity-40 cursor-pointer inline-flex items-center gap-1.5 shadow-xs active:scale-[0.98] transition-all"
           >
             {isSubmitting ? (
