@@ -154,10 +154,10 @@ export function auditRollSOHistory(
         });
       }
 
-      // If cuts have different meters or distinct rounds, this is legitimate split production (แบ่งรอบการผลิต)
+      // แบ่งรอบการผลิตปกติ — เก็บไว้ดูในแท็บ SO ซ้ำซ้อน เท่านั้น ไม่นับเป็นบัค/ไม่แจ้งเตือน
       if (!hasExactDup) {
         const roundsDesc = cuts.map((c, i) => {
-          const rLabel = c.productionRound || `รอบ ${i + 1}`;
+          const rLabel = (c.productionRound || '').trim() || `รอบที่ ${i + 1}`;
           return `${rLabel}: ${round2(c.totalDeducted || (c.usedMeters + c.ngMeters))}ม.`;
         }).join(', ');
 
@@ -166,10 +166,10 @@ export function auditRollSOHistory(
           type: 'SPLIT_PRODUCTION_BATCH',
           severity: 'info',
           title: `SO ${soKey} แบ่งรอบการผลิต (${cuts.length} รอบ)`,
-          description: `พบ SO ${soKey} ในม้วนนี้ ${cuts.length} ครั้ง (${roundsDesc}) ซึ่งเป็นการแบ่งรอบการผลิตตามใบงาน`,
+          description: `พบ SO ${soKey} ในม้วนนี้ ${cuts.length} ครั้ง (${roundsDesc}) — เป็นการแบ่งรอบการผลิตตามใบงาน ไม่ใช่ข้อผิดพลาด`,
           soNumber: soKey,
           affectedMeters: round2(cuts.reduce((s, c) => s + (c.totalDeducted || (c.usedMeters + c.ngMeters)), 0)),
-          suggestedAction: 'ไม่มีข้อผิดพลาด (ระบบรองรับการแบ่งรอบการผลิตของ SO)',
+          suggestedAction: 'ไม่ต้องดำเนินการ (ดูรายละเอียดในแท็บ SO ซ้ำซ้อน / ประวัติม้วนจะแสดงเป็นรอบที่ 1, 2, …)',
           timestamp: cuts[0].createdAt,
         });
       }
@@ -417,13 +417,20 @@ export function getSOAuditOverallSummary(
   let readyToAdjustCount = 0;
 
   auditResults.forEach((res) => {
-    if (res.issues.length > 0) {
+    // SPLIT_PRODUCTION_BATCH = แบ่งรอบการผลิตปกติ ไม่นับเป็นบัค/ข้อสังเกตที่ต้องแจ้งเตือน
+    const actionableIssues = res.issues.filter((i) => i.type !== 'SPLIT_PRODUCTION_BATCH');
+    if (actionableIssues.length > 0) {
       rollsWithIssues += 1;
-      totalIssuesCount += res.issues.length;
+      totalIssuesCount += actionableIssues.length;
     }
 
     res.issues.forEach((iss) => {
-      if (iss.type === 'DUPLICATE_SO_EXACT' || iss.type === 'DUPLICATE_SO_MULTIPLE') {
+      // แสดงในแท็บ SO ซ้ำซ้อน: ซ้ำจริง + แบ่งรอบ (เพื่อดูย้อนหลัง ไม่นับเป็นบัค)
+      if (
+        iss.type === 'DUPLICATE_SO_EXACT' ||
+        iss.type === 'DUPLICATE_SO_MULTIPLE' ||
+        iss.type === 'SPLIT_PRODUCTION_BATCH'
+      ) {
         duplicateSOIssuesCount += 1;
       }
       if (iss.type === 'METER_JUMP') {
