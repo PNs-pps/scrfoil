@@ -25,18 +25,29 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
   const rulesCode = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // อนุญาตให้ทุกอุปกรณ์บันทึกและอ่านสต๊อกฟอยล์ได้แบบเรียลไทม์
+    match /test/{docId} {
+      allow read, write: if true;
+    }
     match /foil_rolls/{rollId} {
+      allow read, write: if true;
+      match /cuts/{cutId} {
+        allow read, write: if true;
+      }
+      match /cut_history/{cutId} {
+        allow read, write: if true;
+      }
+    }
+    match /{path=**}/cut_history/{cutId} {
       allow read, write: if true;
     }
     match /stock_cut_records/{recordId} {
       allow read, write: if true;
     }
-    match /test/{docId} {
+    match /pu_sandwich_cuts/{recordId} {
       allow read, write: if true;
     }
-    // หรืออนุญาตทั้งหมดสำหรับการทดสอบ:
-    match /{document=**} {
+    // ประวัตินับสต๊อกประจำเดือน (Cycle Count) — ต้องมีกฎนี้ไม่งั้นบันทึกไม่ได้
+    match /cycle_counts/{sessionId} {
       allow read, write: if true;
     }
   }

@@ -229,7 +229,15 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
       );
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'บันทึกไม่สำเร็จ กรุณาลองใหม่');
+      const raw = String(err?.message || err || '');
+      const isPermission =
+        /permission|insufficient|Missing or insufficient/i.test(raw) ||
+        err?.code === 'permission-denied';
+      const msg = isPermission
+        ? 'บันทึกไม่ได้: Firebase Rules ยังไม่อนุญาต collection "cycle_counts" — เปิด Firebase Console → Firestore → Rules แล้ว Publish กฎที่มี match /cycle_counts/{sessionId} { allow read, write: if true; }'
+        : raw || 'บันทึกไม่สำเร็จ กรุณาลองใหม่';
+      setError(msg);
+      showToast?.(isPermission ? 'ต้องอัปเดต Firestore Rules (cycle_counts)' : msg, 'info');
     } finally {
       setIsSubmitting(false);
     }
