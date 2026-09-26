@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory, Bug, MessageSquareWarning } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory, Bug } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
@@ -101,18 +101,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
 
-              {/* SO Bug Inspector: small warning tag (only shown when there's something to see) */}
-              {onOpenSOAudit && Boolean(soBugCount && soBugCount > 0) && (
+              {/* SO Bug Inspector — compact notification-style badge (text form) */}
+              {onOpenSOAudit && (
                 <button
                   type="button"
                   onClick={onOpenSOAudit}
-                  className="relative inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-700 transition-all cursor-pointer shadow-2xs group"
-                  title={`ตรวจหาบัคจากประวัติ SO: พบ ${soBugCount} ม้วน`}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50/80 hover:bg-amber-100 border border-amber-200 text-amber-900 text-[11px] font-semibold transition-all cursor-pointer"
+                  title="ตรวจหาบัคจากประวัติ SO และตรวจสอบยอดคงเหลือสต๊อก"
                 >
-                  <MessageSquareWarning className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-[3px] rounded-full bg-rose-600 text-white text-[9px] font-bold leading-[15px] text-center">
-                    {soBugCount}
-                  </span>
+                  <Bug className="w-3 h-3 text-amber-600" />
+                  <span>บัค SO</span>
+                  {Boolean(soBugCount && soBugCount > 0) && (
+                    <span className="ml-0.5 px-1.5 py-0 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-4">
+                      {soBugCount}
+                    </span>
+                  )}
                 </button>
               )}
 

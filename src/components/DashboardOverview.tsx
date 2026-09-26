@@ -198,8 +198,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               {activeRolls.length} <span className="text-sm font-normal text-slate-500">ม้วน</span>
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs">
-              <span className="text-slate-500">ม้วนที่ตัดหมดแล้ว ดูได้ที่:</span>
-              <span className="font-semibold text-amber-700">ตั้งค่า → คลังข้อมูลเก่า (Archive)</span>
+              <span className="text-slate-500">ม้วนตัดหมดแล้ว:</span>
+              <span className="font-semibold text-slate-700 font-mono">{depletedRolls.length} ม้วน</span>
             </div>
             {redAlertRolls.length > 0 && (
               <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">

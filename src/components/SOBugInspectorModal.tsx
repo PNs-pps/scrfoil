@@ -90,8 +90,17 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
   }, [auditResults]);
 
   // Filter rolls by tab and search query
+  // Per product feedback: isZeroedOut rolls should NOT appear on the bug-check page
+  // (they are already closed). Pure SO-duplicate issues should be handled in the
+  // roll's cutting history, not here — so we exclude rolls whose ONLY issues are
+  // SO duplicates unless the user explicitly opens the "SO ซ้ำซ้อน" tab.
   const filteredAuditResults = useMemo(() => {
     return auditResults.filter((res) => {
+      // Never show zeroed-out rolls on this page (except explicit "zeroed" tab if kept for reference)
+      if (res.isZeroedOut && activeFilter !== 'zeroed') {
+        return false;
+      }
+
       // Search
       const q = searchQuery.toLowerCase().trim();
       let matchQuery = true;
@@ -105,16 +114,27 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
 
       // Tab filter
       let matchTab = true;
-      if (activeFilter === 'issues_only') {
-        // Rolls that are already zeroed out (finished/closed) don't need
-        // attention here anymore, and a duplicate-SO note by itself now
-        // surfaces on that roll's own cutting-history view instead of
-        // cluttering this default bug list.
-        matchTab = !res.isZeroedOut && res.issues.some(
-          (i) => i.type !== 'DUPLICATE_SO_EXACT' && i.type !== 'DUPLICATE_SO_MULTIPLE'
+      if (activeFilter === 'all' || activeFilter === 'issues_only') {
+        // ไม่นับ SO ซ้ำ / แบ่งรอบการผลิต เป็นบัคในแท็บหลัก (ย้ายไปแท็บ SO ซ้ำซ้อน)
+        const nonDupIssues = res.issues.filter(
+          (i) =>
+            i.type !== 'DUPLICATE_SO_EXACT' &&
+            i.type !== 'DUPLICATE_SO_MULTIPLE' &&
+            i.type !== 'SPLIT_PRODUCTION_BATCH'
         );
+        if (activeFilter === 'issues_only') {
+          matchTab = nonDupIssues.length > 0;
+        } else {
+          matchTab = nonDupIssues.length > 0 || res.issues.length === 0;
+        }
       } else if (activeFilter === 'duplicates') {
-        matchTab = res.issues.some((i) => i.type === 'DUPLICATE_SO_EXACT' || i.type === 'DUPLICATE_SO_MULTIPLE');
+        // รวมทั้ง SO ซ้ำจริง และแบ่งรอบการผลิต (ไม่ใช่บัค แต่ดูได้ที่นี่)
+        matchTab = res.issues.some(
+          (i) =>
+            i.type === 'DUPLICATE_SO_EXACT' ||
+            i.type === 'DUPLICATE_SO_MULTIPLE' ||
+            i.type === 'SPLIT_PRODUCTION_BATCH'
+        );
       } else if (activeFilter === 'jumps') {
         matchTab = res.issues.some((i) => i.type === 'METER_JUMP');
       } else if (activeFilter === 'mismatches') {

@@ -26,9 +26,7 @@ import {
   RefreshCw,
   Zap,
   Bug,
-  Search,
-  Wrench,
-  ClipboardCheck
+  ClipboardList
 } from 'lucide-react';
 import { 
   AutoBackupConfig, 
@@ -52,7 +50,6 @@ import {
   exportCutsDateCSV 
 } from '../utils/dateGrouping';
 import { formatMeters } from '../utils/formatters';
-import { fetchArchivedFoilRolls, backfillMissingRollStatus } from '../lib/firebase';
 
 interface SettingsBackupViewProps {
   rolls: FoilRoll[];
@@ -64,8 +61,6 @@ interface SettingsBackupViewProps {
   onSwitchCloud: () => void;
   onManualSaveToCloud: () => Promise<void>;
   onManualFetchFromCloud: () => Promise<void>;
-  isSavingToCloud?: boolean;
-  isFetchingFromCloud?: boolean;
   onRestoreData: (newRolls: FoilRoll[], newRecords: StockCutRecord[]) => void;
   onResetData?: () => void;
   showToast: (text: string, type?: 'success' | 'info') => void;
@@ -82,6 +77,7 @@ interface SettingsBackupViewProps {
   integrityCheckState?: { date: string; count: number; lastCheckedAt: string };
   onOpenSOAudit?: () => void;
   onOpenCycleCount?: () => void;
+  onOpenCycleCountHistory?: () => void;
 }
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
@@ -94,8 +90,6 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   onSwitchCloud,
   onManualSaveToCloud,
   onManualFetchFromCloud,
-  isSavingToCloud = false,
-  isFetchingFromCloud = false,
   onRestoreData,
   onResetData,
   showToast,
@@ -112,17 +106,9 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   integrityCheckState,
   onOpenSOAudit,
   onOpenCycleCount,
+  onOpenCycleCountHistory,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile' | 'archive'>('backup');
-
-  // Archived (depleted) rolls: loaded on-demand only, not kept in the
-  // realtime `rolls` list, to avoid the app having to hold years of
-  // finished rolls in memory / re-download them on every page load.
-  const [archivedRolls, setArchivedRolls] = useState<FoilRoll[] | null>(null);
-  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
-  const [archiveError, setArchiveError] = useState<string | null>(null);
-  const [archiveSearch, setArchiveSearch] = useState('');
-  const [isBackfillingStatus, setIsBackfillingStatus] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<'backup' | 'folders' | 'permissions' | 'mobile'>('backup');
   
   // Backup config state
   const [backupConfig, setBackupConfig] = useState<AutoBackupConfig>(getAutoBackupConfig());
@@ -244,48 +230,6 @@ service cloud.firestore {
     showToast('คัดลอกโค้ด Rules สำเร็จ');
   };
 
-  // Load depleted rolls on-demand ("คลังข้อมูลเก่า") — only fetched when the
-  // user actually opens this tab / presses the button, never on app load.
-  const handleLoadArchive = async () => {
-    setIsLoadingArchive(true);
-    setArchiveError(null);
-    try {
-      const rolls = await fetchArchivedFoilRolls();
-      setArchivedRolls(rolls);
-    } catch (err: any) {
-      setArchiveError(err?.message || 'ไม่สามารถดึงข้อมูลคลังเก่าได้ กรุณาลองใหม่');
-    } finally {
-      setIsLoadingArchive(false);
-    }
-  };
-
-  const handleBackfillStatus = async () => {
-    setIsBackfillingStatus(true);
-    try {
-      const result = await backfillMissingRollStatus();
-      showToast(
-        result.fixed > 0
-          ? `ซ่อมสถานะม้วนเก่าที่ยังไม่มี status สำเร็จ ${result.fixed} ม้วน (สแกนทั้งหมด ${result.scanned} ม้วน)`
-          : `ตรวจสอบแล้ว ทุกม้วน (${result.scanned}) มีสถานะครบถ้วนดี ไม่ต้องซ่อม`
-      );
-    } catch (err: any) {
-      showToast(err?.message || 'ซ่อมสถานะไม่สำเร็จ กรุณาลองใหม่', 'info');
-    } finally {
-      setIsBackfillingStatus(false);
-    }
-  };
-
-  const filteredArchivedRolls = useMemo(() => {
-    if (!archivedRolls) return [];
-    const q = archiveSearch.trim().toLowerCase();
-    if (!q) return archivedRolls;
-    return archivedRolls.filter((r) =>
-      r.lotNumber.toLowerCase().includes(q) ||
-      r.rollNumber.toLowerCase().includes(q) ||
-      String(r.pattern || '').toLowerCase().includes(q)
-    );
-  }, [archivedRolls, archiveSearch]);
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -304,6 +248,35 @@ service cloud.firestore {
             <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
               จัดการการสำรองข้อมูลอัตโนมัติ สิทธิ์ Firebase Rules คลาวด์กลาง และคู่มือใช้งานบนมือถือ
             </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onManualFetchFromCloud()}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+              title="ดึงข้อมูลล่าสุดจาก Cloud Firestore"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>ดึงข้อมูล (Fetch)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onManualSaveToCloud()}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+              title="บันทึกข้อมูลปัจจุบันลง Cloud Firestore"
+            >
+              <Save className="w-4 h-4" />
+              <span>บันทึกลง Cloud (Save)</span>
+            </button>
+            <button
+              onClick={handleBackupNow}
+              disabled={isBackingUpNow}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>{isBackingUpNow ? 'กำลังสำรองข้อมูล...' : 'สำรองข้อมูลทันที'}</span>
+            </button>
           </div>
         </div>
 
@@ -361,18 +334,6 @@ service cloud.firestore {
           >
             <Smartphone className="w-4 h-4" />
             <span>ใช้งานบนมือถือ Android/iOS</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('archive')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'archive'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <FolderArchive className="w-4 h-4 text-slate-500" />
-            <span>คลังข้อมูลเก่า (Archive)</span>
           </button>
         </div>
       </div>
@@ -496,28 +457,28 @@ service cloud.firestore {
                 </div>
               )}
 
-              {/* Combined: Stock Integrity Check + SO History Bug Inspector */}
+              {/* Combined Stock Integrity + SO Bug Inspector (รวมเข้าด้วยกัน) */}
               {(onRunIntegrityCheck || onOpenSOAudit) && (
-                <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/30 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
-                      <ShieldCheck className="w-4 h-4 text-blue-600" />
-                      <span>ตรวจสอบความถูกต้องของสต๊อก & ตรวจหาบัค SO</span>
-                    </div>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500 text-white">
-                      อัตโนมัติ 2 ครั้ง/วัน
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    ตรวจว่ายอดคงเหลือของทุกม้วนตรงกับผลรวมของรายการตัด SO จริงหรือไม่ พร้อมวิเคราะห์ประวัติการตัด SO รายม้วนอย่างละเอียด (SO ซ้ำซ้อน ยอดคงเหลือโซ่ขาด) และปรับยอดอัตโนมัติด้วยความยินยอม (ยกเว้นม้วนที่ตัดเป็น 0) ระบบจะรันตรวจสต๊อกให้เองอัตโนมัติสูงสุด 2 ครั้งต่อวัน หรือกดตรวจสอบเองตอนนี้ได้เลย
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    {onRunIntegrityCheck && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden space-y-0">
+                  {onRunIntegrityCheck && (
+                    <div className="p-3.5 bg-blue-500/10 border-b border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                          <ShieldCheck className="w-4 h-4 text-blue-600" />
+                          <span>ตรวจสอบความถูกต้องของสต๊อก</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500 text-white">
+                          อัตโนมัติ 2 ครั้ง/วัน
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        ตรวจว่ายอดคงเหลือของทุกม้วนตรงกับผลรวมของรายการตัด SO จริงหรือไม่ ระบบจะรันให้เองอัตโนมัติสูงสุด 2 ครั้งต่อวัน (ครั้งแรกๆ ที่มีคนเปิดแอปในแต่ละวัน) หรือกดตรวจสอบเองตอนนี้ได้เลย
+                      </p>
                       <button
                         type="button"
                         onClick={() => onRunIntegrityCheck()}
                         disabled={isRunningIntegrityCheck}
-                        className="flex-1 py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                        className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                       >
                         {isRunningIntegrityCheck ? (
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -526,51 +487,103 @@ service cloud.firestore {
                         )}
                         <span>ตรวจสอบตอนนี้</span>
                       </button>
-                    )}
-                    {onOpenSOAudit && (
+                      {integrityCheckState && (
+                        <div className="text-[10px] text-slate-500 text-center font-mono">
+                          วันนี้ตรวจอัตโนมัติไปแล้ว {integrityCheckState.count}/2 ครั้ง
+                          {integrityCheckState.lastCheckedAt && (
+                            <> • ล่าสุด {new Date(integrityCheckState.lastCheckedAt).toLocaleString('th-TH')}</>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {onOpenSOAudit && (
+                    <div className="p-3.5 bg-amber-500/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                          <Bug className="w-4 h-4 text-amber-600" />
+                          <span>ตรวจหาบัคจากประวัติ SO แต่ละลูก</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-slate-950">
+                          ตรวจจับข้อผิดพลาด
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        วิเคราะห์ประวัติการตัด SO รายม้วนอย่างละเอียด ตรวจสอบยอดคงเหลือโซ่ขาด (ยอดกระโดด) และเปรียบเทียบยอดคงเหลือจริง พร้อมฟังก์ชันปรับยอดอัตโนมัติด้วยความยินยอม
+                        <br />
+                        <span className="text-slate-500">หมายเหตุ: ม้วนที่ตัดเป็น 0 แล้ว และ SO ซ้ำซ้อน จะไม่แสดงที่นี่ — ดูได้ในประวัติตัด SO ของแต่ละม้วน</span>
+                      </p>
                       <button
                         type="button"
                         onClick={onOpenSOAudit}
-                        className="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Bug className="w-3.5 h-3.5 text-amber-400" />
                         <span>เปิดระบบตรวจหาบัค SO เชิงลึก</span>
                       </button>
-                    )}
-                  </div>
-                  {integrityCheckState && (
-                    <div className="text-[10px] text-slate-500 text-center font-mono">
-                      วันนี้ตรวจอัตโนมัติไปแล้ว {integrityCheckState.count}/2 ครั้ง
-                      {integrityCheckState.lastCheckedAt && (
-                        <> • ล่าสุด {new Date(integrityCheckState.lastCheckedAt).toLocaleString('th-TH')}</>
-                      )}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Physical Cycle Count Card */}
-              {onOpenCycleCount && (
-                <div className="p-3.5 rounded-xl bg-violet-500/10 border border-violet-500/30 space-y-2">
+              {/* Physical Cycle Count */}
+              {(onOpenCycleCount || onOpenCycleCountHistory) && (
+                <div className="p-3.5 rounded-xl bg-violet-500/10 border border-violet-300/40 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
-                      <ClipboardCheck className="w-4 h-4 text-violet-600" />
-                      <span>ตรวจนับสต๊อกประจำเดือน (Physical Cycle Count)</span>
+                      <ClipboardList className="w-4 h-4 text-violet-600" />
+                      <span>ตรวจนับสต๊อกประจำเดือน (Cycle Count)</span>
                     </div>
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-600 text-white">
-                      Variance & เหตุผล
+                      Variance
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    เทียบยอดที่นับได้จริงหน้างานกับยอดในระบบ (Variance) หากไม่ตรงกันต้องระบุเหตุผลก่อนบันทึก พร้อมเก็บประวัติทุกรอบตรวจนับและปรับยอดในระบบให้ตรงกับของจริงได้ทันที
+                    นับยอดจริงรายม้วน เปรียบเทียบกับยอดในระบบ บันทึกส่วนต่าง (Variance) พร้อมเหตุผล
+                    และเลือกปรับยอดในระบบให้ตรงของจริงได้เมื่อปิดงวด · ดูย้อนหลังและเปรียบเทียบงวดได้
                   </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {onOpenCycleCount && (
+                      <button
+                        type="button"
+                        onClick={onOpenCycleCount}
+                        className="w-full py-2 px-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <ClipboardList className="w-3.5 h-3.5" />
+                        <span>นับสต๊อกงวดนี้</span>
+                      </button>
+                    )}
+                    {onOpenCycleCountHistory && (
+                      <button
+                        type="button"
+                        onClick={onOpenCycleCountHistory}
+                        className="w-full py-2 px-3 rounded-lg bg-white hover:bg-violet-50 text-violet-800 border border-violet-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        <span>ประวัติ / เปรียบเทียบงวด</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Force Full History Fetch (kept, optimization card removed per UI feedback) */}
+              {onFetchFullHistory && (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                   <button
                     type="button"
-                    onClick={onOpenCycleCount}
-                    className="w-full py-2 px-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    onClick={() => onFetchFullHistory()}
+                    disabled={isFetchingFullHistory}
+                    className="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    title="ดึงประวัติการตัดสต๊อกทั้งหมดที่มีใน Cloud Firestore ลงมาเก็บในแคชเครื่อง"
                   >
-                    <ClipboardCheck className="w-3.5 h-3.5" />
-                    <span>เริ่มตรวจนับสต๊อก / ดูประวัติ</span>
+                    {isFetchingFullHistory ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Database className="w-3.5 h-3.5" />
+                    )}
+                    <span>ดึงประวัติย้อนหลังทั้งหมดจาก Cloud (Force Full Fetch)</span>
                   </button>
                 </div>
               )}
@@ -962,7 +975,7 @@ service cloud.firestore {
               </span>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
               <button
                 onClick={onSwitchCloud}
                 className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold shadow-xs cursor-pointer"
@@ -970,30 +983,10 @@ service cloud.firestore {
                 สลับโหมด Cloud (สลับเป้าหมาย)
               </button>
               <button
-                type="button"
-                id="btn-fetch-cloud"
                 onClick={onManualFetchFromCloud}
-                disabled={isFetchingFromCloud || isSavingToCloud}
-                title="ดึงข้อมูลล่าสุดจาก Firebase Firestore"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs cursor-pointer"
               >
-                <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isFetchingFromCloud ? 'animate-spin' : ''}`} />
-                <span>{isFetchingFromCloud ? 'กำลังดึง...' : 'ดึงข้อมูล (Fetch)'}</span>
-              </button>
-              <button
-                type="button"
-                id="btn-save-cloud"
-                onClick={onManualSaveToCloud}
-                disabled={isSavingToCloud || isFetchingFromCloud}
-                title="บันทึกข้อมูลทั้งหมดลงฐานข้อมูลกลาง Firebase Firestore ทันที"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-              >
-                {isSavingToCloud ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Server className="w-3.5 h-3.5" />
-                )}
-                <span>{isSavingToCloud ? 'กำลังบันทึก...' : 'บันทึกลง Cloud (Save)'}</span>
+                ทดสอบการเชื่อมต่อ
               </button>
             </div>
           </div>
@@ -1060,119 +1053,6 @@ service cloud.firestore {
               <li><strong>ปุ่มตัดสต๊อกเด่นตรงกลาง:</strong> ให้ช่างและผู้ดูแลสต๊อกสามารถกดบันทึกตัดยอด SO ได้อย่างรวดเร็วหน้าเครื่องจักร</li>
             </ul>
           </div>
-        </div>
-      )}
-
-      {/* TAB 4: ARCHIVE — DEPLETED ROLLS, LOADED ON-DEMAND ONLY */}
-      {activeSubTab === 'archive' && (
-        <div className="bg-white rounded-2xl p-5 sm:p-7 border border-slate-200 shadow-xs space-y-5">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-            <div>
-              <div className="flex items-center gap-2">
-                <FolderArchive className="w-5 h-5 text-slate-500" />
-                <h3 className="text-lg font-bold text-slate-900">
-                  คลังข้อมูลเก่า (Archive) — ม้วนฟอยล์ที่หมดแล้ว
-                </h3>
-              </div>
-              <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                ม้วนที่ตัดหมด (status = depleted) จะไม่ถูกโหลดขึ้นมาพร้อมกับหน้าหลักอีกต่อไป เพื่อลดการใช้ Firestore Read และไม่ให้แอปหน่วงเมื่อมีข้อมูลสะสมหลายปี กดปุ่มด้านล่างเพื่อดึงข้อมูลมาดูเฉพาะตอนต้องการ
-              </p>
-            </div>
-          </div>
-
-          {archiveError && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs">
-              {archiveError}
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row gap-2">
-            <button
-              type="button"
-              onClick={handleLoadArchive}
-              disabled={isLoadingArchive}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-xs transition-all cursor-pointer disabled:opacity-60"
-            >
-              {isLoadingArchive ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <FolderArchive className="w-4 h-4 text-amber-400" />
-              )}
-              <span>{isLoadingArchive ? 'กำลังดึงข้อมูล...' : archivedRolls === null ? 'โหลดคลังข้อมูลเก่า' : 'โหลดใหม่อีกครั้ง'}</span>
-            </button>
-
-            {userMode !== 'visitor' && (
-              <button
-                type="button"
-                onClick={handleBackfillStatus}
-                disabled={isBackfillingStatus}
-                title="สำหรับข้อมูลม้วนเก่าก่อนมีฟิลด์ status: สแกนและเติมสถานะ active/depleted ให้ครบ เพื่อให้ม้วนเหล่านั้นไม่หายไปจากทั้งหน้าหลักและหน้า Archive"
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-60"
-              >
-                {isBackfillingStatus ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Wrench className="w-3.5 h-3.5 text-slate-500" />
-                )}
-                <span>ซ่อมสถานะม้วนเก่า (ครั้งเดียว)</span>
-              </button>
-            )}
-          </div>
-
-          {archivedRolls !== null && (
-            <>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="relative flex-1 min-w-[200px]">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={archiveSearch}
-                    onChange={(e) => setArchiveSearch(e.target.value)}
-                    placeholder="ค้นหาล็อต / เบอร์ม้วน / ลาย..."
-                    className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                  />
-                </div>
-                <span className="text-xs font-mono text-slate-500 shrink-0">
-                  พบ {filteredArchivedRolls.length} / {archivedRolls.length} ม้วน
-                </span>
-              </div>
-
-              {filteredArchivedRolls.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-xs font-mono">
-                  ไม่พบม้วนฟอยล์ที่หมดแล้วในคลังเก่า
-                </div>
-              ) : (
-                <div className="max-h-[480px] overflow-y-auto space-y-2 pr-1">
-                  {filteredArchivedRolls.map((r) => (
-                    <div
-                      key={r.id}
-                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3 flex-wrap"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-slate-900 text-xs sm:text-sm">
-                            ล็อต: {r.lotNumber}
-                          </span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900">
-                            เบอร์ #{r.rollNumber}
-                          </span>
-                          <span className="text-[11px] text-slate-500">
-                            ลาย {r.pattern} • หน้า {r.width} มม.
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">
-                          รับเข้า: {r.dateReceived || '-'} • ม้วนเต็ม {formatMeters(r.totalMeters)} ม. • ใช้ไป {formatMeters(r.usedMeters)} ม. • NG {formatMeters(r.ngMeters)} ม.
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 shrink-0">
-                        หมดแล้ว
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
         </div>
       )}
     </div>

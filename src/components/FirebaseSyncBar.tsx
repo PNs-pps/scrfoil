@@ -1,6 +1,7 @@
 import React from 'react';
 import { 
   RefreshCw, 
+  UploadCloud, 
   Wifi, 
   AlertTriangle, 
   ShieldAlert, 
@@ -172,9 +173,37 @@ export const FirebaseSyncBar: React.FC<FirebaseSyncBarProps> = ({
           )}
         </div>
 
-        {/* Manual Fetch/Save actions and Rules code have moved into the
-            Settings page ("สิทธิ์ Rules & คลาวด์กลาง" tab) to keep this
-            top bar compact on mobile screens. */}
+        {/* Right: Manual Actions — Rules button removed (moved to Settings). Fetch/Save stay for quick access; primary home is Settings page. */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            id="btn-fetch-cloud"
+            onClick={onManualFetchFromCloud}
+            disabled={isFetching || isSaving}
+            title="ดึงข้อมูลล่าสุดจาก Firebase Firestore (หรือไปที่หน้าตั้งค่า)"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 transition-all text-xs font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isFetching ? 'animate-spin' : ''}`} />
+            <span>{isFetching ? 'กำลังดึง...' : 'ดึงข้อมูล (Fetch)'}</span>
+          </button>
+
+          <button
+            type="button"
+            id="btn-save-cloud"
+            onClick={onManualSaveToCloud}
+            disabled={isSaving || isFetching}
+            title="บันทึกข้อมูลทั้งหมดลงฐานข้อมูลกลาง Firebase Firestore ทันที"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-all text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
+          >
+            {isSaving ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" />
+            ) : (
+              <UploadCloud className="w-3.5 h-3.5 stroke-[2.4]" />
+            )}
+            <span>{isSaving ? 'กำลังบันทึก...' : 'บันทึกลง Cloud (Save)'}</span>
+          </button>
+        </div>
+
       </div>
     </div>
   );

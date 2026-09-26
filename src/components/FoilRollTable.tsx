@@ -34,6 +34,11 @@ import {
 
 interface FoilRollTableProps {
   rolls: FoilRoll[];
+  /** Depleted rolls loaded on-demand (Archive). Not in the main realtime subscription. */
+  archivedRolls?: FoilRoll[];
+  archiveLoaded?: boolean;
+  isLoadingArchive?: boolean;
+  onLoadArchive?: () => void | Promise<void>;
   onOpenCutModal: (rollId: string) => void;
   onOpenAddModal: () => void;
   onViewRollHistory: (roll: FoilRoll) => void;
@@ -52,6 +57,10 @@ type GroupByCategory = 'none' | 'width' | 'pattern';
 
 export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   rolls,
+  archivedRolls = [],
+  archiveLoaded = false,
+  isLoadingArchive = false,
+  onLoadArchive,
   onOpenCutModal,
   onOpenAddModal,
   onViewRollHistory,
@@ -71,16 +80,32 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedSubGroups, setCollapsedSubGroups] = useState<Record<string, boolean>>({});
 
+  // Source list: active rolls, or archived when viewing depleted
+  const sourceRolls = useMemo(() => {
+    if (statusFilter === 'depleted') {
+      const localDepleted = rolls.filter(
+        (r) => r.remainingMeters <= 0 || r.status === 'depleted' || r.isZeroedOut
+      );
+      if (archiveLoaded) {
+        const byId = new Map<string, FoilRoll>();
+        [...archivedRolls, ...localDepleted].forEach((r) => byId.set(r.id, r));
+        return Array.from(byId.values());
+      }
+      return localDepleted;
+    }
+    return rolls;
+  }, [rolls, archivedRolls, archiveLoaded, statusFilter]);
+
   // Unique lots for quick 1-click filter chips
   const uniqueLots = useMemo(() => {
     const set = new Set<string>();
-    rolls.forEach((r) => {
+    sourceRolls.forEach((r) => {
       if (r.lotNumber && r.lotNumber.trim()) {
         set.add(r.lotNumber.trim());
       }
     });
     return Array.from(set).slice(0, 8);
-  }, [rolls]);
+  }, [sourceRolls]);
 
   const toggleGroup = (key: string) => {
     setCollapsedGroups(prev => ({
@@ -112,7 +137,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   };
 
   const filteredRolls = useMemo(() => {
-    return rolls.filter((r) => {
+    return sourceRolls.filter((r) => {
       // Search filter by Lot Number, Roll Number, or All
       const q = searchQuery.toLowerCase().trim();
       let matchQuery = true;
@@ -136,15 +161,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       // Pattern with canonical normalization (e.g. ท้องขาว vs ขาว)
       const matchPattern = selectedPattern === 'all' || normalizePattern(r.pattern) === normalizePattern(selectedPattern);
 
-      // Status
+      // Status — when viewing archive sourceRolls are already depleted-only
       const matchStatus = 
         statusFilter === 'all' ||
         (statusFilter === 'active' && r.remainingMeters > 0) ||
-        (statusFilter === 'depleted' && r.remainingMeters <= 0);
+        (statusFilter === 'depleted' && (r.remainingMeters <= 0 || r.status === 'depleted' || r.isZeroedOut));
 
       return matchQuery && matchWidth && matchPattern && matchStatus;
     });
-  }, [rolls, searchQuery, searchTarget, selectedWidth, selectedPattern, statusFilter]);
+  }, [sourceRolls, searchQuery, searchTarget, selectedWidth, selectedPattern, statusFilter]);
 
   const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
 
@@ -884,14 +909,60 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               มีของ ({rolls.filter(r => r.remainingMeters > 0).length})
             </button>
             <button
-              onClick={() => setStatusFilter('depleted')}
+              onClick={() => {
+                setStatusFilter('depleted');
+                if (!archiveLoaded && onLoadArchive) {
+                  onLoadArchive();
+                }
+              }}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
                 statusFilter === 'depleted' ? 'bg-white text-rose-700 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
+              title="ม้วนที่หมดแล้วถูกแยกไปคลังข้อมูลเก่า (โหลดเฉพาะเมื่อต้องการ) เพื่อลดการอ่านข้อมูล"
             >
-              หมดแล้ว ({rolls.filter(r => r.remainingMeters <= 0).length})
+              หมดแล้ว / Archive
+              {archiveLoaded
+                ? ` (${archivedRolls.length})`
+                : rolls.filter((r) => r.remainingMeters <= 0).length > 0
+                  ? ` (${rolls.filter((r) => r.remainingMeters <= 0).length}+)`
+                  : ''}
             </button>
           </div>
+
+          {statusFilter === 'depleted' && (
+            <div className="w-full mt-2 flex flex-wrap items-center gap-2">
+              {!archiveLoaded && onLoadArchive && (
+                <button
+                  type="button"
+                  onClick={() => onLoadArchive()}
+                  disabled={isLoadingArchive}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-60"
+                >
+                  {isLoadingArchive ? 'กำลังโหลดคลังข้อมูลเก่า...' : 'โหลดคลังข้อมูลเก่า (Archive) จาก Cloud'}
+                </button>
+              )}
+              {archiveLoaded && (
+                <>
+                  <span className="text-[11px] text-slate-500">
+                    โหลดคลังแล้ว {archivedRolls.length} ม้วน (on-demand ไม่ฟัง realtime)
+                  </span>
+                  {onLoadArchive && (
+                    <button
+                      type="button"
+                      onClick={() => onLoadArchive()}
+                      disabled={isLoadingArchive}
+                      className="text-[11px] text-rose-700 hover:underline font-semibold cursor-pointer disabled:opacity-50"
+                    >
+                      รีเฟรชคลัง
+                    </button>
+                  )}
+                </>
+              )}
+              {isLoadingArchive && (
+                <span className="text-[11px] text-amber-700 font-medium">กำลังดึงม้วนที่หมดแล้วจาก Firestore...</span>
+              )}
+            </div>
+          )}
 
           {(searchQuery || selectedWidth !== 'all' || selectedPattern !== 'all' || statusFilter !== 'all') && (
             <button
@@ -931,20 +1002,38 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       {filteredRolls.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-12 text-center text-slate-500 space-y-3">
           <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-            <Search className="w-6 h-6" />
+            {statusFilter === 'depleted' ? <FolderTree className="w-6 h-6" /> : <Search className="w-6 h-6" />}
           </div>
           <div>
             <p className="font-bold text-slate-800 text-base">
-              {searchQuery ? `ไม่พบม้วนฟอยล์ที่ตรงกับ "${searchQuery}"` : 'ไม่พบม้วนฟอยล์ที่ตรงกับเงื่อนไข'}
+              {statusFilter === 'depleted' && !archiveLoaded
+                ? 'ยังไม่ได้โหลดคลังข้อมูลเก่า'
+                : statusFilter === 'depleted' && archiveLoaded
+                  ? 'คลังข้อมูลเก่าว่าง — ยังไม่มีม้วนที่หมด'
+                  : searchQuery
+                    ? `ไม่พบม้วนฟอยล์ที่ตรงกับ "${searchQuery}"`
+                    : 'ไม่พบม้วนฟอยล์ที่ตรงกับเงื่อนไข'}
             </p>
             <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              {searchQuery 
-                ? `ลองตรวจสอบตัวสะกดของเลขล็อต หรือเบอร์ม้วน หรือคลิกเปลี่ยนโหมดค้นหาเป็น "ทั้งหมด"`
+              {statusFilter === 'depleted' && !archiveLoaded
+                ? 'กดปุ่ม "โหลดคลังข้อมูลเก่า (Archive) จาก Cloud" ด้านบน เพื่อดึงม้วนที่หมดแล้วแบบ on-demand'
                 : statusFilter === 'depleted'
-                  ? 'หน้านี้แสดงเฉพาะม้วนที่ยังใช้งานอยู่ ม้วนที่ตัดหมดแล้วถูกย้ายไปเก็บที่หน้า "ตั้งค่า → คลังข้อมูลเก่า (Archive)" เพื่อลดการโหลดข้อมูลเก่าทุกครั้งที่เปิดแอป'
-                  : 'ลองเปลี่ยนตัวกรอง หรือกดปุ่ม "เพิ่มฟอยล์ใหม่"'}
+                  ? 'ม้วนที่ตัดหมดจะถูกย้ายมาที่นี่อัตโนมัติ (status = depleted)'
+                  : searchQuery
+                    ? 'ลองตรวจสอบตัวสะกดของเลขล็อต หรือเบอร์ม้วน หรือคลิกเปลี่ยนโหมดค้นหาเป็น "ทั้งหมด"'
+                    : 'ลองเปลี่ยนตัวกรอง หรือกดปุ่ม "เพิ่มฟอยล์ใหม่"'}
             </p>
           </div>
+          {statusFilter === 'depleted' && !archiveLoaded && onLoadArchive && (
+            <button
+              type="button"
+              onClick={() => onLoadArchive()}
+              disabled={isLoadingArchive}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer mx-auto disabled:opacity-60"
+            >
+              {isLoadingArchive ? 'กำลังโหลด...' : 'โหลดคลังข้อมูลเก่าจาก Cloud'}
+            </button>
+          )}
           {(searchQuery || selectedWidth !== 'all' || selectedPattern !== 'all' || statusFilter !== 'all') && (
             <button
               type="button"

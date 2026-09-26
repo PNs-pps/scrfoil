@@ -14,8 +14,7 @@ import {
   Trash2, 
   Plus, 
   CheckCircle2,
-  PackagePlus,
-  RefreshCw
+  PackagePlus
 } from 'lucide-react';
 
 interface BatchRollItem {
@@ -165,8 +164,6 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (isSubmitting) return;
     setError(null);
 
     if (!lotNumber.trim()) {
@@ -284,7 +281,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150">
       <div 
         id="modal-add-foil"
-        className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
@@ -303,25 +300,12 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => { if (!isSubmitting) onClose(); }}
-            disabled={isSubmitting}
-            title={isSubmitting ? 'กำลังบันทึกข้อมูล กรุณารอสักครู่...' : undefined}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={onClose}
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Blocking overlay while saving, to avoid a flaky-network close/refresh mid-save */}
-        {isSubmitting && (
-          <div className="absolute inset-0 z-10 bg-white/85 backdrop-blur-[1px] flex flex-col items-center justify-center gap-3 text-center px-6">
-            <RefreshCw className="w-8 h-8 text-amber-600 animate-spin" />
-            <div>
-              <p className="font-bold text-slate-900 text-sm">กำลังบันทึกข้อมูลลงระบบ...</p>
-              <p className="text-xs text-slate-500 mt-1">กรุณาอย่าปิดหน้าต่างนี้หรือรีเฟรชหน้าเว็บ รอจนกว่าจะบันทึกสำเร็จหรือแจ้งข้อผิดพลาด</p>
-            </div>
-          </div>
-        )}
 
         {/* Tab Selector: Single vs Multiple/Batch */}
         <div className="px-6 pt-3 pb-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">

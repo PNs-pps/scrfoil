@@ -25,38 +25,19 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
   const rulesCode = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ยอมให้ทุกที่อ่าน/เขียนได้ (ยกเว้น cycle_counts ที่ตรวจสอบเพิ่มด้านล่าง)
+    // อนุญาตให้ทุกอุปกรณ์บันทึกและอ่านสต๊อกฟอยล์ได้แบบเรียลไทม์
     match /foil_rolls/{rollId} {
       allow read, write: if true;
-      match /{subcollection=**} {
-        allow read, write: if true;
-      }
     }
     match /stock_cut_records/{recordId} {
-      allow read, write: if true;
-    }
-    match /pu_sandwich_cuts/{recordId} {
       allow read, write: if true;
     }
     match /test/{docId} {
       allow read, write: if true;
     }
-
-    // ตรวจนับสต๊อกประจำเดือน: บังคับต้องมีเหตุผล (reason) ทุกครั้งที่มีส่วนต่าง
-    // (varianceMeters != 0) — ป้องกันไว้ที่ระดับฐานข้อมูลจริง แม้จะมีคนแก้โค้ด
-    // หน้าเว็บเองก็ยังข้ามการบังคับนี้ไม่ได้ (ไม่ต้องใช้ Cloud Functions)
-    function isValidCycleCount(data) {
-      return data is map &&
-        data.varianceMeters is number &&
-        (
-          data.varianceMeters == 0 ||
-          (('reason' in data) && data.reason is string && data.reason.size() > 0)
-        );
-    }
-    match /cycle_counts/{entryId} {
-      allow read, delete: if true;
-      allow create, update: if isValidCycleCount(request.resource.data);
+    // หรืออนุญาตทั้งหมดสำหรับการทดสอบ:
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }`;
@@ -154,10 +135,6 @@ service cloud.firestore {
               {rulesCode}
             </pre>
           </div>
-          <p className="text-[11px] text-slate-500 -mt-1">
-            * Rules ชุดนี้เพิ่มการตรวจสอบพิเศษให้คอลเลกชัน <code className="font-mono bg-slate-100 px-1 rounded">cycle_counts</code> (ตรวจนับสต๊อกประจำเดือน)
-            — ถ้ามีส่วนต่าง (variance) จะบันทึกไม่ได้เลยถ้าไม่ระบุเหตุผล แม้จะมีคนพยายามแก้โค้ดฝั่งหน้าเว็บเองก็ตาม
-          </p>
 
           {/* Alternative Quick Option */}
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">

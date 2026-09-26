@@ -73,6 +73,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         createdAt: r.createdAt || r.recordedDate,
         cutType: r.cutType || 'so',
         nonSoReason: r.nonSoReason,
+        productionRound: r.productionRound,
+        roundNumber: r.roundNumber,
         rollId: roll.id,
         lotNumber: roll.lotNumber,
         rollNumber: roll.rollNumber,
@@ -120,6 +122,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             createdAt: r.createdAt || r.recordedDate,
             cutType: r.cutType || 'so',
             nonSoReason: r.nonSoReason,
+            productionRound: r.productionRound,
+            roundNumber: r.roundNumber,
             rollId: roll.id,
             lotNumber: roll.lotNumber,
             rollNumber: roll.rollNumber,
@@ -164,6 +168,34 @@ setHistoryItems(merged);
   const totalUsed = historyItems.reduce((sum, r) => sum + Number(r.cutMeters ?? r.usedMeters ?? 0), 0);
   const totalNg = historyItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
   const totalDeducted = historyItems.reduce((sum, r) => sum + Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0))), 0);
+
+  // ลำดับรอบของ SO เดียวกันบนม้วนนี้ → แสดงเป็น "รอบที่ 1", "รอบที่ 2"
+  const soRoundLabelById = useMemo(() => {
+    const bySo = new Map<string, CutHistoryItem[]>();
+    historyItems.forEach((item) => {
+      if (item.cutType === 'non_so') return;
+      const key = (item.soNumber || '').trim().toUpperCase();
+      if (!key) return;
+      const list = bySo.get(key) || [];
+      list.push(item);
+      bySo.set(key, list);
+    });
+    const labels = new Map<string, string>();
+    bySo.forEach((list) => {
+      if (list.length < 2) return;
+      // เรียงตามเวลาตัด แล้วติดป้ายรอบที่ 1, 2, ...
+      const sorted = [...list].sort((a, b) => {
+        const da = a.cutDate || a.usageDate || a.recordedDate || a.createdAt || '';
+        const db = b.cutDate || b.usageDate || b.recordedDate || b.createdAt || '';
+        return String(da).localeCompare(String(db));
+      });
+      sorted.forEach((item, i) => {
+        const explicit = (item.productionRound || '').trim();
+        labels.set(item.id, explicit || `รอบที่ ${i + 1}`);
+      });
+    });
+    return labels;
+  }, [historyItems]);
   
   // Accurately show remaining meters matching the roll inventory state
   const effectiveRemaining = roll?.isZeroedOut
@@ -634,11 +666,19 @@ setHistoryItems(merged);
                             {idx + 1}
                           </td>
                           <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               <span>{item.soNumber || '-'}</span>
                               {item.cutType === 'non_so' && (
                                 <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded text-[10px] font-normal">
                                   ไม่มี SO
+                                </span>
+                              )}
+                              {soRoundLabelById.get(item.id) && (
+                                <span
+                                  className="px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded text-[10px] font-semibold"
+                                  title="แบ่งรอบการผลิตของ SO นี้"
+                                >
+                                  {soRoundLabelById.get(item.id)}
                                 </span>
                               )}
                             </div>

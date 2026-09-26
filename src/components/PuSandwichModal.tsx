@@ -22,7 +22,6 @@ import {
   Factory,
   Ruler,
   RotateCcw,
-  RefreshCw,
   Sparkles
 } from 'lucide-react';
 import { 
@@ -146,12 +145,6 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Guard against double-submit (double-tap or a stuck event on a
-    // flaky connection): ignore further attempts while one save is
-    // already in flight.
-    if (isSubmitting) return;
-
     setError(null);
 
     // Validations
@@ -289,7 +282,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
       <div 
-        className="relative bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
+        className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -342,29 +335,13 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
             <button
               type="button"
-              onClick={() => { if (!isSubmitting) onClose(); }}
-              disabled={isSubmitting}
-              title={isSubmitting ? 'กำลังบันทึกข้อมูล กรุณารอสักครู่...' : undefined}
-              className="p-1.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={onClose}
+              className="p-1.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
-
-        {/* Blocking overlay while the transaction is in flight, so the
-            operator can't accidentally close/refresh mid-save on a flaky
-            connection. Resolves to either an auto-close (success) or a
-            clear error message (form data stays intact for a retry). */}
-        {isSubmitting && (
-          <div className="absolute inset-0 z-10 bg-white/85 backdrop-blur-[1px] flex flex-col items-center justify-center gap-3 text-center px-6">
-            <RefreshCw className="w-8 h-8 text-emerald-600 animate-spin" />
-            <div>
-              <p className="font-bold text-slate-900 text-sm">กำลังบันทึกข้อมูลลงระบบ...</p>
-              <p className="text-xs text-slate-500 mt-1">กรุณาอย่าปิดหน้าต่างนี้หรือรีเฟรชหน้าเว็บ รอจนกว่าจะบันทึกสำเร็จหรือแจ้งข้อผิดพลาด</p>
-            </div>
-          </div>
-        )}
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">

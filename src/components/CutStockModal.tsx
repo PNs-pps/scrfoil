@@ -394,12 +394,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Guard against double-submit from a double-tap or a stuck/re-fired
-    // event on a flaky connection: once a save is in flight, ignore any
-    // further submit attempts until it resolves (success or error).
-    if (isSubmitting) return;
-
+    if (isSubmitting) return; // hard guard against double-submit on flaky network / double-tap
     setError(null);
 
     if (!currentRoll) {
@@ -454,7 +449,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
       <div 
         id="modal-cut-stock"
-        className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-amber-500 text-slate-950 flex items-center justify-between">
@@ -473,28 +468,14 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => { if (!isSubmitting) onClose(); }}
+            onClick={onClose}
             disabled={isSubmitting}
-            title={isSubmitting ? 'กำลังบันทึกข้อมูล กรุณารอสักครู่...' : undefined}
             className="text-slate-900/70 hover:text-slate-950 p-1.5 rounded-lg hover:bg-slate-950/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            title={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่...' : 'ปิด'}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Blocking overlay while the Firestore transaction is in flight.
-            Keeps the form data on-screen and stops the operator from
-            closing/refreshing mid-save on a flaky connection, so we always
-            land on a clear success (auto-close) or a clear error message. */}
-        {isSubmitting && (
-          <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center gap-3 text-center px-6">
-            <RefreshCw className="w-8 h-8 text-amber-600 animate-spin" />
-            <div>
-              <p className="font-bold text-slate-900 text-sm">กำลังบันทึกข้อมูลลงระบบ...</p>
-              <p className="text-xs text-slate-500 mt-1">กรุณาอย่าปิดหน้าต่างนี้หรือรีเฟรชหน้าเว็บ รอจนกว่าจะบันทึกสำเร็จหรือแจ้งข้อผิดพลาด</p>
-            </div>
-          </div>
-        )}
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-sm">
@@ -1011,7 +992,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+              disabled={isSubmitting}
+              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               ยกเลิก
             </button>
