@@ -873,25 +873,38 @@ export default function App() {
     try {
       const { updatedRoll, updatedRecords } = await realignRollCutChainInFirestore(rollId, recordIds);
 
-      // Update rolls in local state
+      // อัปเดตม้วน + ใส่ใบตัดที่ปรับแล้ว (รวมกรณีมีใบใหม่ที่ไม่ได้อยู่ใน state เดิม)
       const nextRolls = rolls.map((r) => (r.id === updatedRoll.id ? updatedRoll : r));
-
-      // Update records in local state
       const updatedMap = new Map(updatedRecords.map((r) => [r.id, r]));
-      const nextRecords = records.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
+      const nextRecords = [
+        ...records.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r)),
+      ];
+      // ถ้ามี record จาก server ที่ไม่อยู่ใน state ให้เติมเข้าไป
+      updatedRecords.forEach((r) => {
+        if (!nextRecords.some((x) => x.id === r.id)) nextRecords.push(r);
+      });
 
       updateRollsState(nextRolls);
       updateRecordsState(nextRecords);
       createBackupSnapshot(nextRolls, nextRecords, 'realign_chain');
 
-      // Re-run integrity check
       const newIssues = checkStockIntegrity(nextRolls, nextRecords);
       setStockIntegrityIssues(newIssues);
 
-      showToast(`ปรับยอดความต่อเนื่อง SO ของม้วนล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} สำเร็จ เรียบร้อยแล้ว ✅`);
+      showToast(
+        `ปรับยอดก่อนตัด–หลังตัดของล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ให้ต่อเนื่องแล้ว (คงเหลือ ${formatMeters(updatedRoll.remainingMeters)} ม.)`,
+        'success'
+      );
     } catch (err: any) {
       console.error('Failed to realign roll cut chain:', err);
-      showToast(`ไม่สามารถปรับยอดความต่อเนื่องได้: ${err?.message || err}`, 'info');
+      const raw = String(err?.message || err || '');
+      const isPermission = /permission|insufficient/i.test(raw) || err?.code === 'permission-denied';
+      showToast(
+        isPermission
+          ? 'ปรับยอดไม่สำเร็จ: สิทธิ์ Firestore ไม่พอ — ตรวจ Rules แล้ว Publish ใหม่'
+          : `ไม่สามารถปรับยอดความต่อเนื่องได้: ${raw}`,
+        'info'
+      );
       throw err;
     }
   };
