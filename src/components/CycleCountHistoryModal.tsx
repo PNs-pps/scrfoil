@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { CycleCountSession, CycleCountLine } from '../types';
 import { formatMeters, round2 } from '../utils/formatters';
-import { fetchCycleCountSessions, deleteCycleCountSession } from '../lib/firebase';
+import { fetchCycleCountSessions } from '../lib/firebase';
 
 interface CycleCountHistoryModalProps {
   isOpen: boolean;
@@ -23,6 +23,8 @@ interface CycleCountHistoryModalProps {
   canEdit?: boolean;
   /** เรียกเมื่อ Visitor กดลบ — ให้ปลดล็อกโหมด Editor */
   onRequestUnlock?: () => void;
+  /** ลบงวด + คืนยอดม้วน + ลบใบนับสต๊อก (จัดการที่ App) */
+  onDeleteSession?: (session: CycleCountSession) => Promise<void>;
 }
 
 type ViewMode = 'list' | 'detail' | 'compare';
@@ -33,6 +35,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
   showToast,
   canEdit = false,
   onRequestUnlock,
+  onDeleteSession,
 }) => {
   const [sessions, setSessions] = useState<CycleCountSession[]>([]);
   const [loading, setLoading] = useState(false);
@@ -84,13 +87,22 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
       return;
     }
     const label = `${session.period} (${session.status === 'completed' ? 'เสร็จสิ้น' : 'แบบร่าง'})`;
+    const adjustedCount = (session.lines || []).filter(
+      (l) => l.adjusted && Math.abs(l.variance) > 0.001
+    ).length;
     const ok = window.confirm(
-      `ลบประวัติ Cycle Count งวด ${label} ใช่หรือไม่?\n\nลบเฉพาะเอกสารประวัติงวดนี้ ไม่ลบใบปรับยอดที่บันทึกในประวัติม้วนฟอยล์แล้ว`
+      adjustedCount > 0
+        ? `ลบประวัติ Cycle Count งวด ${label} ใช่หรือไม่?\n\nระบบจะ:\n• คืนยอดม้วนกลับค่าก่อนปรับ (${adjustedCount} ม้วน)\n• ลบใบ «นับสต๊อก» ออกจากประวัติตัด\n• ลบเอกสารงวดนี้ออก`
+        : `ลบประวัติ Cycle Count งวด ${label} ใช่หรือไม่?`
     );
     if (!ok) return;
+    if (!onDeleteSession) {
+      showToast?.('ยังไม่ได้เชื่อมฟังก์ชันลบประวัติ', 'info');
+      return;
+    }
     setDeletingId(session.id);
     try {
-      await deleteCycleCountSession(session.id);
+      await onDeleteSession(session);
       setSessions((prev) => prev.filter((s) => s.id !== session.id));
       if (selectedId === session.id) {
         setSelectedId(null);
@@ -98,7 +110,12 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
       }
       if (compareA === session.id) setCompareA('');
       if (compareB === session.id) setCompareB('');
-      showToast?.(`ลบประวัติ Cycle Count งวด ${session.period} แล้ว`, 'info');
+      showToast?.(
+        adjustedCount > 0
+          ? `ลบงวด ${session.period} แล้ว — คืนยอด ${adjustedCount} ม้วน และลบใบนับสต๊อกแล้ว`
+          : `ลบประวัติ Cycle Count งวด ${session.period} แล้ว`,
+        'info'
+      );
     } catch (err: any) {
       setError(err?.message || 'ลบประวัติไม่สำเร็จ');
       showToast?.(err?.message || 'ลบประวัติไม่สำเร็จ', 'info');
