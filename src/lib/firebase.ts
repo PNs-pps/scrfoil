@@ -919,6 +919,8 @@ export async function realignRollCutChainInFirestore(
         createdAt: rec.createdAt || new Date().toISOString(),
         cutType: rec.cutType || 'so',
         nonSoReason: rec.nonSoReason || '',
+        productionRound: rec.productionRound || '',
+        roundNumber: rec.roundNumber,
         rollId: serverRoll.id,
         lotNumber: serverRoll.lotNumber,
         rollNumber: serverRoll.rollNumber,
@@ -926,6 +928,7 @@ export async function realignRollCutChainInFirestore(
         pattern: serverRoll.pattern,
       };
 
+      // merge: true ให้อัปเดต remainingBefore/After ทับของเดิมในประวัติม้วน
       tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', rec.id), sanitizeForFirestore(historyItem), { merge: true });
       tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem), { merge: true });
     });
