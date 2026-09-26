@@ -14,13 +14,13 @@ import {
   runTransaction,
   getDocs,
   query,
-  where,
   limit,
   orderBy,
+  where,
   Firestore
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
-import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountRecord } from '../types';
+import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 
 // User's custom configuration as requested
@@ -179,20 +179,12 @@ export function subscribeToFoilRolls(
   options?: {
     onFromCache?: (isFromCache: boolean) => void;
     onExternalChange?: () => void;
-    /**
-     * When true (default), only rolls with status === 'active' are loaded
-     * into the realtime listener. Rolls that have been fully depleted
-     * (status === 'depleted') pile up over the years and are rarely needed
-     * on the main screens, so they are excluded here to keep the realtime
-     * payload small and avoid unbounded Firestore Read growth as the
-     * factory accumulates history. Use `fetchArchivedFoilRolls()` to load
-     * them on-demand (e.g. on the "คลังข้อมูลเก่า (Archive)" page).
-     */
+    /** When true (default), only subscribe to status === 'active' rolls to avoid loading thousands of depleted rolls. */
     activeOnly?: boolean;
   }
 ): () => void {
   try {
-    const activeOnly = options?.activeOnly !== false;
+    const activeOnly = options?.activeOnly !== false; // default true for scalability
     const q = activeOnly
       ? query(collection(db, ROLLS_COLLECTION), where('status', '==', 'active'))
       : query(collection(db, ROLLS_COLLECTION));
@@ -242,49 +234,24 @@ export function subscribeToFoilRolls(
 }
 
 /**
- * One-time, on-demand fetch of depleted ("หมดแล้ว") foil rolls for the
- * "คลังข้อมูลเก่า (Archive)" page. This intentionally does NOT use
- * onSnapshot/realtime listening — archived rolls essentially never change,
- * so a plain getDocs() avoids paying for a live listener on data nobody is
- * actively watching. Call this only when the user opens the Archive view.
+ * On-demand fetch of depleted / archived foil rolls (status === 'depleted').
+ * Use for "คลังข้อมูลเก่า (Archive)" page — do not keep a realtime listener on these.
  */
 export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
-  const q = query(collection(db, ROLLS_COLLECTION), where('status', '==', 'depleted'));
-  const snapshot = await getDocs(q);
-  const rolls: FoilRoll[] = [];
-  snapshot.forEach((docSnap) => {
-    const data = docSnap.data() as FoilRoll;
-    rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
-  });
-  rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-  return rolls;
-}
-
-/**
- * One-time maintenance helper: some rolls created before the `status`
- * field existed may be missing it entirely. Because `subscribeToFoilRolls`
- * now filters with `where('status', '==', 'active')`, any such legacy roll
- * would silently vanish from the main screens (it also wouldn't show up in
- * the Archive, since it doesn't match 'depleted' either). This scans the
- * full collection once, and backfills a best-guess status (based on
- * remainingMeters) only for documents that have no status field at all.
- * Safe to run multiple times — it's a no-op once every roll has a status.
- */
-export async function backfillMissingRollStatus(): Promise<{ scanned: number; fixed: number }> {
-  const snapshot = await getDocs(collection(db, ROLLS_COLLECTION));
-  let fixed = 0;
-  const updates: Promise<void>[] = [];
-  snapshot.forEach((docSnap) => {
-    const data = docSnap.data() as Partial<FoilRoll>;
-    if (data.status !== 'active' && data.status !== 'depleted') {
-      const inferredStatus: 'active' | 'depleted' =
-        Number(data.remainingMeters ?? 0) > 0 && !data.isZeroedOut ? 'active' : 'depleted';
-      updates.push(setDoc(doc(db, ROLLS_COLLECTION, docSnap.id), { status: inferredStatus }, { merge: true }));
-      fixed += 1;
-    }
-  });
-  await Promise.all(updates);
-  return { scanned: snapshot.size, fixed };
+  try {
+    const q = query(collection(db, ROLLS_COLLECTION), where('status', '==', 'depleted'));
+    const snapshot = await getDocs(q);
+    const rolls: FoilRoll[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as FoilRoll;
+      rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
+    });
+    rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return rolls;
+  } catch (err: any) {
+    console.warn('fetchArchivedFoilRolls failed:', err?.message || err);
+    return [];
+  }
 }
 
 /**
@@ -1370,128 +1337,211 @@ export async function deletePuSandwichCutFromFirestore(recordId: string): Promis
 }
 
 // ----------------------------------------------------
-// Physical Cycle Count (ระบบตรวจนับสต๊อกประจำเดือน) Collection
-// Each doc = one roll's result within one counting session. This is an
-// append-only audit trail — it never overwrites a previous count, so the
-// factory always has a history of every variance ever found and why.
+// Physical Cycle Count (ตรวจนับสต๊อกประจำเดือน)
 // ----------------------------------------------------
-export const CYCLE_COUNT_COLLECTION = 'cycle_counts';
+export const CYCLE_COUNTS_COLLECTION = 'cycle_counts';
 
-/**
- * Re-read the current remainingMeters for a set of rolls straight from the
- * server (bypassing the local cache) right before a Physical Cycle Count is
- * saved. This closes a stale-snapshot race condition: the "system" figure an
- * operator sees when they start counting can go out of date if someone else
- * cuts stock from the same roll while the count is in progress. Re-fetching
- * at submit time means the variance that gets saved is always computed
- * against the true, latest system value.
- */
-export async function fetchFreshRollsRemaining(
-  rollIds: string[]
-): Promise<Record<string, { remainingMeters: number; isZeroedOut: boolean; status?: string } | null>> {
-  const results = await Promise.all(
-    rollIds.map(async (rollId) => {
-      try {
-        const snap = await getDocFromServer(doc(db, ROLLS_COLLECTION, rollId));
-        if (!snap.exists()) return [rollId, null] as const;
-        const data = snap.data() as FoilRoll;
-        return [rollId, {
-          remainingMeters: data.remainingMeters,
-          isZeroedOut: Boolean(data.isZeroedOut),
-          status: data.status,
-        }] as const;
-      } catch (err: any) {
-        console.warn(`Notice: Could not re-fetch fresh remaining meters for roll ${rollId}:`, err?.message || err);
-        return [rollId, null] as const;
-      }
-    })
-  );
-  return Object.fromEntries(results);
-}
-
-/**
- * Save a batch of cycle-count results (one whole counting session) in a
- * single Firestore batch write, so a flaky connection can't leave a
- * session half-saved.
- */
-export async function saveCycleCountSessionToFirestore(
-  entries: CycleCountRecord[]
-): Promise<void> {
-  if (entries.length === 0) return;
+export async function saveCycleCountSession(session: CycleCountSession): Promise<void> {
   try {
-    const batch = writeBatch(db);
-    entries.forEach((entry) => {
-      const docRef = doc(db, CYCLE_COUNT_COLLECTION, entry.id);
-      batch.set(docRef, entry, { merge: true });
-    });
-    await batch.commit();
+    const docRef = doc(db, CYCLE_COUNTS_COLLECTION, session.id);
+    await setDoc(docRef, sanitizeForFirestore(session), { merge: true });
   } catch (err: any) {
-    console.warn('Notice: Failed to save cycle count session to Firestore:', err?.message || err);
+    console.warn('saveCycleCountSession failed:', err?.message || err);
     throw err;
   }
 }
 
-/**
- * On-demand fetch of past cycle-count sessions (not a realtime listener —
- * this is historical audit data that's only opened occasionally from the
- * Settings page, same rationale as the rolls Archive).
- */
-export async function fetchCycleCountHistory(limitCount: number = 500): Promise<CycleCountRecord[]> {
-  try {
-    // IMPORTANT: order by createdAt before limiting. A `limit()` with no
-    // `orderBy` returns an arbitrary subset of docs (usually by document ID),
-    // which — once the collection grows past `limitCount` — could silently
-    // drop the most recent sessions instead of older ones, making the
-    // history/compare views look incomplete with no error shown.
-    const q = query(
-      collection(db, CYCLE_COUNT_COLLECTION),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount)
-    );
-    const snapshot = await getDocs(q);
-    const entries: CycleCountRecord[] = [];
-    snapshot.forEach((docSnap) => {
-      entries.push(docSnap.data() as CycleCountRecord);
-    });
-    return entries;
-  } catch (err: any) {
-    console.warn('Notice: Failed to fetch cycle count history:', err?.message || err);
-    throw err;
-  }
-}
-
-/** Mark a cycle-count entry as having had its correction applied to the roll. */
-export async function markCycleCountAdjustmentApplied(entryId: string): Promise<void> {
-  try {
-    const docRef = doc(db, CYCLE_COUNT_COLLECTION, entryId);
-    await setDoc(docRef, { adjustmentApplied: true }, { merge: true });
-  } catch (err: any) {
-    console.warn('Notice: Failed to flag cycle count adjustment as applied:', err?.message || err);
-  }
-}
-
-/** Delete a single cycle-count entry (one roll's row within one session). */
-export async function deleteCycleCountEntry(entryId: string): Promise<void> {
-  try {
-    await deleteDoc(doc(db, CYCLE_COUNT_COLLECTION, entryId));
-  } catch (err: any) {
-    console.warn('Notice: Failed to delete cycle count entry:', err?.message || err);
-    throw err;
-  }
-}
-
-/** Delete every entry belonging to one counting session (e.g. an entire month's round). */
+/** ลบเฉพาะเอกสารงวด Cycle Count — ไม่ลบประวัติตัดบนม้วน (ใบนับสต๊อกใน cut_history ยังอยู่) */
 export async function deleteCycleCountSession(sessionId: string): Promise<void> {
   try {
-    const q = query(collection(db, CYCLE_COUNT_COLLECTION), where('sessionId', '==', sessionId));
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return;
-    const batch = writeBatch(db);
-    snapshot.forEach((docSnap) => batch.delete(docSnap.ref));
-    await batch.commit();
+    await deleteDoc(doc(db, CYCLE_COUNTS_COLLECTION, sessionId));
   } catch (err: any) {
-    console.warn('Notice: Failed to delete cycle count session:', err?.message || err);
+    console.warn('deleteCycleCountSession failed:', err?.message || err);
     throw err;
   }
+}
+
+export async function fetchCycleCountSessions(limitCount: number = 24): Promise<CycleCountSession[]> {
+  try {
+    const q = query(collection(db, CYCLE_COUNTS_COLLECTION), orderBy('createdAt', 'desc'), limit(limitCount));
+    const snapshot = await getDocs(q);
+    const items: CycleCountSession[] = [];
+    snapshot.forEach((docSnap) => {
+      items.push(docSnap.data() as CycleCountSession);
+    });
+    return items;
+  } catch (err: any) {
+    // Fallback without orderBy if index missing
+    try {
+      const snapshot = await getDocs(collection(db, CYCLE_COUNTS_COLLECTION));
+      const items: CycleCountSession[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as CycleCountSession);
+      });
+      items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      return items.slice(0, limitCount);
+    } catch (err2: any) {
+      console.warn('fetchCycleCountSessions failed:', err2?.message || err2);
+      return [];
+    }
+  }
+}
+
+export interface CycleCountAdjustmentLine {
+  rollId: string;
+  physicalCount: number;
+  /** ยอดระบบก่อนปรับ (ใช้คำนวณ totalDeducted เพื่อให้ integrity / SO audit ตรง) */
+  systemRemaining: number;
+  lotNumber?: string;
+  rollNumber?: string;
+  width?: number | string;
+  pattern?: string;
+  reason?: string;
+}
+
+/**
+ * Apply Cycle Count variance adjustments:
+ * 1) ตั้ง remainingMeters = physicalCount
+ * 2) บันทึก StockCutRecord ชนิด non_so ลงประวัติม้วน (stock_cut_records + cut_history + recentCuts)
+ *    โดย totalDeducted = systemRemaining - physicalCount
+ *    เพื่อให้สูตร expectedRemaining = totalMeters - sum(totalDeducted) ตรงกับของจริง
+ *    และไม่ถูกระบบตรวจบัค / integrity แจ้งเป็นข้อผิดพลาด
+ */
+export async function applyCycleCountAdjustments(
+  lines: CycleCountAdjustmentLine[],
+  meta?: { period?: string; countedBy?: string }
+): Promise<{ updatedRolls: FoilRoll[]; createdRecords: StockCutRecord[] }> {
+  const updatedRolls: FoilRoll[] = [];
+  const createdRecords: StockCutRecord[] = [];
+  const periodLabel = meta?.period || new Date().toISOString().slice(0, 7);
+  const countedBy = (meta?.countedBy || 'Cycle Count').trim() || 'Cycle Count';
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const line of lines) {
+    const rollRef = doc(db, ROLLS_COLLECTION, line.rollId);
+    const safePhysical = Math.max(0, Number(line.physicalCount) || 0);
+    const systemBefore = Number(line.systemRemaining);
+    // totalDeducted ที่ต้องเพิ่มเพื่อให้ integrity ตรง:
+    // expected = totalMeters - (oldSum + thisDeducted) = physical
+    // thisDeducted ≈ systemBefore - physical (เมื่อ systemBefore สะท้อนยอดระบบก่อนปรับ)
+    const deduct = Math.round((systemBefore - safePhysical) * 100) / 100;
+    if (Math.abs(deduct) < 0.001) continue;
+
+    const recordId = `cc_${line.rollId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const soNumber = `นับสต๊อก ${periodLabel}`;
+    const reasonText =
+      line.reason?.trim() ||
+      (deduct > 0
+        ? `Cycle Count: ของจริงน้อยกว่าระบบ ${Math.abs(deduct)} ม.`
+        : `Cycle Count: ของจริงมากกว่าระบบ ${Math.abs(deduct)} ม.`);
+
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(rollRef);
+      if (!snap.exists()) return;
+      const serverRoll = snap.data() as FoilRoll;
+      const remainingBefore = Number(serverRoll.remainingMeters || 0);
+      // ใช้ยอดจริงบน server ณ ตอนปรับ เพื่อ consistency
+      const effectiveDeduct = Math.round((remainingBefore - safePhysical) * 100) / 100;
+      if (Math.abs(effectiveDeduct) < 0.001) return;
+
+      const usedPart = effectiveDeduct > 0 ? effectiveDeduct : 0;
+      const record: StockCutRecord = {
+        id: recordId,
+        foilId: line.rollId,
+        lotNumber: line.lotNumber || serverRoll.lotNumber,
+        rollNumber: line.rollNumber || serverRoll.rollNumber,
+        width: (line.width ?? serverRoll.width) as any,
+        pattern: (line.pattern || serverRoll.pattern) as any,
+        soNumber,
+        cutType: 'non_so',
+        nonSoReason: reasonText,
+        usedMeters: usedPart,
+        ngMeters: 0,
+        // อนุญาตค่าติดลบเมื่อของจริง > ระบบ (คืนยอดเข้าสต๊อก)
+        totalDeducted: effectiveDeduct,
+        remainingBefore,
+        remainingAfter: safePhysical,
+        usageDate: today,
+        recordedDate: today,
+        recordedBy: countedBy,
+        notes: `Cycle Count ${periodLabel}${line.reason ? ` | ${line.reason}` : ''}`,
+        createdAt: new Date().toISOString(),
+      };
+
+      const next: FoilRoll = {
+        ...serverRoll,
+        remainingMeters: safePhysical,
+        usedMeters: Math.max(
+          0,
+          Math.round(
+            ((serverRoll.usedMeters || 0) + (effectiveDeduct > 0 ? effectiveDeduct : 0)) * 100
+          ) / 100
+        ),
+        status: safePhysical > 0 ? ('active' as const) : ('depleted' as const),
+        isZeroedOut: safePhysical <= 0 ? true : false,
+        recentCuts: [
+          {
+            id: record.id,
+            soNumber: record.soNumber,
+            cutType: 'non_so',
+            usedMeters: record.usedMeters,
+            ngMeters: 0,
+            totalDeducted: record.totalDeducted,
+            remainingAfter: safePhysical,
+            usageDate: today,
+            recordedDate: today,
+            recordedBy: countedBy,
+            notes: record.notes,
+          },
+          ...(serverRoll.recentCuts || []),
+        ].slice(0, 50),
+      };
+
+      const historyItem: CutHistoryItem = {
+        id: record.id,
+        soNumber: record.soNumber,
+        cutMeters: record.totalDeducted,
+        usedMeters: record.usedMeters,
+        ngMeters: 0,
+        createdAt: record.createdAt,
+        rollId: line.rollId,
+        lotNumber: record.lotNumber,
+        rollNumber: record.rollNumber,
+        width: record.width as any,
+        pattern: record.pattern as any,
+        totalDeducted: record.totalDeducted,
+        remainingBefore,
+        remainingAfter: safePhysical,
+        cutDate: today,
+        usageDate: today,
+        recordedDate: today,
+        recordedBy: countedBy,
+        cutType: 'non_so',
+        nonSoReason: reasonText,
+        notes: record.notes,
+      };
+
+      tx.set(rollRef, sanitizeForFirestore(next), { merge: true });
+      tx.set(doc(db, RECORDS_COLLECTION, record.id), sanitizeForFirestore(record));
+      tx.set(
+        doc(db, ROLLS_COLLECTION, line.rollId, 'cut_history', record.id),
+        sanitizeForFirestore(historyItem)
+      );
+      tx.set(
+        doc(db, ROLLS_COLLECTION, line.rollId, 'cuts', record.id),
+        sanitizeForFirestore(historyItem)
+      );
+
+      updatedRolls.push(next);
+      createdRecords.push(record);
+    });
+  }
+
+  markLocalWrite([
+    ...updatedRolls.map((r) => r.id),
+    ...createdRecords.map((r) => r.id),
+  ]);
+
+  return { updatedRolls, createdRecords };
 }
 
