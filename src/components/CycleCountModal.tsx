@@ -113,8 +113,6 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
     return [...list].sort((a, b) => a.lotNumber.localeCompare(b.lotNumber) || a.rollNumber.localeCompare(b.rollNumber));
   }, [rolls, searchQuery]);
 
-  if (!isOpen) return null;
-
   const getRow = (rollId: string): CountRow =>
     rows[rollId] || { rollId, physicalMeters: '', reason: '', counted: false };
 
@@ -367,6 +365,12 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
       })
       .sort((x, y) => x.lotNumber.localeCompare(y.lotNumber) || x.rollNumber.localeCompare(y.rollNumber));
   }, [historyBySession, compareSessionA, compareSessionB]);
+
+  // All hooks (useState/useMemo/useEffect) above this line must run on
+  // every render regardless of `isOpen` — the early return has to come
+  // after every one of them, or React throws "Rendered fewer hooks than
+  // expected" (minified error #310) the moment the modal is opened.
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
