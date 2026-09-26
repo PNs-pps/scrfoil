@@ -100,30 +100,52 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
       isZeroedOut?: boolean;
     }>();
 
-    // 1. Process records
+    // 1. Process records — จัดกลุ่มตาม foilId จริง (ล็อต+เบอร์อย่างเดียวไม่พอ เพราะคนละลายได้)
     monthlyRecords.forEach((rec) => {
-      const key = rec.foilId || `${rec.lotNumber}_${rec.rollNumber}`;
+      const pat = String(rec.pattern || '').trim();
+      const lot = String(rec.lotNumber || '').trim();
+      const rollNo = String(rec.rollNumber || '').trim();
+      const w = Number(rec.width) || 0;
+      // key ต้องแยกลูกคนละลาย / คนละหน้ากว้าง แม้ล็อต-เบอร์ซ้ำ
+      const key = rec.foilId
+        ? `id:${rec.foilId}`
+        : `meta:${lot}|${rollNo}|${w}|${pat}`;
+
       const existing = rollMap.get(key);
-      const targetRoll = rolls.find((r) => r.id === rec.foilId || (r.lotNumber === rec.lotNumber && r.rollNumber === rec.rollNumber));
+      // หา roll master: ใช้ foilId ก่อน แล้วค่อย match ครบ lot+roll+width+pattern
+      const targetRoll = rec.foilId
+        ? rolls.find((r) => r.id === rec.foilId)
+        : rolls.find(
+            (r) =>
+              String(r.lotNumber || '').trim() === lot &&
+              String(r.rollNumber || '').trim() === rollNo &&
+              Number(r.width) === w &&
+              String(r.pattern || '').trim() === pat
+          );
 
       if (existing) {
-        existing.usedMetersThisMonth += rec.usedMeters;
-        existing.ngMetersThisMonth += rec.ngMeters;
-        existing.totalDeductedThisMonth += rec.totalDeducted;
+        existing.usedMetersThisMonth += Number(rec.usedMeters) || 0;
+        existing.ngMetersThisMonth += Number(rec.ngMeters) || 0;
+        existing.totalDeductedThisMonth +=
+          Number(rec.totalDeducted) ||
+          (Number(rec.usedMeters) || 0) + (Number(rec.ngMeters) || 0);
         if (rec.soNumber && !existing.soNumbers.includes(rec.soNumber)) {
           existing.soNumbers.push(rec.soNumber);
         }
         existing.cutCount += 1;
       } else {
         rollMap.set(key, {
-          rollId: targetRoll ? targetRoll.id : rec.foilId,
-          lotNumber: targetRoll ? targetRoll.lotNumber : rec.lotNumber,
-          rollNumber: targetRoll ? targetRoll.rollNumber : rec.rollNumber,
-          width: targetRoll ? targetRoll.width : rec.width,
-          pattern: targetRoll ? targetRoll.pattern : rec.pattern,
-          usedMetersThisMonth: rec.usedMeters,
-          ngMetersThisMonth: rec.ngMeters,
-          totalDeductedThisMonth: rec.totalDeducted,
+          rollId: targetRoll?.id || rec.foilId || key,
+          lotNumber: lot || targetRoll?.lotNumber || '-',
+          rollNumber: rollNo || targetRoll?.rollNumber || '-',
+          width: w || targetRoll?.width || 0,
+          // ลายจากใบตัดเป็นหลัก (ไม่ดึงลายม้วนอื่นที่ล็อต/เบอร์ชน)
+          pattern: pat || targetRoll?.pattern || '-',
+          usedMetersThisMonth: Number(rec.usedMeters) || 0,
+          ngMetersThisMonth: Number(rec.ngMeters) || 0,
+          totalDeductedThisMonth:
+            Number(rec.totalDeducted) ||
+            (Number(rec.usedMeters) || 0) + (Number(rec.ngMeters) || 0),
           soNumbers: rec.soNumber ? [rec.soNumber] : [],
           cutCount: 1,
           currentRemaining: targetRoll ? targetRoll.remainingMeters : 0,
@@ -136,29 +158,36 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
 
     let list = Array.from(rollMap.values());
 
-    // Apply pattern filter
     if (filterPattern !== 'all') {
       list = list.filter((r) => r.pattern === filterPattern);
     }
 
-    // Apply search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      list = list.filter((r) => 
-        r.lotNumber.toLowerCase().includes(q) ||
-        r.rollNumber.toLowerCase().includes(q) ||
-        r.pattern.toLowerCase().includes(q) ||
-        r.soNumbers.some(so => so.toLowerCase().includes(q))
+      list = list.filter(
+        (r) =>
+          r.lotNumber.toLowerCase().includes(q) ||
+          r.rollNumber.toLowerCase().includes(q) ||
+          r.pattern.toLowerCase().includes(q) ||
+          r.soNumbers.some((so) => so.toLowerCase().includes(q))
       );
     }
 
-    // Sort either by Width > Lot > Roll Number (default, easy to check) or by Most Used
+    // เรียง: หน้ากว้าง → ลาย → ล็อต → เบอร์ (ไม่สลับลายคนละลูก)
     if (summarySortBy === 'width_lot_roll') {
       list.sort((a, b) => {
-        if (a.width !== b.width) return Number(a.width) - Number(b.width);
-        const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
+        if (Number(a.width) !== Number(b.width)) return Number(a.width) - Number(b.width);
+        const patComp = String(a.pattern).localeCompare(String(b.pattern), 'th');
+        if (patComp !== 0) return patComp;
+        const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
         if (lotComp !== 0) return lotComp;
-        return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
+        return a.rollNumber.localeCompare(b.rollNumber, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
       });
     } else {
       list.sort((a, b) => b.totalDeductedThisMonth - a.totalDeductedThisMonth);
@@ -532,7 +561,10 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                       const isYellow = rem > 50 && rem <= 200;
 
                       return (
-                        <tr key={item.rollId || idx} className="hover:bg-amber-50/40 transition-colors">
+                        <tr
+                          key={`${item.rollId}-${item.pattern}-${item.width}-${idx}`}
+                          className="hover:bg-amber-50/40 transition-colors"
+                        >
                           <td className="p-3.5 font-mono text-slate-400 font-medium">
                             {idx + 1}
                           </td>

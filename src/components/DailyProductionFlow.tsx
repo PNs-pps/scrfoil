@@ -35,6 +35,7 @@ import {
   Legend, 
   Cell 
 } from 'recharts';
+import { KpiSlideRow } from './KpiSlideRow';
 
 interface DailyProductionFlowProps {
   records: StockCutRecord[];
@@ -509,182 +510,95 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
         </div>
       </div>
 
-      {/* KPI Stats Grid - Foil Production */}
+      {/* KPI สไลด์ — สายฟอยล์ */}
       {(filterLine === 'all' || filterLine === 'foil') && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5 uppercase tracking-wider">
-              <Layers className="w-4 h-4 text-amber-600" />
-              สรุปสายผลิตติดฟอยล์ (Foil Line Stats)
-            </span>
-            <span className="text-xs text-slate-500 font-mono">
-              {stats.soCount} SO | {dayRecords.length} รายการตัด
-            </span>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Used Meters */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>ยอดผลิตลงแผ่นจริง</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-700">
-                  {stats.totalUsed.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-xs text-slate-500 font-mono">เมตร</span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                {stats.soCount} คำสั่งซื้อ SO
-              </div>
-            </div>
-
-            {/* Total NG Meters */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-rose-600" />
-                <span>เศษสูญเสีย (NG ฟอยล์)</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className={`text-2xl sm:text-3xl font-black font-mono ${
-                  stats.totalNg > 0 ? 'text-rose-600' : 'text-slate-400'
-                }`}>
-                  {stats.totalNg.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-xs text-slate-500 font-mono">เมตร</span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                {stats.totalDeducted > 0
-                  ? `คิดเป็น ${((stats.totalNg / stats.totalDeducted) * 100).toFixed(1)}% ของการตัด`
-                  : 'ไม่มีของเสีย'}
-              </div>
-            </div>
-
-            {/* Yield Rate */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <Award className="w-4 h-4 text-amber-600" />
-                <span>ประสิทธิภาพ (Yield)</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-slate-900">
-                  {stats.yieldRate.toFixed(1)}%
-                </span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-1">
-                <div
-                  className={`h-1.5 rounded-full ${
-                    stats.yieldRate >= 95 ? 'bg-emerald-500' : stats.yieldRate >= 90 ? 'bg-amber-500' : 'bg-rose-500'
-                  }`}
-                  style={{ width: `${Math.min(100, stats.yieldRate)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Total Deducted */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-amber-600" />
-                <span>รวมตัดออกจากม้วน</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-amber-800">
-                  {stats.totalDeducted.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-xs text-slate-500 font-mono">เมตร</span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                จากม้วนฟอยล์ {stats.rollCount} ม้วน
-              </div>
-            </div>
-          </div>
-        </div>
+        <KpiSlideRow
+          title={`สายฟอยล์ · ${stats.soCount} SO · ${dayRecords.length} รายการ`}
+          cards={[
+            {
+              id: 'foil-used',
+              label: 'ผลิตลงแผ่นจริง',
+              value: stats.totalUsed.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'ม.',
+              icon: <CheckCircle2 className="w-4 h-4" />,
+              iconClass: 'bg-emerald-50 text-emerald-600',
+              valueClass: 'text-emerald-700',
+              footer: `${stats.soCount} คำสั่งซื้อ SO`,
+            },
+            {
+              id: 'foil-ng',
+              label: 'NG ฟอยล์',
+              value: stats.totalNg.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'ม.',
+              icon: <AlertTriangle className="w-4 h-4" />,
+              iconClass: 'bg-rose-50 text-rose-600',
+              valueClass: stats.totalNg > 0 ? 'text-rose-600' : 'text-slate-400',
+              footer:
+                stats.totalDeducted > 0
+                  ? `${((stats.totalNg / stats.totalDeducted) * 100).toFixed(1)}% ของการตัด`
+                  : 'ไม่มีของเสีย',
+            },
+            {
+              id: 'foil-yield',
+              label: 'Yield',
+              value: `${stats.yieldRate.toFixed(1)}%`,
+              icon: <Award className="w-4 h-4" />,
+              iconClass: 'bg-amber-50 text-amber-600',
+              footer: `รวมตัด ${stats.totalDeducted.toLocaleString('th-TH', { maximumFractionDigits: 1 })} ม. · ${stats.rollCount} ม้วน`,
+            },
+          ]}
+        />
       )}
 
-      {/* KPI Stats Grid - Sandwich Production */}
+      {/* KPI สไลด์ — สายแซนวิช */}
       {(filterLine === 'all' || filterLine === 'sandwich') && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5 uppercase tracking-wider">
-              <Factory className="w-4 h-4 text-emerald-600" />
-              สรุปสายผลิต PU แซนวิช (Sandwich Line Stats)
-            </span>
-            <span className="text-xs text-slate-500 font-mono">
-              {puStats.soCount} SO | {dayPuRecords.length} รายการตัด
-            </span>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Steel Used */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>น้ำหนักเหล็กใช้จริง</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-700">
-                  {puStats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-xs text-slate-500 font-mono">กก.</span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                ประมาณ {puStats.totalTons} ตัน
-              </div>
-            </div>
-
-            {/* Total SO Length */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-teal-600" />
-                <span>ความยาวตามงาน SO</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-teal-700">
-                  {puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 })}
-                </span>
-                <span className="text-xs text-slate-500 font-mono">เมตร</span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                {puStats.soCount} คำสั่งซื้อ SO
-              </div>
-            </div>
-
-            {/* Total NG Weight */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-rose-600" />
-                <span>เศษสูญเสีย (NG แซนวิช)</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className={`text-2xl sm:text-3xl font-black font-mono ${
-                  puStats.totalNgKg > 0 ? 'text-rose-600' : 'text-slate-400'
-                }`}>
-                  {puStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-xs text-slate-500 font-mono">กก.</span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                คิดเป็น {puStats.ngPercent.toFixed(1)}% ของน้ำหนักเหล็ก
-              </div>
-            </div>
-
-            {/* Total NG Length */}
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-1">
-              <div className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600" />
-                <span>คำนวณเป็นระยะ NG</span>
-              </div>
-              <div className="flex items-baseline gap-1.5 pt-1">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-amber-800">
-                  {puStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })}
-                </span>
-                <span className="text-xs text-slate-500 font-mono">เมตร</span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                ตามน้ำหนักมาตรฐานต่อเมตร
-              </div>
-            </div>
-          </div>
-        </div>
+        <KpiSlideRow
+          title={`สายแซนวิช · ${puStats.soCount} SO · ${dayPuRecords.length} รายการ`}
+          cards={[
+            {
+              id: 'pu-kg',
+              label: 'น้ำหนักเหล็กใช้จริง',
+              value: puStats.totalKg.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'กก.',
+              icon: <CheckCircle2 className="w-4 h-4" />,
+              iconClass: 'bg-emerald-50 text-emerald-600',
+              valueClass: 'text-emerald-700',
+              footer: `≈ ${puStats.totalTons} ตัน`,
+            },
+            {
+              id: 'pu-len',
+              label: 'ความยาวตามงาน SO',
+              value: puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 }),
+              unit: 'ม.',
+              icon: <Layers className="w-4 h-4" />,
+              iconClass: 'bg-teal-50 text-teal-600',
+              valueClass: 'text-teal-700',
+              footer: `${puStats.soCount} คำสั่งซื้อ SO`,
+            },
+            {
+              id: 'pu-ng',
+              label: 'NG แซนวิช',
+              value: puStats.totalNgKg.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'กก.',
+              icon: <AlertTriangle className="w-4 h-4" />,
+              iconClass: 'bg-rose-50 text-rose-600',
+              valueClass: puStats.totalNgKg > 0 ? 'text-rose-600' : 'text-slate-400',
+              footer: `${puStats.ngPercent.toFixed(1)}% · ${puStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.`,
+            },
+          ]}
+        />
       )}
 
       {/* Production Breakdown Chart by SO (Foil) */}

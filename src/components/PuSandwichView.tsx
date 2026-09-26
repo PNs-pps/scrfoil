@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { UserMode } from '../utils/auth';
+import { KpiSlideRow } from './KpiSlideRow';
 
 interface PuSandwichViewProps {
   records?: PuSandwichCutRecord[];
@@ -248,95 +249,84 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
         </div>
       </div>
 
-      {/* KPI Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-        {/* Total Weight Used */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold">น้ำหนักเหล็กใช้สะสม</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
-              <Scale className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-black font-mono text-slate-900">
-            {stats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
-            <span className="text-xs font-normal text-slate-500">กก.</span>
-          </div>
-          <div className="text-xs text-emerald-700 font-medium flex items-center gap-1">
-            <span className="font-bold">({stats.totalTons.toLocaleString('th-TH')} ตัน)</span>
-          </div>
-        </div>
-
-        {/* Total SO Cut Count */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold">จำนวนใบสั่งตัด SO</span>
-            <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
-              <FileText className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-black font-mono text-slate-900">
-            {stats.totalCount}{' '}
-            <span className="text-xs font-normal text-slate-500">รายการ/SO</span>
-          </div>
-          <div className="text-xs text-slate-500">
-            งานผลิต PU Sandwich
-          </div>
-        </div>
-
-        {/* Steel Type: External (เหล็กนอก) */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold">1. เหล็กนอก</span>
-            <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
-              นำเข้า
-            </span>
-          </div>
-          <div className="text-xl font-bold font-mono text-slate-900">
-            {stats.externalSteelKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
-            <span className="text-xs font-normal text-slate-500">กก.</span>
-          </div>
-          <div className="text-xs text-slate-500">
-            สัดส่วน {stats.totalKg > 0 ? ((stats.externalSteelKg / stats.totalKg) * 100).toFixed(1) : 0}% ของทั้งหมด
-          </div>
-        </div>
-
-        {/* Steel Type: Blue Scope & Others */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold">2. Blue Scope & อื่นๆ</span>
-            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 text-[10px] font-bold border border-blue-200">
-              BlueScope
-            </span>
-          </div>
-          <div className="text-xl font-bold font-mono text-slate-900">
-            {(stats.blueScopeKg + stats.otherSteelKg).toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
-            <span className="text-xs font-normal text-slate-500">กก.</span>
-          </div>
-          <div className="text-xs text-slate-500">
-            Blue Scope: {stats.blueScopeKg.toLocaleString('th-TH')} กก. | อื่นๆ: {stats.otherSteelKg.toLocaleString('th-TH')} กก.
-          </div>
-        </div>
-
-        {/* Total NG Scrap Card */}
-        <div className="bg-white p-5 rounded-2xl border border-rose-200/90 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold text-rose-900">ยอด NG เสียหายสะสม</span>
-            <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-black font-mono text-rose-700">
-            {stats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
-            <span className="text-xs font-normal text-slate-500">กก.</span>
-          </div>
-          <div className="text-xs text-rose-800 font-medium flex items-center justify-between">
-            <span>เสีย: <strong className="font-mono">{stats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })}</strong> ม.</span>
-            <span className="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700">
-              {stats.ngPercent.toFixed(2)}% NG
-            </span>
-          </div>
-        </div>
+      {/* KPI 2 แถวสไลด์ — มือถือไม่รก */}
+      <div className="space-y-3">
+        <KpiSlideRow
+          title="สรุปผลิต · น้ำหนัก & ใบงาน"
+          cards={[
+            {
+              id: 'kg',
+              label: 'น้ำหนักเหล็กใช้สะสม',
+              value: stats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              unit: 'กก.',
+              icon: <Scale className="w-4 h-4" />,
+              iconClass: 'bg-emerald-50 text-emerald-700',
+              footer: <span className="text-emerald-700 font-semibold">≈ {stats.totalTons} ตัน</span>,
+            },
+            {
+              id: 'so',
+              label: 'จำนวนใบสั่งตัด SO',
+              value: String(stats.totalCount),
+              unit: 'รายการ',
+              icon: <FileText className="w-4 h-4" />,
+              iconClass: 'bg-teal-50 text-teal-700',
+              footer: 'งานผลิต PU Sandwich',
+            },
+            {
+              id: 'ng',
+              label: 'NG เสียหายสะสม',
+              value: stats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              unit: 'กก.',
+              icon: <AlertTriangle className="w-4 h-4" />,
+              iconClass: 'bg-rose-50 text-rose-700',
+              valueClass: 'text-rose-700',
+              footer: (
+                <span>
+                  {stats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม. ·{' '}
+                  <strong>{stats.ngPercent.toFixed(2)}%</strong>
+                </span>
+              ),
+            },
+          ]}
+        />
+        <KpiSlideRow
+          title="แยกตามแหล่งเหล็ก"
+          cards={[
+            {
+              id: 'ext',
+              label: 'เหล็กนอก',
+              value: stats.externalSteelKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              unit: 'กก.',
+              icon: <Layers className="w-4 h-4" />,
+              iconClass: 'bg-emerald-50 text-emerald-800',
+              footer: `สัดส่วน ${
+                stats.totalKg > 0 ? ((stats.externalSteelKg / stats.totalKg) * 100).toFixed(1) : 0
+              }%`,
+            },
+            {
+              id: 'bs',
+              label: 'Blue Scope',
+              value: stats.blueScopeKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              unit: 'กก.',
+              icon: <Layers className="w-4 h-4" />,
+              iconClass: 'bg-sky-50 text-sky-700',
+              footer: `สัดส่วน ${
+                stats.totalKg > 0 ? ((stats.blueScopeKg / stats.totalKg) * 100).toFixed(1) : 0
+              }%`,
+            },
+            {
+              id: 'other',
+              label: 'เหล็กอื่นๆ',
+              value: stats.otherSteelKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              unit: 'กก.',
+              icon: <Layers className="w-4 h-4" />,
+              iconClass: 'bg-slate-100 text-slate-600',
+              footer: `สัดส่วน ${
+                stats.totalKg > 0 ? ((stats.otherSteelKg / stats.totalKg) * 100).toFixed(1) : 0
+              }%`,
+            },
+          ]}
+        />
       </div>
 
       {/* Search & Filter Toolbar */}
