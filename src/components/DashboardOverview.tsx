@@ -1,20 +1,15 @@
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { FoilRoll, StockCutRecord } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, getCanonicalPatternStyle } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
-import { 
-  Package, 
-  Scissors, 
-  AlertOctagon, 
-  TrendingDown, 
-  Layers, 
-  CheckCircle, 
-  AlertTriangle, 
+import {
+  Package,
+  Scissors,
+  AlertOctagon,
+  Layers,
   ArrowRight,
   Sparkles,
   BarChart2,
-  ShieldCheck,
-  RefreshCw
 } from 'lucide-react';
 import { MonthlyFoilUsageBarChart } from './MonthlyFoilUsageBarChart';
 
@@ -36,38 +31,39 @@ interface DashboardOverviewProps {
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   rolls,
   records,
-  onOpenCutModal,
-  onOpenAddModal,
-  onViewAllRolls,
   onViewAllHistory,
   onOpenMonthlySummary,
-  onOpenBatchImport,
   onDoubleBackup,
   isDoubleBackingUp = false,
   lastDoubleBackupTime,
   showToast,
 }) => {
-  // Aggregate KPIs
   const totalRemainingMeters = rolls.reduce((acc, r) => acc + r.remainingMeters, 0);
   const totalOriginalMeters = rolls.reduce((acc, r) => acc + r.totalMeters, 0);
   const totalUsedMeters = records.reduce((acc, r) => acc + r.usedMeters, 0);
   const totalNgMeters = records.reduce((acc, r) => acc + r.ngMeters, 0);
   const totalDeductedMeters = totalUsedMeters + totalNgMeters;
-  const ngRatePercent = totalDeductedMeters > 0 
-    ? ((totalNgMeters / totalDeductedMeters) * 100).toFixed(1) 
-    : '0.0';
+  const ngRatePercent =
+    totalDeductedMeters > 0
+      ? ((totalNgMeters / totalDeductedMeters) * 100).toFixed(1)
+      : '0.0';
 
-  const activeRolls = rolls.filter(r => r.remainingMeters > 0);
-  const depletedRolls = rolls.filter(r => r.remainingMeters <= 0);
-  const redAlertRolls = rolls.filter(r => r.remainingMeters > 0 && r.remainingMeters <= 50);
-  const yellowAlertRolls = rolls.filter(r => r.remainingMeters > 50 && r.remainingMeters <= 200);
+  const activeRolls = rolls.filter((r) => r.remainingMeters > 0);
+  const depletedRolls = rolls.filter((r) => r.remainingMeters <= 0);
+  const redAlertRolls = rolls.filter((r) => r.remainingMeters > 0 && r.remainingMeters <= 50);
+  const yellowAlertRolls = rolls.filter(
+    (r) => r.remainingMeters > 50 && r.remainingMeters <= 200
+  );
+  const remainPct =
+    totalOriginalMeters > 0
+      ? Math.round((totalRemainingMeters / totalOriginalMeters) * 100)
+      : 0;
 
-  // Group by Pattern
-  const patternStats = STANDARD_PATTERNS.map(p => {
-    const matchedRolls = rolls.filter(r => r.pattern === p.value);
+  const patternStats = STANDARD_PATTERNS.map((p) => {
+    const matchedRolls = rolls.filter((r) => r.pattern === p.value);
     const remaining = matchedRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
     const total = matchedRolls.reduce((sum, r) => sum + r.totalMeters, 0);
-    const count = matchedRolls.filter(r => r.remainingMeters > 0).length;
+    const count = matchedRolls.filter((r) => r.remainingMeters > 0).length;
     return {
       name: p.value,
       label: p.label,
@@ -78,15 +74,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     };
   });
 
-  // Also include any custom patterns not in standard
-  const customPatterns: string[] = Array.from(new Set(
-    rolls.map(r => r.pattern).filter(p => !STANDARD_PATTERNS.some(sp => sp.value === p))
-  ));
+  const customPatterns: string[] = Array.from(
+    new Set(rolls.map((r) => r.pattern).filter((p) => !STANDARD_PATTERNS.some((sp) => sp.value === p)))
+  );
   customPatterns.forEach((cp: string) => {
-    const matchedRolls = rolls.filter(r => r.pattern === cp);
+    const matchedRolls = rolls.filter((r) => r.pattern === cp);
     const remaining = matchedRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
     const total = matchedRolls.reduce((sum, r) => sum + r.totalMeters, 0);
-    const count = matchedRolls.filter(r => r.remainingMeters > 0).length;
+    const count = matchedRolls.filter((r) => r.remainingMeters > 0).length;
     patternStats.push({
       name: cp,
       label: cp,
@@ -97,12 +92,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     });
   });
 
-  // Group by Width
-  const widthStats = STANDARD_WIDTHS.map(w => {
-    const matchedRolls = rolls.filter(r => r.width === w);
+  const widthStats = STANDARD_WIDTHS.map((w) => {
+    const matchedRolls = rolls.filter((r) => r.width === w);
     const remaining = matchedRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
     const total = matchedRolls.reduce((sum, r) => sum + r.totalMeters, 0);
-    const count = matchedRolls.filter(r => r.remainingMeters > 0).length;
+    const count = matchedRolls.filter((r) => r.remainingMeters > 0).length;
     return {
       width: w,
       remaining,
@@ -112,154 +106,203 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     };
   });
 
-  // Recent 5 cuts
   const recentCuts = [...records].reverse().slice(0, 5);
 
-  return (
-    <div className="space-y-6">
-      {/* Top Welcome / Status Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl p-5 sm:p-6 text-white shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-amber-400 text-slate-950">
-              หลังคาเย็นสยาม (ร่มเกล้า)
-            </span>
-            <span className="text-xs text-slate-400">
-              ระบบสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
-            </span>
+  // KPI slide cards
+  const kpiCards = [
+    {
+      id: 'remain',
+      label: 'ยอดคงเหลือรวม',
+      value: formatMeters(totalRemainingMeters),
+      unit: 'เมตร',
+      accent: 'amber',
+      icon: Layers,
+      footer: (
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-[11px] text-slate-500">
+            <span>จากลูกเต็ม {formatMeters(totalOriginalMeters)} ม.</span>
+            <span className="font-bold text-amber-700">{remainPct}%</span>
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-            แดชบอร์ดคงเหลือฟอยล์หลังคา PU Foam
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-            สรุปยอดเมตรคงเหลือสะสม ม้วนฟอยล์พร้อมใช้งาน การใช้งานจริง และเศษ NG แยกตามลายและหน้ากว้าง
-          </p>
+          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, remainPct)}%` }}
+            />
+          </div>
         </div>
+      ),
+    },
+    {
+      id: 'rolls',
+      label: 'ม้วนพร้อมใช้',
+      value: String(activeRolls.length),
+      unit: 'ม้วน',
+      accent: 'emerald',
+      icon: Package,
+      footer: (
+        <div className="space-y-1">
+          <p className="text-[11px] text-slate-500">
+            หมดแล้ว <span className="font-mono font-semibold text-slate-700">{depletedRolls.length}</span> ม้วน
+          </p>
+          {redAlertRolls.length > 0 && (
+            <p className="text-[11px] font-bold text-rose-700 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" />
+              ใกล้หมด ≤50ม. {redAlertRolls.length} ม้วน
+            </p>
+          )}
+          {yellowAlertRolls.length > 0 && (
+            <p className="text-[11px] font-semibold text-amber-800 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              เหลือน้อย ≤200ม. {yellowAlertRolls.length} ม้วน
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'used',
+      label: 'ผลิตลงแผ่นจริง',
+      value: formatMeters(totalUsedMeters),
+      unit: 'เมตร',
+      accent: 'sky',
+      icon: Scissors,
+      footer: (
+        <p className="text-[11px] text-slate-500">
+          บันทึกการตัดแล้ว <span className="font-mono font-semibold text-slate-700">{records.length}</span> ครั้ง
+        </p>
+      ),
+    },
+    {
+      id: 'ng',
+      label: 'NG ที่เสีย',
+      value: formatMeters(totalNgMeters),
+      unit: 'เมตร',
+      accent: 'rose',
+      icon: AlertOctagon,
+      footer: (
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-slate-500">อัตรา NG</span>
+          <span className="text-[11px] font-bold font-mono text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded">
+            {ngRatePercent}%
+          </span>
+        </div>
+      ),
+    },
+  ];
 
-        {onOpenMonthlySummary && (
-          <div className="flex items-center gap-2 sm:self-center shrink-0">
-            <button
-              type="button"
-              onClick={onOpenMonthlySummary}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs sm:text-sm font-semibold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
-              title="เปิดหน้าต่างสรุปการใช้ฟอยล์รายเดือนและส่งออกรายงาน"
-            >
-              <BarChart2 className="w-4 h-4 text-emerald-400" />
-              <span>สรุปรายเดือน</span>
-            </button>
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [activeSlide, setActiveSlide] = useState(0);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const cardW = el.scrollWidth / kpiCards.length;
+      const idx = Math.round(el.scrollLeft / Math.max(cardW, 1));
+      setActiveSlide(Math.min(kpiCards.length - 1, Math.max(0, idx)));
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [kpiCards.length]);
+
+  const accentIcon: Record<string, string> = {
+    amber: 'bg-amber-50 text-amber-600',
+    emerald: 'bg-emerald-50 text-emerald-600',
+    sky: 'bg-sky-50 text-sky-600',
+    rose: 'bg-rose-50 text-rose-600',
+  };
+  const accentValue: Record<string, string> = {
+    amber: 'text-slate-900',
+    emerald: 'text-slate-900',
+    sky: 'text-slate-900',
+    rose: 'text-rose-600',
+  };
+
+  return (
+    <div className="space-y-5 pb-2">
+      {/* Hero บาง */}
+      <div className="rounded-2xl bg-slate-900 text-white px-4 py-3.5 sm:px-5 sm:py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">
+              หลังคาเย็นสยาม
+            </span>
+            <span className="text-[10px] text-slate-400 truncate">คลังฟอยล์ PU FOAM</span>
           </div>
+          <h2 className="text-base sm:text-lg font-bold tracking-tight truncate">แดชบอร์ดสต๊อก</h2>
+        </div>
+        {onOpenMonthlySummary && (
+          <button
+            type="button"
+            onClick={onOpenMonthlySummary}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white text-xs font-semibold cursor-pointer"
+          >
+            <BarChart2 className="w-3.5 h-3.5 text-emerald-300" />
+            สรุปรายเดือน
+          </button>
         )}
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Total Remaining */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              ยอดคงเหลือรวมทั้งหมด
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Layers className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 tracking-tight">
-              {formatMeters(totalRemainingMeters)} <span className="text-sm font-normal text-slate-500">เมตร</span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-              <span>จากลูกเต็มรวม: {formatMeters(totalOriginalMeters)} ม.</span>
-              <span className="font-semibold text-amber-700">
-                {totalOriginalMeters > 0 ? Math.round((totalRemainingMeters / totalOriginalMeters) * 100) : 0}%
-              </span>
-            </div>
-            {/* Progress bar */}
-            <div className="w-full bg-slate-100 rounded-full h-1.5 mt-1.5 overflow-hidden">
-              <div 
-                className="bg-amber-500 h-1.5 rounded-full transition-all duration-500" 
-                style={{ width: `${Math.min(100, (totalRemainingMeters / (totalOriginalMeters || 1)) * 100)}%` }}
-              />
-            </div>
-          </div>
+      {/* KPI การ์ดสไลด์แนวนอน */}
+      <div className="-mx-1">
+        <div className="flex items-center justify-between px-1 mb-2">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+            ตัวชี้วัดหลัก
+          </span>
+          <span className="text-[10px] text-slate-400 hidden sm:inline">เลื่อนดูการ์ด →</span>
         </div>
-
-        {/* Card 2: Active Rolls */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              ม้วนพร้อมใช้งาน
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Package className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 tracking-tight">
-              {activeRolls.length} <span className="text-sm font-normal text-slate-500">ม้วน</span>
-            </div>
-            <div className="mt-2 flex items-center gap-2 text-xs">
-              <span className="text-slate-500">ม้วนตัดหมดแล้ว:</span>
-              <span className="font-semibold text-slate-700 font-mono">{depletedRolls.length} ม้วน</span>
-            </div>
-            {redAlertRolls.length > 0 && (
-              <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                <span className="w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
-                <span>ใกล้หมด (&le;50ม.): {redAlertRolls.length} ม้วน</span>
+        <div
+          ref={scrollerRef}
+          className="flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-2 px-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {kpiCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <div
+                key={card.id}
+                className="snap-center shrink-0 w-[78vw] max-w-[280px] sm:w-[240px] sm:max-w-none bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 flex flex-col"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+                    {card.label}
+                  </span>
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${accentIcon[card.accent]}`}
+                  >
+                    <Icon className="w-4.5 h-4.5 w-5 h-5" />
+                  </div>
+                </div>
+                <div className={`mt-3 text-2xl sm:text-3xl font-bold font-mono tracking-tight ${accentValue[card.accent]}`}>
+                  {card.value}{' '}
+                  <span className="text-sm font-normal text-slate-400">{card.unit}</span>
+                </div>
+                <div className="mt-auto pt-3">{card.footer}</div>
               </div>
-            )}
-            {yellowAlertRolls.length > 0 && (
-              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-yellow-800 font-semibold bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">
-                <span className="w-2 h-2 rounded-full bg-yellow-500" />
-                <span>เหลือน้อย (&le;200ม.): {yellowAlertRolls.length} ม้วน</span>
-              </div>
-            )}
-          </div>
+            );
+          })}
         </div>
-
-        {/* Card 3: Total Used in Production */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              ผลิตลงแผ่นจริง
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Scissors className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-bold font-mono text-slate-900 tracking-tight">
-              {formatMeters(totalUsedMeters)} <span className="text-sm font-normal text-slate-500">เมตร</span>
-            </div>
-            <div className="mt-2 text-xs text-slate-500">
-              <span>บันทึกการตัดแล้ว: {records.length} ครั้ง</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: NG Waste & Rate */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              NG ที่เสีย (เศษ/ชำรุด)
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-              <AlertOctagon className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-bold font-mono text-rose-600 tracking-tight">
-              {formatMeters(totalNgMeters)} <span className="text-sm font-normal text-slate-500">เมตร</span>
-            </div>
-            <div className="mt-2 flex items-center justify-end text-xs">
-              <span className="font-bold text-rose-700 font-mono bg-rose-50 px-1.5 py-0.5 rounded">
-                {ngRatePercent}%
-              </span>
-            </div>
-          </div>
+        {/* จุดบอกตำแหน่งสไลด์ */}
+        <div className="flex items-center justify-center gap-1.5 mt-1">
+          {kpiCards.map((c, i) => (
+            <button
+              key={c.id}
+              type="button"
+              aria-label={`ไปการ์ด ${i + 1}`}
+              onClick={() => {
+                const el = scrollerRef.current;
+                if (!el) return;
+                const cardW = el.scrollWidth / kpiCards.length;
+                el.scrollTo({ left: cardW * i, behavior: 'smooth' });
+              }}
+              className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                activeSlide === i ? 'w-5 bg-amber-500' : 'w-1.5 bg-slate-300'
+              }`}
+            />
+          ))}
         </div>
       </div>
 
-      {/* Monthly Foil Usage Bar Chart (Recharts) */}
+      {/* กราฟรายเดือน */}
       <MonthlyFoilUsageBarChart
         records={records}
         rolls={rolls}
@@ -269,53 +312,49 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         showToast={showToast}
       />
 
-      {/* Analytics Section: Breakdown by Pattern & Width */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Breakdown by Pattern (ลายฟอยล์) */}
-        <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
+      {/* แยกตามลาย / หน้ากว้าง */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-base font-bold text-slate-900">
-                สต๊อกคงเหลือแยกตามลาย
-              </h3>
-              <p className="text-xs text-slate-500">
-                ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว
-              </p>
+              <h3 className="text-sm font-bold text-slate-900">คงเหลือตามลาย</h3>
+              <p className="text-[11px] text-slate-500">ขาว · ดำ · ไม้ · เทา · กลีบบัว</p>
             </div>
-            <span className="text-xs font-semibold px-2 py-1 bg-slate-100 text-slate-700 rounded-lg">
+            <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 text-slate-600 rounded-lg">
               {patternStats.length} ลาย
             </span>
           </div>
-
-          <div className="space-y-3">
+          <div className="space-y-2">
             {patternStats.map((item) => {
               const pStyle = getCanonicalPatternStyle(item.name);
               return (
-                <div key={item.name} className="p-3 rounded-xl bg-slate-50/70 border border-slate-100 hover:border-slate-200 transition-colors">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${pStyle.dotClass}`} />
-                      <span className="text-sm font-semibold text-slate-900">
+                <div
+                  key={item.name}
+                  className="p-2.5 rounded-xl bg-slate-50/80 border border-slate-100"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${pStyle.dotClass}`} />
+                      <span className="text-xs font-semibold text-slate-900 truncate">
                         {pStyle.label}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                        {item.count} ม้วน
-                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono">{item.count} ม้วน</span>
                     </div>
-                    <div className="text-right">
-                      <span className="text-sm font-bold font-mono text-slate-900">
-                        {formatMeters(item.remaining)} <span className="text-xs font-normal text-slate-500">ม.</span>
-                      </span>
-                    </div>
+                    <span className="text-xs font-bold font-mono text-slate-900 shrink-0">
+                      {formatMeters(item.remaining)} ม.
+                    </span>
                   </div>
-
-                  <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden flex">
-                    <div 
-                      className={`h-2 rounded-full transition-all duration-500 ${
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-1.5 rounded-full ${
                         item.remaining === 0 ? 'bg-slate-300' : pStyle.progressClass
                       }`}
-                      style={{ width: `${Math.max(item.total > 0 ? (item.remaining / item.total) * 100 : 0, item.remaining > 0 ? 4 : 0)}%` }}
+                      style={{
+                        width: `${Math.max(
+                          item.total > 0 ? (item.remaining / item.total) * 100 : 0,
+                          item.remaining > 0 ? 4 : 0
+                        )}%`,
+                      }}
                     />
                   </div>
                 </div>
@@ -324,139 +363,108 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         </div>
 
-        {/* Breakdown by Width (หน้ากว้าง 830, 850, 880, 900) */}
-        <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-base font-bold text-slate-900">
-                สต๊อกคงเหลือแยกตามหน้ากว้าง (มม.)
-              </h3>
-              <p className="text-xs text-slate-500">
-                ขนาด 830, 850, 880, 900 มม. สำหรับลอนแผ่นหลังคาแต่ละรุ่น
-              </p>
+              <h3 className="text-sm font-bold text-slate-900">คงเหลือตามหน้ากว้าง</h3>
+              <p className="text-[11px] text-slate-500">830 · 850 · 880 · 900 มม.</p>
             </div>
-            <span className="text-xs font-semibold px-2 py-1 bg-slate-100 text-slate-700 rounded-lg font-mono">
-              4 ขนาดหลัก
-            </span>
           </div>
-
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-2 gap-2.5 mb-3">
             {widthStats.map((item) => (
-              <div 
-                key={item.width} 
-                className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between"
+              <div
+                key={item.width}
+                className="p-3 rounded-xl border border-slate-200 bg-slate-50/80"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-slate-900 text-amber-400">
-                    {item.width} มม.
+                  <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-900 text-amber-400">
+                    {item.width}
                   </span>
-                  <span className="text-[11px] text-slate-600 font-medium">
-                    {item.count} ม้วน
-                  </span>
+                  <span className="text-[10px] text-slate-500">{item.count} ม้วน</span>
                 </div>
-                <div className="mt-3">
-                  <div className="text-xl font-bold font-mono text-slate-900">
-                    {formatMeters(item.remaining)} <span className="text-xs font-normal text-slate-500">ม.</span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-1 flex justify-between">
-                    <span>จาก {formatMeters(item.total)} ม.</span>
-                    <span className="font-semibold text-slate-700">{item.percent}%</span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-1.5 overflow-hidden">
-                    <div 
-                      className="bg-amber-500 h-1.5 rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.min(100, item.percent)}%` }}
-                    />
-                  </div>
+                <div className="mt-2 text-lg font-bold font-mono text-slate-900">
+                  {formatMeters(item.remaining)}
+                  <span className="text-[10px] font-normal text-slate-400 ml-0.5">ม.</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-1 mt-1.5 overflow-hidden">
+                  <div
+                    className="bg-amber-500 h-1 rounded-full"
+                    style={{ width: `${Math.min(100, item.percent)}%` }}
+                  />
                 </div>
               </div>
             ))}
           </div>
-
-          {/* Quick Help Guide for Width */}
-          <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/60 text-xs text-slate-700 space-y-1">
-            <span className="font-semibold text-amber-900 block flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              คำแนะนำการเลือกหน้ากว้างกับลอนหลังคา:
-            </span>
-            <p className="text-slate-600 text-[11px]">
-              • <strong>830 / 850 มม.:</strong> สำหรับลอนมาตรฐาน 760 , ฉนวนหนา 25 มม. (1 นิ้ว)
-            </p>
-            <p className="text-slate-600 text-[11px]">
-              • <strong>880 / 900 มม.:</strong> สำหรับลอนมาตรฐาน 760 , ฉนวนหนา 50 มม. (2 นิ้ว)
-            </p>
+          <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/50 text-[11px] text-slate-600">
+            <span className="font-semibold text-amber-900 inline-flex items-center gap-1">
+              <Sparkles className="w-3 h-3" />
+              830/850
+            </span>{' '}
+            → ฉนวน 1 นิ้ว ·{' '}
+            <span className="font-semibold text-amber-900">880/900</span> → ฉนวน 2 นิ้ว
           </div>
         </div>
-
       </div>
 
-      {/* Recent Cut Activities Log Summary */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
-              <Scissors className="w-4 h-4" />
+      {/* ตัดล่าสุด */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <Scissors className="w-3.5 h-3.5" />
             </div>
-            <h3 className="text-base font-bold text-slate-900">
-              รายการตัดสต๊อกล่าสุด (ล่าสุด 5 รายการ)
-            </h3>
+            <h3 className="text-sm font-bold text-slate-900 truncate">ตัดสต๊อกล่าสุด</h3>
           </div>
           <button
+            type="button"
             onClick={onViewAllHistory}
-            className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1 cursor-pointer"
+            className="text-[11px] font-semibold text-amber-700 hover:text-amber-800 inline-flex items-center gap-0.5 cursor-pointer shrink-0"
           >
-            <span>ดูประวัติทั้งหมด ({records.length})</span>
+            ทั้งหมด ({records.length})
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
         {recentCuts.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">
-            ยังไม่มีประวัติการตัดสต๊อก กดปุ่ม "ตัดสต๊อกฟอยล์" ด้านบนเพื่อเริ่มบันทึก
-          </div>
+          <div className="p-8 text-center text-slate-400 text-xs">ยังไม่มีประวัติการตัดสต๊อก</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200">
+            <table className="w-full text-left text-xs min-w-[560px]">
+              <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">รหัส SO</th>
-                  <th className="px-4 py-3 font-semibold">ล็อต / เบอร์</th>
-                  <th className="px-4 py-3 font-semibold">ลาย & กว้าง</th>
-                  <th className="px-4 py-3 font-semibold text-right">เมตรที่ใช้</th>
-                  <th className="px-4 py-3 font-semibold text-right">NG ที่เสีย</th>
-                  <th className="px-4 py-3 font-semibold text-right">คงเหลือหลังตัด</th>
-                  <th className="px-4 py-3 font-semibold">วันที่ใช้</th>
-                  <th className="px-4 py-3 font-semibold">ผู้บันทึก</th>
+                  <th className="px-3 py-2 font-semibold">SO</th>
+                  <th className="px-3 py-2 font-semibold">ล็อต#เบอร์</th>
+                  <th className="px-3 py-2 font-semibold">ลาย</th>
+                  <th className="px-3 py-2 font-semibold text-right">ใช้</th>
+                  <th className="px-3 py-2 font-semibold text-right">NG</th>
+                  <th className="px-3 py-2 font-semibold text-right">เหลือ</th>
+                  <th className="px-3 py-2 font-semibold">วันที่</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-sans">
+              <tbody className="divide-y divide-slate-50">
                 {recentCuts.map((cut) => (
-                  <tr key={cut.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-4 py-3 font-mono font-bold text-amber-800">
+                  <tr key={cut.id} className="hover:bg-slate-50/80">
+                    <td className="px-3 py-2.5 font-mono font-bold text-amber-800">
                       {cut.soNumber}
                     </td>
-                    <td className="px-4 py-3 font-mono text-slate-800 text-xs">
-                      {cut.lotNumber} <span className="text-slate-400">#{cut.rollNumber}</span>
+                    <td className="px-3 py-2.5 font-mono text-slate-800">
+                      {cut.lotNumber}
+                      <span className="text-slate-400">#{cut.rollNumber}</span>
                     </td>
-                    <td className="px-4 py-3 text-xs">
-                      <span className="font-medium text-slate-900">{cut.pattern}</span>
-                      <span className="text-slate-400 ml-1">({cut.width}มม.)</span>
+                    <td className="px-3 py-2.5 text-slate-700">
+                      {cut.pattern}
+                      <span className="text-slate-400 ml-0.5">({cut.width})</span>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono font-semibold text-slate-900">
-                      {formatMeters(cut.usedMeters)} ม.
+                    <td className="px-3 py-2.5 text-right font-mono font-semibold">
+                      {formatMeters(cut.usedMeters)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-rose-600 text-xs">
-                      {cut.ngMeters > 0 ? `+${formatMeters(cut.ngMeters)} ม.` : '-'}
+                    <td className="px-3 py-2.5 text-right font-mono text-rose-600">
+                      {cut.ngMeters > 0 ? formatMeters(cut.ngMeters) : '—'}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono font-bold text-emerald-700">
-                      {formatMeters(cut.remainingAfter)} ม.
+                    <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-700">
+                      {formatMeters(cut.remainingAfter)}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-600 font-mono">
-                      {cut.usageDate}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-700 truncate max-w-[150px]">
-                      {cut.recordedBy}
-                    </td>
+                    <td className="px-3 py-2.5 font-mono text-slate-500">{cut.usageDate}</td>
                   </tr>
                 ))}
               </tbody>

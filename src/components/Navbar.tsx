@@ -42,32 +42,29 @@ export const Navbar: React.FC<NavbarProps> = ({
   soBugCount = 0,
 }) => {
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between py-3 gap-3">
+    <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30 shadow-sm">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between py-2.5 sm:py-3 gap-2.5">
           
           {/* Top Row: Logo & Top Utilities */}
           <div className="flex items-center justify-between gap-2">
             {/* Logo & Title */}
-            <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
-                <Layers className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-sm shrink-0">
+                <Layers className="w-5 h-5 stroke-[2.2]" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] sm:text-[11px] font-bold px-1.5 sm:px-2 py-0.5 rounded bg-slate-900 text-amber-400 tracking-wider">
-                    หลังคาเย็นสยาม (ร่มเกล้า)
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-900 text-amber-400 tracking-wide">
+                    หลังคาเย็นสยาม
                   </span>
-                  <span className="text-xs text-slate-500 hidden sm:inline font-mono">
+                  <span className="text-[10px] text-slate-400 hidden sm:inline font-mono">
                     คลังฟอยล์ PU FOAM
                   </span>
                 </div>
-                <h1 className="text-sm sm:text-lg font-bold text-slate-900 tracking-tight leading-tight mt-0.5">
-                  หลังคาเย็นสยาม (ร่มเกล้า)
+                <h1 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-tight truncate">
+                  สต๊อกฟอยล์ · ร่มเกล้า
                 </h1>
-                <p className="text-xs text-slate-500 hidden md:block">
-                  ระบบจัดการสต๊อกฟอยล์และบันทึกใบสั่งผลิตตัดฟอยล์
-                </p>
               </div>
             </div>
 
