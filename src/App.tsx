@@ -922,7 +922,10 @@ export default function App() {
   };
 
   // Realign sequential cut chain for a specific roll in Firestore
-  const handleRealignChain = async (rollId: string, recordIds: string[]): Promise<void> => {
+  const handleRealignChain = async (
+    rollId: string,
+    recordIds: string[]
+  ): Promise<{ updatedRecords: StockCutRecord[] }> => {
     try {
       const { updatedRoll, updatedRecords } = await realignRollCutChainInFirestore(rollId, recordIds);
 
@@ -948,6 +951,8 @@ export default function App() {
         `ปรับยอดก่อนตัด–หลังตัดของล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ให้ต่อเนื่องแล้ว (คงเหลือ ${formatMeters(updatedRoll.remainingMeters)} ม.)`,
         'success'
       );
+      // คืนค่าให้ modal ประวัติม้วนอัปเดตตารางทันที (ไม่รอ snapshot)
+      return { updatedRecords };
     } catch (err: any) {
       console.error('Failed to realign roll cut chain:', err);
       const raw = String(err?.message || err || '');
