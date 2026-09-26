@@ -699,7 +699,7 @@ export async function executeMultiRollCutBatchInFirestore(
 export async function revertCutRecordInFirestore(
   recordId: string,
   rollId: string
-): Promise<FoilRoll> {
+): Promise<FoilRoll | null> {
   const rollRef = doc(db, ROLLS_COLLECTION, rollId);
   const recordRef = doc(db, RECORDS_COLLECTION, recordId);
 
@@ -711,8 +711,19 @@ export async function revertCutRecordInFirestore(
       if (rollSnap.exists()) return rollSnap.data() as FoilRoll;
       throw new Error('ไม่พบรายการตัดสต๊อกนี้แล้ว (อาจถูกลบไปก่อนหน้านี้)');
     }
+
+    // STRICT: the record still exists, but its parent roll is gone (deleted,
+    // merged, or replaced separately). There is nothing left to restore stock
+    // into — but that must never block removing the orphaned history entry
+    // itself (e.g. a duplicate SO slip pointing at a roll that no longer
+    // exists). Delete the record and its subcollection copies, and report
+    // back that no roll could be restored, instead of throwing and leaving
+    // the duplicate stuck forever.
     if (!rollSnap.exists()) {
-      throw new Error('ไม่พบม้วนฟอยล์นี้ในระบบ (อาจถูกลบไปแล้ว)');
+      tx.delete(recordRef);
+      tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', recordId));
+      tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cuts', recordId));
+      return null;
     }
 
     const record = recordSnap.data() as StockCutRecord;
