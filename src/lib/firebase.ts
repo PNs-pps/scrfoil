@@ -1368,7 +1368,7 @@ export async function fetchCycleCountSessions(limitCount: number = 24): Promise<
     const snapshot = await getDocs(q);
     const items: CycleCountSession[] = [];
     snapshot.forEach((docSnap) => {
-      items.push(docSnap.data() as CycleCountSession);
+      items.push({ ...(docSnap.data() as CycleCountSession), id: docSnap.id });
     });
     return items;
   } catch (err: any) {
@@ -1377,7 +1377,7 @@ export async function fetchCycleCountSessions(limitCount: number = 24): Promise<
       const snapshot = await getDocs(collection(db, CYCLE_COUNTS_COLLECTION));
       const items: CycleCountSession[] = [];
       snapshot.forEach((docSnap) => {
-        items.push(docSnap.data() as CycleCountSession);
+        items.push({ ...(docSnap.data() as CycleCountSession), id: docSnap.id });
       });
       items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       return items.slice(0, limitCount);
@@ -1385,6 +1385,24 @@ export async function fetchCycleCountSessions(limitCount: number = 24): Promise<
       console.warn('fetchCycleCountSessions failed:', err2?.message || err2);
       return [];
     }
+  }
+}
+
+/** ดึงแบบร่างล่าสุดของงวด (YYYY-MM) เพื่อเปิดมาแก้ไขต่อ */
+export async function fetchDraftCycleCountForPeriod(
+  period: string
+): Promise<CycleCountSession | null> {
+  try {
+    const items = await fetchCycleCountSessions(48);
+    const drafts = items
+      .filter((s) => s.period === period && s.status === 'draft')
+      .sort((a, b) =>
+        (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '')
+      );
+    return drafts[0] || null;
+  } catch (err: any) {
+    console.warn('fetchDraftCycleCountForPeriod failed:', err?.message || err);
+    return null;
   }
 }
 
