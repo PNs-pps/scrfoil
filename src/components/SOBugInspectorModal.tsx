@@ -38,7 +38,10 @@ interface SOBugInspectorModalProps {
   onFixMultipleRolls: (
     adjustments: Array<{ rollId: string; expectedRemaining: number; sumUsed: number; sumNg: number }>
   ) => Promise<void>;
-  onRealignChain?: (rollId: string, recordIds: string[]) => Promise<void>;
+  onRealignChain?: (
+    rollId: string,
+    recordIds: string[]
+  ) => Promise<{ updatedRecords?: StockCutRecord[] } | void>;
   onDeleteRecord?: (recordId: string) => Promise<void>;
   canEdit: boolean;
 }

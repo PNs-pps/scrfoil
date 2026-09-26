@@ -35,7 +35,10 @@ interface RollUsageHistoryModalProps {
   onOpenCutForThisRoll: (rollId: string) => void;
   onEditRoll?: (roll: FoilRoll) => void;
   onFixRoll?: (rollId: string, correctRemaining: number, sumUsed?: number, sumNg?: number) => Promise<void>;
-  onRealignChain?: (rollId: string, recordIds: string[]) => Promise<void>;
+  onRealignChain?: (
+    rollId: string,
+    recordIds: string[]
+  ) => Promise<{ updatedRecords?: StockCutRecord[] } | void>;
   canEdit?: boolean;
   onOpenFullAudit?: (rollId?: string) => void;
 }
@@ -88,8 +91,66 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   const [isFixingThisRoll, setIsFixingThisRoll] = useState(false);
   const [showConfirmFix, setShowConfirmFix] = useState(false);
 
-  // Realtime subscription to Firestore sub-collection: foil_rolls/{rollId}/cut_history
-  // Merging both the root collection records and the subcollection items so no SO is ever lost!
+  // รวมประวัติจาก stock_cut_records (App state) + cut_history (Firestore)
+  // สำคัญ: หลังปรับความต่อเนื่อง ต้องให้ root (App) ทับยอดก่อนตัด/หลังตัด
+  // ไม่งั้น snapshot เก่าของ cut_history จะทับค่าใหม่ ทำให้ "กดแล้วประวัติไม่เปลี่ยน"
+  const buildMergedHistory = (
+    rollId: string,
+    rootRecords: StockCutRecord[],
+    subItems: CutHistoryItem[] | null | undefined
+  ): CutHistoryItem[] => {
+    const map = new Map<string, CutHistoryItem>();
+
+    // 1) sub-collection ก่อน (ฐาน)
+    (subItems || []).forEach((item) => {
+      map.set(item.id, item);
+    });
+
+    // 2) root records ทับทีหลัง — ยอด remainingBefore/After จาก App หลัง realign เป็นหลัก
+    rootRecords
+      .filter((r) => r.foilId === rollId)
+      .forEach((r) => {
+        const prev = map.get(r.id);
+        map.set(r.id, {
+          id: r.id,
+          soNumber: r.soNumber,
+          cutMeters: r.usedMeters,
+          usedMeters: r.usedMeters,
+          ngMeters: r.ngMeters,
+          totalDeducted: r.totalDeducted,
+          remainingBefore:
+            r.remainingBefore != null ? r.remainingBefore : prev?.remainingBefore ?? 0,
+          remainingAfter:
+            r.remainingAfter != null ? r.remainingAfter : prev?.remainingAfter ?? 0,
+          cutDate: r.usageDate || r.recordedDate,
+          usageDate: r.usageDate,
+          recordedDate: r.recordedDate,
+          recordedBy: r.recordedBy,
+          notes: r.notes,
+          createdAt: r.createdAt || r.recordedDate,
+          cutType: r.cutType || 'so',
+          nonSoReason: r.nonSoReason,
+          productionRound: r.productionRound,
+          roundNumber: r.roundNumber,
+          rollId,
+          lotNumber: roll?.lotNumber || r.lotNumber,
+          rollNumber: roll?.rollNumber || r.rollNumber,
+          width: roll?.width ?? r.width,
+          pattern: roll?.pattern || r.pattern,
+        });
+      });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
+      const timeB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
+      if (timeA !== timeB) return timeB - timeA;
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+  };
+
+  // เก็บ snapshot ล่าสุดของ sub-collection ไว้ merge กับ records ที่เปลี่ยนหลัง realign
+  const subItemsRef = React.useRef<CutHistoryItem[]>([]);
+
   useEffect(() => {
     if (!roll?.id) return;
     setIsLoading(true);
@@ -98,56 +159,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
       roll.id,
       (subItems) => {
         setIsLoading(false);
-        
-        // Merge records: Map by ID to prevent duplicates
-        const map = new Map<string, CutHistoryItem>();
-
-        // 1. Root records
-        const rootItems = records
-          .filter((r) => r.foilId === roll.id)
-          .map((r) => ({
-            id: r.id,
-            soNumber: r.soNumber,
-            cutMeters: r.usedMeters,
-            usedMeters: r.usedMeters,
-            ngMeters: r.ngMeters,
-            totalDeducted: r.totalDeducted,
-            remainingBefore: r.remainingBefore ?? 0,
-            remainingAfter: r.remainingAfter,
-            cutDate: r.usageDate || r.recordedDate,
-            usageDate: r.usageDate,
-            recordedDate: r.recordedDate,
-            recordedBy: r.recordedBy,
-            notes: r.notes,
-            createdAt: r.createdAt || r.recordedDate,
-            cutType: r.cutType || 'so',
-            nonSoReason: r.nonSoReason,
-            productionRound: r.productionRound,
-            roundNumber: r.roundNumber,
-            rollId: roll.id,
-            lotNumber: roll.lotNumber,
-            rollNumber: roll.rollNumber,
-          }));
-        rootItems.forEach((item) => map.set(item.id, item));
-
-        // 2. Sub-collection items
-        (subItems || []).forEach((item) => {
-          map.set(item.id, item);
-        });
-
-        const merged = Array.from(map.values()).sort((a, b) => {
-  // เรียงตามเวลาที่ตัดจริง (วันใช้งาน → วันบันทึก → เวลาสร้าง) จากล่าสุดไปเก่าสุด
-  // ห้ามเรียงจากค่ายอดคงเหลือ (remainingAfter) เพราะรายการที่กรอกย้อนหลัง หรือ
-  // สองรายการที่บังเอิญเหลือเท่ากัน จะทำให้ลำดับกระโดดและยอดก่อนตัด-หลังตัด
-  // ของแต่ละแถวดูไม่ต่อเนื่องกัน ทั้งที่ข้อมูลจริงเรียงถูกต้องตามเวลา
-  const timeA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
-  const timeB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
-  if (timeA !== timeB) return timeB - timeA;
-  // เสมอกัน: ใช้เวลาบันทึกจริง (createdAt) เป็นตัวตัดสินลำดับสุดท้าย
-  return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
-});
-
-setHistoryItems(merged);
+        subItemsRef.current = subItems || [];
+        setHistoryItems(buildMergedHistory(roll.id, records, subItemsRef.current));
       },
       (err: any) => {
         setIsLoading(false);
@@ -160,7 +173,16 @@ setHistoryItems(merged);
     return () => {
       unsubscribe();
     };
-  }, [roll?.id, records]);
+    // เฉพาะ roll.id — records เปลี่ยนแยก merge ด้านล่าง
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roll?.id]);
+
+  // เมื่อ records ใน App เปลี่ยน (หลัง realign / ลบ / ตัดใหม่) รี-merge ทันที
+  useEffect(() => {
+    if (!roll?.id) return;
+    setHistoryItems(buildMergedHistory(roll.id, records, subItemsRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, roll?.id]);
 
   // Run SO History Audit specifically for this roll
   const audit = useMemo(() => {
@@ -534,7 +556,26 @@ setHistoryItems(merged);
                       if (!onRealignChain || !roll || !audit) return;
                       setIsFixingThisRoll(true);
                       try {
-                        await onRealignChain(roll.id, audit.timeline.map((s) => s.record.id));
+                        const result = await onRealignChain(
+                          roll.id,
+                          audit.timeline.map((s) => s.record.id)
+                        );
+                        // ใช้ updatedRecords จาก realign ทันที (ไม่รอ React re-render / snapshot)
+                        const fresh =
+                          result?.updatedRecords && result.updatedRecords.length > 0
+                            ? result.updatedRecords
+                            : records;
+                        // รวมกับ records อื่นของม้วนนี้ที่ไม่อยู่ใน realign
+                        const byId = new Map(
+                          records
+                            .filter((r) => r.foilId === roll.id)
+                            .map((r) => [r.id, r])
+                        );
+                        (result?.updatedRecords || []).forEach((r) => byId.set(r.id, r));
+                        const mergedRoot = Array.from(byId.values());
+                        setHistoryItems(
+                          buildMergedHistory(roll.id, mergedRoot.length ? mergedRoot : fresh, subItemsRef.current)
+                        );
                       } finally {
                         setIsFixingThisRoll(false);
                       }
