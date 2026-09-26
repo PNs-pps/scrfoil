@@ -783,12 +783,18 @@ export default function App() {
     try {
       const finalRoll = await revertCutRecordInFirestore(recordId, targetRecord.foilId);
 
-      const updatedRolls = rolls.map((r) => (r.id === finalRoll.id ? finalRoll : r));
       const updatedRecords = records.filter((r) => r.id !== recordId);
-      updateRollsState(updatedRolls);
       updateRecordsState(updatedRecords);
 
-      showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
+      if (finalRoll) {
+        const updatedRolls = rolls.map((r) => (r.id === finalRoll.id ? finalRoll : r));
+        updateRollsState(updatedRolls);
+        showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
+      } else {
+        // Roll no longer exists — the orphaned/duplicate record was still
+        // removed, but there was no roll left to restore the meters into.
+        showToast(`ลบรายการซ้ำ SO ${targetRecord.soNumber} ออกแล้ว (ม้วนต้นทางถูกลบไปก่อนหน้านี้ จึงไม่มีสต๊อกให้คืนยอด) [ซิงค์ Cloud]`, 'info');
+      }
     } catch (err: any) {
       console.error('Firebase error while deleting/reverting cut record:', err);
       const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
@@ -841,10 +847,32 @@ export default function App() {
       }]);
 
       if (updated && updated.length > 0) {
-        const nextRolls = rolls.map((r) => (r.id === rollId ? updated[0] : r));
+        let nextRolls = rolls.map((r) => (r.id === rollId ? updated[0] : r));
+        let nextRecords = records;
+
+        // STRICT: fixing the roll's aggregate remaining meters is not enough —
+        // each individual ใบงาน (cut slip) still carries its own, possibly-wrong
+        // remainingBefore/remainingAfter. Re-chain every cut record for this
+        // roll too, so ใบงานที่ 1's "หลังตัด" always equals ใบงานที่ 2's "ก่อนตัด", etc.
+        if (!updated[0].isZeroedOut) {
+          const rollRecordIds = records.filter((r) => r.foilId === rollId).map((r) => r.id);
+          if (rollRecordIds.length > 0) {
+            try {
+              const { updatedRoll: realignedRoll, updatedRecords } = await realignRollCutChainInFirestore(rollId, rollRecordIds);
+              nextRolls = nextRolls.map((r) => (r.id === realignedRoll.id ? realignedRoll : r));
+              const updatedMap = new Map(updatedRecords.map((r) => [r.id, r]));
+              nextRecords = records.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
+              updateRecordsState(nextRecords);
+            } catch (realignErr) {
+              console.warn('Notice: chain realign after single-roll fix failed:', realignErr);
+            }
+          }
+        }
+
         updateRollsState(nextRolls);
-        showToast(`ปรับปรุงยอดคงเหลือม้วนล็อต ${updated[0].lotNumber} #${updated[0].rollNumber} เป็น ${formatMeters(updated[0].remainingMeters)} ม. สำเร็จ ✅`);
-        const newIssues = checkStockIntegrity(nextRolls, records);
+        const fixedRoll = nextRolls.find((r) => r.id === rollId) || updated[0];
+        showToast(`ปรับปรุงยอดคงเหลือม้วนล็อต ${fixedRoll.lotNumber} #${fixedRoll.rollNumber} เป็น ${formatMeters(fixedRoll.remainingMeters)} ม. สำเร็จ ✅`);
+        const newIssues = checkStockIntegrity(nextRolls, nextRecords);
         setStockIntegrityIssues(newIssues);
       }
     } catch (err: any) {
@@ -861,10 +889,30 @@ export default function App() {
       const updated = await reconcileRollsInFirestore(adjustments);
       if (updated && updated.length > 0) {
         const updatedMap = new Map(updated.map((r) => [r.id, r]));
-        const nextRolls = rolls.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
+        let nextRolls = rolls.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
+        let nextRecords = records;
+
+        // STRICT: same as the single-roll fix — also re-chain every roll's own
+        // cut records so ใบงานที่ 1, 2, 3... ก่อนตัด/หลังตัด stay continuous,
+        // not just the roll-level total.
+        for (const roll of updated) {
+          if (roll.isZeroedOut) continue;
+          const rollRecordIds = nextRecords.filter((r) => r.foilId === roll.id).map((r) => r.id);
+          if (rollRecordIds.length === 0) continue;
+          try {
+            const { updatedRoll: realignedRoll, updatedRecords } = await realignRollCutChainInFirestore(roll.id, rollRecordIds);
+            nextRolls = nextRolls.map((r) => (r.id === realignedRoll.id ? realignedRoll : r));
+            const localUpdatedMap = new Map(updatedRecords.map((r) => [r.id, r]));
+            nextRecords = nextRecords.map((r) => (localUpdatedMap.has(r.id) ? localUpdatedMap.get(r.id)! : r));
+          } catch (realignErr) {
+            console.warn(`Notice: chain realign after bulk fix failed for roll ${roll.id}:`, realignErr);
+          }
+        }
+
         updateRollsState(nextRolls);
+        updateRecordsState(nextRecords);
         showToast(`ปรับปรุงยอดคงเหลือตามใบตัด SO อัตโนมัติสำเร็จ ${updated.length} ม้วน เรียบร้อยแล้ว ✅`);
-        const newIssues = checkStockIntegrity(nextRolls, records);
+        const newIssues = checkStockIntegrity(nextRolls, nextRecords);
         setStockIntegrityIssues(newIssues);
       }
     } catch (err: any) {
