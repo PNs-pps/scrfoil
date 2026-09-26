@@ -851,11 +851,12 @@ export async function realignRollCutChainInFirestore(
       throw new Error('ไม่พบรายการตัดในระบบที่สามารถปรับความต่อเนื่องได้');
     }
 
-    // Sort chronologically (oldest cut first)
+    // เรียงตามวันใบงาน (usageDate) เป็นหลัก → recordedDate → createdAt
     const sortedRecords = [...records].sort((a, b) => {
-      const tA = new Date(a.createdAt || a.usageDate || a.recordedDate || 0).getTime();
-      const tB = new Date(b.createdAt || b.usageDate || b.recordedDate || 0).getTime();
-      return tA - tB;
+      const tA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
+      const tB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
+      if (tA !== tB) return tA - tB;
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
     });
 
     let runningBalance = Number(serverRoll.totalMeters || 1000);
