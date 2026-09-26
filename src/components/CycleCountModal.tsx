@@ -9,6 +9,9 @@ import {
   Search,
   RotateCcw,
   Filter,
+  Folder,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { FoilRoll, CycleCountLine, CycleCountSession } from '../types';
 import { formatMeters, round2 } from '../utils/formatters';
@@ -66,11 +69,12 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [filterVarianceOnly, setFilterVarianceOnly] = useState(false);
 
-  // Search / filters
+  // Search / filters (คอมแพ็กต์แบบหน้าม้วนฟอยล์)
   const [searchQuery, setSearchQuery] = useState('');
-  const [lotQuery, setLotQuery] = useState('');
   const [selectedWidth, setSelectedWidth] = useState<string>('all');
   const [selectedPattern, setSelectedPattern] = useState<string>('all');
+  const [collapsedWidth, setCollapsedWidth] = useState<Record<string, boolean>>({});
+  const [collapsedPattern, setCollapsedPattern] = useState<Record<string, boolean>>({});
 
   const availableWidths = useMemo(() => {
     const set = new Set<number>();
@@ -89,14 +93,12 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
 
   const hasActiveFilters =
     Boolean(searchQuery.trim()) ||
-    Boolean(lotQuery.trim()) ||
     selectedWidth !== 'all' ||
     selectedPattern !== 'all' ||
     filterVarianceOnly;
 
   const clearFilters = () => {
     setSearchQuery('');
-    setLotQuery('');
     setSelectedWidth('all');
     setSelectedPattern('all');
     setFilterVarianceOnly(false);
@@ -156,11 +158,6 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
         }
       }
 
-      if (lotQuery.trim()) {
-        const q = lotQuery.toLowerCase().trim();
-        if (!l.lotNumber.toLowerCase().includes(q)) return false;
-      }
-
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const hay = `${l.lotNumber} ${l.rollNumber} ${l.pattern} ${l.width}`.toLowerCase();
@@ -169,7 +166,28 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
 
       return true;
     });
-  }, [allLines, filterVarianceOnly, selectedWidth, selectedPattern, lotQuery, searchQuery]);
+  }, [allLines, filterVarianceOnly, selectedWidth, selectedPattern, searchQuery]);
+
+  // จัดกลุ่มแบบหน้าม้วนฟอยล์: หน้ากว้าง → ท้องลาย
+  const groupedFolders = useMemo(() => {
+    const widthMap = new Map<string, Map<string, CycleCountLine[]>>();
+    displayLines.forEach((l) => {
+      const wKey = String(l.width);
+      const pKey = normalizePattern(String(l.pattern));
+      if (!widthMap.has(wKey)) widthMap.set(wKey, new Map());
+      const pMap = widthMap.get(wKey)!;
+      if (!pMap.has(pKey)) pMap.set(pKey, []);
+      pMap.get(pKey)!.push(l);
+    });
+    return Array.from(widthMap.entries())
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([width, pMap]) => ({
+        width,
+        patterns: Array.from(pMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0], 'th'))
+          .map(([pattern, lines]) => ({ pattern, lines })),
+      }));
+  }, [displayLines]);
 
   if (!isOpen) return null;
 
@@ -286,53 +304,23 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
           </div>
         </div>
 
-        {/* Search + Filters — สไตล์เดียวกับหน้าม้วนฟอยล์ */}
-        <div className="px-4 sm:px-5 py-3 border-b border-slate-100 bg-white shrink-0 space-y-2.5">
-          <div className="flex flex-col sm:flex-row gap-2">
-            {/* ค้นหาทั่วไป */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+        {/* แถบค้นหา/กรองแบบคอมแพ็กต์ — คล้ายหน้าม้วนฟอยล์ */}
+        <div className="px-4 sm:px-5 py-2 border-b border-slate-100 bg-white shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="ค้นหา ล็อต / เบอร์ / ลาย..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400/40 focus:border-amber-400 focus:bg-white"
+                placeholder="ค้นหาล็อต / เบอร์..."
+                className="w-36 sm:w-44 pl-7 pr-2 py-1 rounded-lg border border-slate-200 bg-slate-50 text-[11px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-400/50 focus:bg-white"
               />
             </div>
-            {/* Lot No. */}
-            <div className="relative sm:w-40">
-              <input
-                type="text"
-                value={lotQuery}
-                onChange={(e) => setLotQuery(e.target.value)}
-                placeholder="Lot No."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400/40 focus:border-amber-400 focus:bg-white"
-              />
-            </div>
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors cursor-pointer shrink-0"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                ล้างค้นหา
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-              <Filter className="w-3 h-3" />
-              กรอง
-            </span>
-
-            {/* หน้ากว้าง */}
             <select
               value={selectedWidth}
               onChange={(e) => setSelectedWidth(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-800 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+              className="px-2 py-1 rounded-lg border border-slate-200 bg-white text-[11px] font-medium text-slate-700 cursor-pointer"
             >
               <option value="all">หน้ากว้างทั้งหมด</option>
               {availableWidths.map((w) => (
@@ -341,12 +329,10 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
                 </option>
               ))}
             </select>
-
-            {/* ท้องลาย */}
             <select
               value={selectedPattern}
               onChange={(e) => setSelectedPattern(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-800 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+              className="px-2 py-1 rounded-lg border border-slate-200 bg-white text-[11px] font-medium text-slate-700 cursor-pointer"
             >
               <option value="all">ท้องลายทั้งหมด</option>
               {availablePatterns.map((p) => (
@@ -355,24 +341,29 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
                 </option>
               ))}
             </select>
-
-            {/* เฉพาะส่วนต่าง */}
             <button
               type="button"
               onClick={() => setFilterVarianceOnly((v) => !v)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+              className={`px-2 py-1 rounded-lg text-[11px] font-bold border cursor-pointer ${
                 filterVarianceOnly
-                  ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-xs'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  ? 'bg-amber-500 text-slate-950 border-amber-600'
+                  : 'bg-white text-slate-600 border-slate-200'
               }`}
             >
-              {filterVarianceOnly
-                ? `ส่วนต่าง (${varianceLines.length})`
-                : `ทั้งหมด (${allLines.length})`}
+              {filterVarianceOnly ? `ส่วนต่าง (${varianceLines.length})` : `ทั้งหมด (${allLines.length})`}
             </button>
-
-            <span className="text-[11px] text-slate-400 ml-auto font-mono">
-              แสดง {displayLines.length}/{allLines.length} ม้วน
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-[11px] font-bold cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                ล้าง
+              </button>
+            )}
+            <span className="text-[10px] text-slate-400 ml-auto font-mono">
+              {displayLines.length}/{allLines.length} ม้วน
             </span>
           </div>
         </div>
@@ -384,157 +375,207 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
           </div>
         )}
 
-        {/* Table */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 min-h-0">
-          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-xs">
-            <table className="w-full text-xs min-w-[720px]">
-              <thead className="bg-slate-100/90 text-slate-600 sticky top-0 z-10 backdrop-blur-sm">
-                <tr>
-                  <th className="text-left px-3 py-2.5 font-bold whitespace-nowrap">ล็อต / เบอร์</th>
-                  <th className="text-left px-3 py-2.5 font-bold whitespace-nowrap">ลาย · หน้า</th>
-                  <th className="text-right px-3 py-2.5 font-bold whitespace-nowrap">ยอดระบบ</th>
-                  <th className="text-right px-3 py-2.5 font-bold whitespace-nowrap">นับจริง</th>
-                  <th className="text-right px-3 py-2.5 font-bold whitespace-nowrap">ส่วนต่าง</th>
-                  <th className="text-left px-3 py-2.5 font-bold whitespace-nowrap">เหตุผล (ถ้าต่าง)</th>
-                  <th className="text-center px-3 py-2.5 font-bold whitespace-nowrap">ปรับยอด</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayLines.map((line) => {
-                  const hasVar = Math.abs(line.variance) > 0.001;
-                  const style = getPatternStyle(String(line.pattern));
-                  return (
-                    <tr
-                      key={line.rollId}
-                      className={`border-t border-slate-100 transition-colors ${
-                        hasVar ? 'bg-amber-50/70 hover:bg-amber-50' : 'bg-white hover:bg-slate-50/80'
-                      }`}
-                    >
-                      <td className="px-3 py-2 font-mono font-semibold text-slate-900 whitespace-nowrap">
-                        <span className="text-slate-900">{line.lotNumber}</span>
-                        <span className="text-slate-400 mx-0.5">#</span>
-                        <span className="text-amber-700">{line.rollNumber}</span>
-                      </td>
-                      <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${style.badgeClass || 'bg-slate-100 border-slate-200'}`}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full ${style.dotClass || 'bg-slate-400'}`} />
-                          {line.pattern}
-                        </span>
-                        <span className="text-slate-400 mx-1">·</span>
-                        <span className="font-mono text-slate-600">{line.width} มม.</span>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-700 tabular-nums">
-                        {formatMeters(line.systemRemaining)}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.01}
-                          disabled={!canEdit || isSubmitting}
-                          value={
-                            physicalMap[line.rollId] !== undefined
-                              ? physicalMap[line.rollId]
-                              : String(line.systemRemaining)
-                          }
-                          onChange={(e) => handlePhysicalChange(line.rollId, e.target.value)}
-                          className="w-24 px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-right font-mono text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400 disabled:bg-slate-50 disabled:text-slate-400"
-                        />
-                      </td>
-                      <td
-                        className={`px-3 py-2 text-right font-mono font-bold tabular-nums ${
-                          hasVar
-                            ? line.variance > 0
-                              ? 'text-emerald-700'
-                              : 'text-rose-700'
-                            : 'text-slate-300'
-                        }`}
-                      >
-                        {hasVar ? (line.variance > 0 ? '+' : '') + formatMeters(line.variance) : '—'}
-                      </td>
-                      <td className="px-3 py-2 min-w-[160px]">
-                        {hasVar ? (
-                          <select
-                            disabled={!canEdit || isSubmitting}
-                            value={reasonMap[line.rollId] || ''}
-                            onChange={(e) =>
-                              setReasonMap((prev) => ({ ...prev, [line.rollId]: e.target.value }))
-                            }
-                            className={`w-full px-2 py-1.5 rounded-lg border text-xs focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:bg-slate-50 cursor-pointer ${
-                              reasonMap[line.rollId]
-                                ? 'border-amber-300 bg-white text-slate-900'
-                                : 'border-rose-300 bg-rose-50/50 text-slate-500'
-                            }`}
-                          >
-                            <option value="">— เลือกเหตุผล —</option>
-                            {CYCLE_COUNT_REASONS.map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {hasVar ? (
-                          <input
-                            type="checkbox"
-                            disabled={!canEdit || isSubmitting}
-                            checked={Boolean(adjustMap[line.rollId])}
-                            onChange={(e) =>
-                              setAdjustMap((prev) => ({ ...prev, [line.rollId]: e.target.checked }))
-                            }
-                            title="ติ๊กเพื่อปรับยอดในระบบให้เท่าของจริงเมื่อบันทึกเสร็จ"
-                            className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400 cursor-pointer accent-amber-500"
-                          />
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {displayLines.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-3 py-12 text-center">
-                      <div className="flex flex-col items-center gap-2 text-slate-400">
-                        <Search className="w-8 h-8 opacity-40" />
-                        <p className="font-semibold text-slate-600 text-sm">ไม่พบม้วนที่ตรงเงื่อนไข</p>
-                        <p className="text-[11px] text-slate-400">ลองเปลี่ยนตัวกรอง หรือกดล้างค้นหา</p>
-                        {hasActiveFilters && (
+        {/* รายการแบบโฟลเดอร์: หน้ากว้าง → ท้องลาย (เหมือนหน้าม้วนฟอยล์) */}
+        <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-2.5 min-h-0 space-y-2">
+          {displayLines.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 space-y-2">
+              <Search className="w-8 h-8 mx-auto opacity-40" />
+              <p className="font-semibold text-slate-600 text-sm">ไม่พบม้วนที่ตรงเงื่อนไข</p>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  ล้างค้นหา
+                </button>
+              )}
+            </div>
+          ) : (
+            groupedFolders.map(({ width, patterns }) => {
+              const widthOpen = !collapsedWidth[width];
+              const widthCount = patterns.reduce((s, p) => s + p.lines.length, 0);
+              return (
+                <div key={width} className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCollapsedWidth((prev) => ({ ...prev, [width]: widthOpen }))
+                    }
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900 text-white text-left cursor-pointer"
+                  >
+                    {widthOpen ? (
+                      <ChevronDown className="w-4 h-4 text-amber-400" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                    )}
+                    <Folder className="w-4 h-4 text-amber-400" />
+                    <span className="font-bold text-sm">{width} มม.</span>
+                    <span className="text-[10px] text-slate-400 font-mono ml-1">{widthCount} ม้วน</span>
+                  </button>
+                  {widthOpen &&
+                    patterns.map(({ pattern, lines }) => {
+                      const pKey = `${width}::${pattern}`;
+                      const pOpen = !collapsedPattern[pKey];
+                      const style = getPatternStyle(pattern);
+                      return (
+                        <div key={pKey} className="border-t border-slate-100">
                           <button
                             type="button"
-                            onClick={clearFilters}
-                            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold cursor-pointer"
+                            onClick={() =>
+                              setCollapsedPattern((prev) => ({ ...prev, [pKey]: pOpen }))
+                            }
+                            className="w-full flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-left cursor-pointer"
                           >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            ล้างค้นหา
+                            {pOpen ? (
+                              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                            )}
+                            <span
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${style.badgeClass || 'bg-white border-slate-200'}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${style.dotClass || 'bg-slate-400'}`} />
+                              {pattern}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">{lines.length} ม้วน</span>
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                          {pOpen && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs min-w-[640px]">
+                                <thead className="bg-slate-100/80 text-slate-500 text-[10px]">
+                                  <tr>
+                                    <th className="text-left px-2.5 py-1.5 font-bold">ล็อต / เบอร์</th>
+                                    <th className="text-right px-2.5 py-1.5 font-bold">ยอดระบบ</th>
+                                    <th className="text-right px-2.5 py-1.5 font-bold">นับจริง</th>
+                                    <th className="text-right px-2.5 py-1.5 font-bold">ส่วนต่าง</th>
+                                    <th className="text-left px-2.5 py-1.5 font-bold">เหตุผล</th>
+                                    <th className="text-center px-2.5 py-1.5 font-bold">ปรับ</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {lines.map((line) => {
+                                    const hasVar = Math.abs(line.variance) > 0.001;
+                                    return (
+                                      <tr
+                                        key={line.rollId}
+                                        className={`border-t border-slate-50 ${
+                                          hasVar ? 'bg-amber-50/60' : 'bg-white'
+                                        }`}
+                                      >
+                                        <td className="px-2.5 py-1.5 font-mono font-semibold whitespace-nowrap">
+                                          {line.lotNumber}
+                                          <span className="text-slate-400">#</span>
+                                          <span className="text-amber-700">{line.rollNumber}</span>
+                                        </td>
+                                        <td className="px-2.5 py-1.5 text-right font-mono tabular-nums">
+                                          {formatMeters(line.systemRemaining)}
+                                        </td>
+                                        <td className="px-2.5 py-1.5 text-right">
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step={0.01}
+                                            disabled={!canEdit || isSubmitting}
+                                            value={
+                                              physicalMap[line.rollId] !== undefined
+                                                ? physicalMap[line.rollId]
+                                                : String(line.systemRemaining)
+                                            }
+                                            onChange={(e) =>
+                                              handlePhysicalChange(line.rollId, e.target.value)
+                                            }
+                                            className="w-20 px-1.5 py-1 rounded border border-slate-200 text-right font-mono text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                          />
+                                        </td>
+                                        <td
+                                          className={`px-2.5 py-1.5 text-right font-mono font-bold tabular-nums ${
+                                            hasVar
+                                              ? line.variance > 0
+                                                ? 'text-emerald-700'
+                                                : 'text-rose-700'
+                                              : 'text-slate-300'
+                                          }`}
+                                        >
+                                          {hasVar
+                                            ? (line.variance > 0 ? '+' : '') +
+                                              formatMeters(line.variance)
+                                            : '—'}
+                                        </td>
+                                        <td className="px-2.5 py-1.5 min-w-[130px]">
+                                          {hasVar ? (
+                                            <select
+                                              disabled={!canEdit || isSubmitting}
+                                              value={reasonMap[line.rollId] || ''}
+                                              onChange={(e) =>
+                                                setReasonMap((prev) => ({
+                                                  ...prev,
+                                                  [line.rollId]: e.target.value,
+                                                }))
+                                              }
+                                              className={`w-full px-1.5 py-1 rounded border text-[11px] cursor-pointer ${
+                                                reasonMap[line.rollId]
+                                                  ? 'border-amber-300 bg-white'
+                                                  : 'border-rose-300 bg-rose-50/50'
+                                              }`}
+                                            >
+                                              <option value="">— เลือก —</option>
+                                              {CYCLE_COUNT_REASONS.map((r) => (
+                                                <option key={r} value={r}>
+                                                  {r}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          ) : (
+                                            <span className="text-slate-300">—</span>
+                                          )}
+                                        </td>
+                                        <td className="px-2.5 py-1.5 text-center">
+                                          {hasVar ? (
+                                            <input
+                                              type="checkbox"
+                                              disabled={!canEdit || isSubmitting}
+                                              checked={Boolean(adjustMap[line.rollId])}
+                                              onChange={(e) =>
+                                                setAdjustMap((prev) => ({
+                                                  ...prev,
+                                                  [line.rollId]: e.target.checked,
+                                                }))
+                                              }
+                                              className="w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                                            />
+                                          ) : (
+                                            <span className="text-slate-300">—</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              );
+            })
+          )}
 
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-slate-500">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 pt-1">
             <span className="inline-flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              ม้วนทั้งหมด <strong className="text-slate-800 font-mono">{allLines.length}</strong>
+              ทั้งหมด <strong className="font-mono text-slate-800">{allLines.length}</strong>
             </span>
             <span className="inline-flex items-center gap-1">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-              มีส่วนต่าง <strong className="text-slate-800 font-mono">{varianceLines.length}</strong> ม้วน
+              ส่วนต่าง <strong className="font-mono text-slate-800">{varianceLines.length}</strong>
             </span>
             {missingReasons.length > 0 && (
               <span className="text-rose-600 font-semibold">
-                ยังไม่ระบุเหตุผล {missingReasons.length} ม้วน
+                ยังไม่ระบุเหตุผล {missingReasons.length}
               </span>
             )}
           </div>

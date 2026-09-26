@@ -461,25 +461,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                           </span>
                         </div>
 
-                        {/* Accept button for Re-chaining SO continuity */}
-                        {canEdit && onRealignChain && hasChainJump && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRealignConfirmTarget(res);
-                              setRealignConsentChecked(false);
-                            }}
-                            disabled={isRealigning === res.rollId}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
-                            title="Accept ปรับยอดความต่อเนื่อง SO (Re-chain)"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Accept ปรับความต่อเนื่อง</span>
-                            <span className="sm:hidden">Accept</span>
-                          </button>
-                        )}
-
-                        {canEdit && res.canAutoAdjust && (
+                        {canEdit && res.canAutoAdjust && !hasChainJump && (
                           <button
                             type="button"
                             onClick={() => handleFixSingleRoll(res)}
@@ -511,10 +493,12 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Detected Issues Badges */}
-                    {res.issues.length > 0 && (
+                    {/* Issues (ซ่อน METER_JUMP — แสดงในกล่องปรับความต่อเนื่องเดียวแทน เพื่อไม่ทับซ้อน) */}
+                    {res.issues.filter((i) => i.type !== 'METER_JUMP').length > 0 && (
                       <div className="mt-3 space-y-1.5 pt-3 border-t border-slate-100">
-                        {res.issues.map((iss) => (
+                        {res.issues
+                          .filter((i) => i.type !== 'METER_JUMP')
+                          .map((iss) => (
                           <div 
                             key={iss.id} 
                             className={`p-2.5 rounded-lg text-xs flex items-start gap-2 ${
@@ -537,7 +521,6 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                 </span>
                               )}
 
-                              {/* Quick Action: Delete duplicate record if exact duplicate detected */}
                               {iss.type === 'DUPLICATE_SO_EXACT' && onDeleteRecord && iss.duplicateRecordIds && iss.duplicateRecordIds.length > 0 && (
                                 <div className="pt-1.5 flex items-center gap-2">
                                   <button
@@ -575,67 +558,50 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                         <div className="flex items-center gap-2">
                           <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-amber-600" />
-                            <span>ไทม์ไลน์การตัดเรียงตามลำดับเวลา ({res.timeline.length} รายการ)</span>
+                            <span>ไทม์ไลน์การตัดเรียงตามวันใบงาน ({res.timeline.length} รายการ)</span>
                           </h4>
                           {hasChainJump && (
                             <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
-                              พบจุดยอดกระโดด
+                              พบจุดยอดกระโดด {res.issues.filter((i) => i.type === 'METER_JUMP').length}
                             </span>
                           )}
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-slate-500">
-                            ตรวจสอบความต่อเนื่องของยอดคงเหลือแต่ละใบงาน
-                          </span>
-                          {canEdit && onRealignChain && hasChainJump && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRealignConfirmTarget(res);
-                                setRealignConsentChecked(false);
-                              }}
-                              disabled={isRealigning === res.rollId}
-                              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>⚡ Accept ปรับยอดความต่อเนื่อง</span>
-                            </button>
-                          )}
-                        </div>
+                        <span className="text-[11px] text-slate-500">
+                          ยอดก่อนตัด → หลังตัด ควรต่อเนื่องตามลำดับวัน
+                        </span>
                       </div>
 
-                      {/* Chain Jump Prompt Banner */}
-                      {hasChainJump && (
-                        <div className="mb-3 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between flex-wrap gap-3 animate-in fade-in">
-                          <div className="flex items-start gap-2.5 text-xs text-amber-950 flex-1 min-w-[240px]">
+                      {/* กล่องเดียว: คำเตือน + ปุ่มปรับความต่อเนื่อง (ไม่ซ้ำซ้อน) */}
+                      {hasChainJump && canEdit && onRealignChain && (
+                        <div className="mb-3 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between flex-wrap gap-3">
+                          <div className="flex items-start gap-2.5 text-xs text-amber-950 flex-1 min-w-[200px]">
                             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                             <div>
-                              <div className="font-bold text-amber-900 flex items-center gap-2">
-                                <span>ตรวจพบยอดคงเหลือก่อนตัด/หลังตัดกระโดด ไม่ต่อเนื่องกัน</span>
-                                <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
-                                  {res.issues.filter((i) => i.type === 'METER_JUMP').length} จุดกระโดด
-                                </span>
+                              <div className="font-bold text-amber-900">
+                                ยอดก่อนตัด/หลังตัดไม่ต่อเนื่อง — เรียงตามวันใบงานแล้วคำนวณใหม่
                               </div>
                               <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                                กดปุ่ม <strong>Accept</strong> เพื่อให้ระบบคำนวณยอดคงเหลือก่อนตัด-หลังตัดของทุกใบงานใหม่ตั้งแต่เมตรเริ่มต้น ({formatMeters(res.totalMeters)} ม.) เรียงตามลำดับเวลา ให้เชื่อมต่อกันอย่างสมบูรณ์ ไม่มียอดกระโดด
+                                เริ่มจาก {formatMeters(res.totalMeters)} ม. แล้วไล่หักตามลำดับวันใช้งานของแต่ละใบ
+                                ให้ยอดหลังตัดของใบก่อน = ยอดก่อนตัดของใบถัดไป
                               </p>
                             </div>
                           </div>
-                          {canEdit && onRealignChain && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRealignConfirmTarget(res);
-                                setRealignConsentChecked(false);
-                              }}
-                              disabled={isRealigning === res.rollId}
-                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Accept ปรับยอดความต่อเนื่อง SO</span>
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRealignConfirmTarget(res);
+                              setRealignConsentChecked(false);
+                            }}
+                            disabled={isRealigning === res.rollId}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>
+                              {isRealigning === res.rollId
+                                ? 'กำลังปรับ...'
+                                : 'ปรับยอดก่อนตัด–หลังตัด ให้ต่อเนื่อง'}
+                            </span>
+                          </button>
                         </div>
                       )}
 

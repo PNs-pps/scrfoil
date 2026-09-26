@@ -101,19 +101,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
 
-              {/* SO Bug Inspector — compact notification-style badge (text form) */}
+              {/* SO Bug Inspector — ไอคอนเล็ก + จุดแจ้งเตือน */}
               {onOpenSOAudit && (
                 <button
                   type="button"
                   onClick={onOpenSOAudit}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50/80 hover:bg-amber-100 border border-amber-200 text-amber-900 text-[11px] font-semibold transition-all cursor-pointer"
-                  title="ตรวจหาบัคจากประวัติ SO และตรวจสอบยอดคงเหลือสต๊อก"
+                  className="relative p-1.5 sm:p-2 rounded-lg text-slate-600 hover:text-amber-800 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition-all cursor-pointer"
+                  title={
+                    soBugCount && soBugCount > 0
+                      ? `ตรวจหาบัค SO (${soBugCount} ม้วน)`
+                      : 'ตรวจหาบัคจากประวัติ SO'
+                  }
                 >
-                  <Bug className="w-3 h-3 text-amber-600" />
-                  <span>บัค SO</span>
+                  <Bug className={`w-4 h-4 ${soBugCount && soBugCount > 0 ? 'text-amber-600' : 'text-slate-500'}`} />
                   {Boolean(soBugCount && soBugCount > 0) && (
-                    <span className="ml-0.5 px-1.5 py-0 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-4">
-                      {soBugCount}
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-rose-600 text-white text-[9px] font-bold leading-[14px] text-center">
+                      {soBugCount > 9 ? '9+' : soBugCount}
                     </span>
                   )}
                 </button>
