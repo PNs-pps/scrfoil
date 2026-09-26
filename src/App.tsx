@@ -1023,7 +1023,7 @@ export default function App() {
   const activeRollsCount = rolls.filter((r) => r.remainingMeters > 0).length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased selection:bg-amber-200">
+    <div className="min-h-screen bg-[#F4F6F9] text-slate-900 flex flex-col antialiased selection:bg-amber-200">
       {/* External update banner: another device changed data — offer a reload
           so this device doesn't keep working on a stale page. */}
       {externalUpdateAvailable && (
