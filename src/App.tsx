@@ -805,6 +805,10 @@ export default function App() {
           ? 'กฎความปลอดภัย (Security Rules) ของ Firestore กำลังปฏิเสธการลบข้อมูล กรุณาตรวจสอบสิทธิ์การลบ (delete) ในหน้า Rules แล้วลองใหม่อีกครั้ง ข้อมูลเดิมยังไม่ถูกเปลี่ยนแปลง'
           : 'กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตหรือสถานะ Cloud แล้วลองใหม่อีกครั้ง ข้อมูลเดิมยังไม่ถูกเปลี่ยนแปลง',
       });
+      // STRICT: re-throw so callers (e.g. the duplicate-record delete confirm
+      // dialog in SOBugInspectorModal) know the delete actually failed instead
+      // of assuming success and closing as if the duplicate had been removed.
+      throw err;
     }
   };
 
@@ -1175,7 +1179,13 @@ export default function App() {
         {activeTab === 'history' && (
           <CuttingHistoryTable
             records={records}
-            onDeleteRecord={(recId) => requireEditorPermission(() => handleDeleteRecord(recId))}
+            onDeleteRecord={(recId) => requireEditorPermission(() => {
+              // handleDeleteRecord now rethrows on failure (so the duplicate-
+              // delete confirm dialog elsewhere can detect it); this call site
+              // doesn't await the result, so swallow here — the error alert
+              // modal triggered inside handleDeleteRecord already informs the user.
+              handleDeleteRecord(recId).catch(() => {});
+            })}
             onOpenCutModal={() => {
               requireEditorPermission(() => {
                 setPreselectedRollId(null);
