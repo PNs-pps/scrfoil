@@ -178,5 +178,8 @@ export interface CycleCountSession {
   notes?: string;
   lines: CycleCountLine[];
   createdAt: string;
+  updatedAt?: string;        // บันทึกล่าสุด (แก้ไขต่อข้ามวัน)
   completedAt?: string;
+  /** id ใบตัดที่สร้างตอนปรับยอด — ใช้ตอนลบประวัติเพื่อคืนยอด + ลบใบนับสต๊อก */
+  adjustmentRecordIds?: string[];
 }

@@ -31,6 +31,7 @@ import {
   fetchArchivedFoilRolls,
   saveCycleCountSession,
   applyCycleCountAdjustments,
+  deleteCycleCountSession,
   firebaseConfig,
   activeTarget,
   setActiveTarget
@@ -947,6 +948,14 @@ export default function App() {
           period: session.period,
           countedBy: session.countedBy,
         });
+        // เก็บ id ใบปรับยอดไว้ใน session เพื่อตอนลบประวัติจะคืนยอด + ลบใบนับสต๊อกได้
+        if (createdRecords.length > 0) {
+          await saveCycleCountSession({
+            ...session,
+            adjustmentRecordIds: createdRecords.map((r) => r.id),
+            updatedAt: new Date().toISOString(),
+          });
+        }
         if (updatedRolls.length > 0) {
           setRolls((prev) => {
             const byId = new Map(prev.map((r) => [r.id, r]));
@@ -965,7 +974,6 @@ export default function App() {
             setArchiveLoaded(false);
           }
         }
-        // ใส่รายการ Cycle Count ลงประวัติตัด (records) เพื่อให้ integrity / SO audit คำนวณยอดตรง
         if (createdRecords.length > 0) {
           setRecords((prev) => {
             const byId = new Map(prev.map((r) => [r.id, r]));
@@ -978,6 +986,35 @@ export default function App() {
           });
         }
       }
+    }
+  };
+
+  /** ลบประวัติ Cycle Count แล้วคืนยอดม้วน + ลบใบนับสต๊อก */
+  const handleDeleteCycleCountSession = async (session: CycleCountSession) => {
+    const { restoredRolls, deletedRecordIds } = await deleteCycleCountSession(session);
+    if (restoredRolls.length > 0) {
+      setRolls((prev) => {
+        const byId = new Map(prev.map((r) => [r.id, r]));
+        restoredRolls.forEach((u) => {
+          if (u.status === 'active' && u.remainingMeters > 0) {
+            byId.set(u.id, u);
+          } else if (u.remainingMeters <= 0) {
+            byId.delete(u.id);
+          } else {
+            byId.set(u.id, u);
+          }
+        });
+        const next = Array.from(byId.values());
+        saveStoredRolls(next);
+        return next;
+      });
+    }
+    if (deletedRecordIds.length > 0) {
+      setRecords((prev) => {
+        const next = prev.filter((r) => !deletedRecordIds.includes(r.id));
+        saveStoredCutRecords(next);
+        return next;
+      });
     }
   };
 
@@ -1394,6 +1431,7 @@ export default function App() {
         showToast={showToast}
         canEdit={userMode === 'editor'}
         onRequestUnlock={() => requireEditorPermission(() => {})}
+        onDeleteSession={handleDeleteCycleCountSession}
       />
 
       {/* Firebase Rules Configuration Guide Modal */}
