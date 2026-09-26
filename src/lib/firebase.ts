@@ -1352,14 +1352,134 @@ export async function saveCycleCountSession(session: CycleCountSession): Promise
   }
 }
 
-/** ลบเฉพาะเอกสารงวด Cycle Count — ไม่ลบประวัติตัดบนม้วน (ใบนับสต๊อกใน cut_history ยังอยู่) */
-export async function deleteCycleCountSession(sessionId: string): Promise<void> {
+/**
+ * ลบประวัติ Cycle Count + คืนยอดม้วน + ลบใบ «นับสต๊อก» ที่สร้างตอนปรับยอด
+ */
+export async function deleteCycleCountSession(
+  session: CycleCountSession | string
+): Promise<{ restoredRolls: FoilRoll[]; deletedRecordIds: string[] }> {
+  const sessionId = typeof session === 'string' ? session : session.id;
+  const fullSession: CycleCountSession | null =
+    typeof session === 'string' ? null : session;
+
+  const restoredRolls: FoilRoll[] = [];
+  const deletedRecordIds: string[] = [];
+  const period = fullSession?.period || '';
+  const soLabel = period ? `นับสต๊อก ${period}` : '';
+
+  // 1) หาใบตัดที่เกิดจาก Cycle Count
+  let recordIds = [...(fullSession?.adjustmentRecordIds || [])];
+  if (recordIds.length === 0 && fullSession) {
+    const adjustedRollIds = new Set(
+      (fullSession.lines || [])
+        .filter((l) => l.adjusted && Math.abs(l.variance) > 0.001)
+        .map((l) => l.rollId)
+    );
+    if (adjustedRollIds.size > 0 || soLabel) {
+      try {
+        const snap = await getDocs(collection(db, RECORDS_COLLECTION));
+        snap.forEach((d) => {
+          const rec = d.data() as StockCutRecord;
+          const id = d.id;
+          const isCcId = id.startsWith('cc_');
+          const isCcSo =
+            soLabel &&
+            String(rec.soNumber || '').trim() === soLabel;
+          const isTargetRoll = adjustedRollIds.size === 0 || adjustedRollIds.has(rec.foilId);
+          if ((isCcId || isCcSo) && isTargetRoll) {
+            recordIds.push(id);
+          }
+        });
+      } catch (err: any) {
+        console.warn('scan cycle count records failed:', err?.message || err);
+      }
+    }
+  }
+  recordIds = Array.from(new Set(recordIds));
+
+  // 2) ลบใบตัด + cut_history + cuts และคืนยอดม้วนตาม systemRemaining ใน session
+  const adjustedLines = (fullSession?.lines || []).filter(
+    (l) => l.adjusted && Math.abs(l.variance) > 0.001
+  );
+
+  for (const line of adjustedLines) {
+    const rollRef = doc(db, ROLLS_COLLECTION, line.rollId);
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(rollRef);
+        if (!snap.exists()) return;
+        const serverRoll = snap.data() as FoilRoll;
+        // คืนยอดตามยอดระบบตอนนับ (systemRemaining)
+        const restoreTo = Math.max(0, Number(line.systemRemaining) || 0);
+        const next: FoilRoll = {
+          ...serverRoll,
+          remainingMeters: restoreTo,
+          usedMeters: Math.max(
+            0,
+            Math.round(
+              ((serverRoll.totalMeters || 0) - restoreTo - (serverRoll.ngMeters || 0)) * 100
+            ) / 100
+          ),
+          status: restoreTo > 0 ? ('active' as const) : ('depleted' as const),
+          isZeroedOut: restoreTo <= 0,
+          recentCuts: (serverRoll.recentCuts || []).filter(
+            (c) => !recordIds.includes(c.id) && !(c.soNumber || '').startsWith('นับสต๊อก')
+          ),
+        };
+        tx.set(rollRef, sanitizeForFirestore(next), { merge: true });
+        restoredRolls.push(next);
+      });
+    } catch (err: any) {
+      console.warn(`restore roll ${line.rollId} failed:`, err?.message || err);
+    }
+  }
+
+  // 3) ลบใบตัดทีละใบ
+  for (const recordId of recordIds) {
+    try {
+      // หา foilId จาก record ถ้ามี
+      const recRef = doc(db, RECORDS_COLLECTION, recordId);
+      const recSnap = await getDocFromServer(recRef).catch(() => null);
+      let foilId = '';
+      if (recSnap && recSnap.exists()) {
+        foilId = (recSnap.data() as StockCutRecord).foilId || '';
+      }
+      // ถ้าไม่มีใน server ลองจาก id แบบ cc_{rollId}_...
+      if (!foilId && recordId.startsWith('cc_')) {
+        const parts = recordId.split('_');
+        if (parts.length >= 2) foilId = parts[1];
+      }
+
+      await deleteDoc(recRef).catch(() => undefined);
+      if (foilId) {
+        await deleteDoc(doc(db, ROLLS_COLLECTION, foilId, 'cut_history', recordId)).catch(
+          () => undefined
+        );
+        await deleteDoc(doc(db, ROLLS_COLLECTION, foilId, 'cuts', recordId)).catch(
+          () => undefined
+        );
+      }
+      deletedRecordIds.push(recordId);
+    } catch (err: any) {
+      console.warn(`delete cycle count record ${recordId} failed:`, err?.message || err);
+    }
+  }
+
+  // 4) ลบเอกสารงวด
   try {
     await deleteDoc(doc(db, CYCLE_COUNTS_COLLECTION, sessionId));
   } catch (err: any) {
     console.warn('deleteCycleCountSession failed:', err?.message || err);
     throw err;
   }
+
+  markLocalWrite([
+    ...restoredRolls.map((r) => r.id),
+    ...deletedRecordIds,
+    sessionId,
+  ]);
+
+  return { restoredRolls, deletedRecordIds };
 }
 
 export async function fetchCycleCountSessions(limitCount: number = 24): Promise<CycleCountSession[]> {
