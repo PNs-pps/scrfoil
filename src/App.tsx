@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FoilRoll, StockCutRecord, PuSandwichCutRecord, CycleCountRecord } from './types';
+import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from './types';
 import { 
   getStoredRolls, 
   saveStoredRolls, 
@@ -28,16 +28,14 @@ import {
   uploadAllToFirestore,
   testFirestoreConnection,
   fetchAllCutRecordsFromFirestore,
+  fetchArchivedFoilRolls,
+  saveCycleCountSession,
+  applyCycleCountAdjustments,
   firebaseConfig,
   activeTarget,
-  setActiveTarget,
-  saveCycleCountSessionToFirestore,
-  fetchCycleCountHistory,
-  markCycleCountAdjustmentApplied,
-  fetchFreshRollsRemaining,
-  deleteCycleCountEntry,
-  deleteCycleCountSession
+  setActiveTarget
 } from './lib/firebase';
+import { CycleCountSession } from './types';
 import { Navbar } from './components/Navbar';
 import { FirebaseSyncBar } from './components/FirebaseSyncBar';
 import { FirebaseRulesModal } from './components/FirebaseRulesModal';
@@ -59,6 +57,7 @@ import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { IntegrityCheckModal } from './components/IntegrityCheckModal';
 import { SOBugInspectorModal } from './components/SOBugInspectorModal';
 import { CycleCountModal } from './components/CycleCountModal';
+import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
@@ -70,6 +69,9 @@ type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'setting
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
+  const [archivedRolls, setArchivedRolls] = useState<FoilRoll[]>([]);
+  const [archiveLoaded, setArchiveLoaded] = useState(false);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
   
@@ -124,66 +126,21 @@ export default function App() {
   const [isSOBugInspectorOpen, setIsSOBugInspectorOpen] = useState(false);
   const [soBugAuditTargetRollId, setSoBugAuditTargetRollId] = useState<string | null>(null);
 
-  // Physical Cycle Count (ตรวจนับสต๊อกประจำเดือน) State
-  const [isCycleCountOpen, setIsCycleCountOpen] = useState(false);
-
   // Real-time calculation of SO bugs across all rolls
   const soAuditResults = React.useMemo(() => {
     return auditAllRollsSOHistory(rolls, records);
   }, [rolls, records]);
 
+  // ไม่นับ SPLIT_PRODUCTION_BATCH (แบ่งรอบปกติ) เป็นบัคที่ต้องแจ้งเตือนบน badge
   const soBugCount = React.useMemo(() => {
-    // Rolls already zeroed out, or whose only findings are duplicate-SO
-    // notes (which now surface on the roll's own cutting-history view
-    // instead), don't count as an actionable bug for the badge/list.
     return soAuditResults.filter((r) =>
-      !r.isZeroedOut &&
-      r.issues.some((i) => i.type !== 'DUPLICATE_SO_EXACT' && i.type !== 'DUPLICATE_SO_MULTIPLE')
+      r.issues.some((i) => i.type !== 'SPLIT_PRODUCTION_BATCH')
     ).length;
   }, [soAuditResults]);
 
   const handleOpenSOAudit = (rollId?: string) => {
     setSoBugAuditTargetRollId(rollId || null);
     setIsSOBugInspectorOpen(true);
-  };
-
-  // Save one physical cycle-count session (audit trail, append-only)
-  const handleSaveCycleCountSession = async (entries: CycleCountRecord[]) => {
-    await saveCycleCountSessionToFirestore(entries);
-    showToast(`บันทึกผลตรวจนับสต๊อกสำเร็จ ${entries.length} ม้วน [ซิงค์ Cloud]`);
-  };
-
-  // Load past cycle-count sessions on-demand (not part of the realtime state)
-  const handleLoadCycleCountHistory = async () => {
-    return fetchCycleCountHistory();
-  };
-
-  // Re-fetch current remainingMeters straight from the server for a set of
-  // rolls, right before a Cycle Count session is saved — closes the
-  // stale-snapshot race condition described above.
-  const handleFetchFreshRemainingForCycleCount = async (rollIds: string[]) => {
-    return fetchFreshRollsRemaining(rollIds);
-  };
-
-  // Apply a cycle-count correction to a roll's remaining meters (reuses the
-  // same reconciliation transaction as the SO Bug Inspector's single-roll fix),
-  // and permanently flags the audit doc as adjusted so the history view
-  // reflects it correctly even after the modal is closed and reopened.
-  const handleApplyCycleCountAdjustment = async (entry: CycleCountRecord) => {
-    await handleFixRoll(entry.rollId, entry.physicalMeters);
-    await markCycleCountAdjustmentApplied(entry.id);
-  };
-
-  // Delete a single roll's entry from a past cycle-count session
-  const handleDeleteCycleCountEntry = async (entryId: string) => {
-    await deleteCycleCountEntry(entryId);
-    showToast('ลบรายการตรวจนับแล้ว', 'info');
-  };
-
-  // Delete an entire counting session (every roll counted that round)
-  const handleDeleteCycleCountSession = async (sessionId: string) => {
-    await deleteCycleCountSession(sessionId);
-    showToast('ลบประวัติการตรวจนับทั้งรอบแล้ว', 'info');
   };
 
   const runIntegrityCheck = (isManual: boolean = false) => {
@@ -212,6 +169,8 @@ export default function App() {
   const [editingRoll, setEditingRoll] = useState<FoilRoll | null>(null);
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
+  const [isCycleCountOpen, setIsCycleCountOpen] = useState(false);
+  const [isCycleCountHistoryOpen, setIsCycleCountHistoryOpen] = useState(false);
 
   // Error Alert Modal State
   const [errorAlert, setErrorAlert] = useState<{
@@ -250,9 +209,14 @@ export default function App() {
     let isInitialRollsFetch = true;
     const unsubRolls = subscribeToFoilRolls(
       (firestoreRolls) => {
-        if (firestoreRolls.length > 0) {
-          setRolls(firestoreRolls);
-          saveStoredRolls(firestoreRolls);
+        // activeOnly query already filters status==='active'; also drop any legacy
+        // depleted/zeroed that slipped through so the main list stays lean.
+        const activeRolls = firestoreRolls.filter(
+          (r) => r.status === 'active' && (r.remainingMeters > 0 || !r.isZeroedOut)
+        );
+        if (activeRolls.length > 0 || firestoreRolls.length === 0) {
+          setRolls(activeRolls.length > 0 ? activeRolls : firestoreRolls);
+          saveStoredRolls(activeRolls.length > 0 ? activeRolls : firestoreRolls);
         } else if (isInitialRollsFetch && loadedRolls.length > 0) {
           // If cloud is initially empty, seed from existing local rolls
           uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
@@ -272,6 +236,7 @@ export default function App() {
         }
       },
       {
+        activeOnly: true,
         onFromCache: (fromCache) => {
           setIsCached(fromCache);
         },
@@ -949,6 +914,60 @@ export default function App() {
     setIsCutModalOpen(true);
   };
 
+  const handleSaveCycleCount = async (session: CycleCountSession, applyAdjustments: boolean) => {
+    await saveCycleCountSession(session);
+    if (applyAdjustments) {
+      const toAdjust = session.lines
+        .filter((l) => l.adjusted && Math.abs(l.variance) > 0.001)
+        .map((l) => ({
+          rollId: l.rollId,
+          physicalCount: l.physicalCount,
+          systemRemaining: l.systemRemaining,
+          lotNumber: l.lotNumber,
+          rollNumber: l.rollNumber,
+          width: l.width,
+          pattern: l.pattern,
+          reason: l.reason,
+        }));
+      if (toAdjust.length > 0) {
+        const { updatedRolls, createdRecords } = await applyCycleCountAdjustments(toAdjust, {
+          period: session.period,
+          countedBy: session.countedBy,
+        });
+        if (updatedRolls.length > 0) {
+          setRolls((prev) => {
+            const byId = new Map(prev.map((r) => [r.id, r]));
+            updatedRolls.forEach((u) => {
+              if (u.status === 'active' && u.remainingMeters > 0) {
+                byId.set(u.id, u);
+              } else {
+                byId.delete(u.id);
+              }
+            });
+            const next = Array.from(byId.values());
+            saveStoredRolls(next);
+            return next;
+          });
+          if (updatedRolls.some((u) => u.status === 'depleted' || u.remainingMeters <= 0)) {
+            setArchiveLoaded(false);
+          }
+        }
+        // ใส่รายการ Cycle Count ลงประวัติตัด (records) เพื่อให้ integrity / SO audit คำนวณยอดตรง
+        if (createdRecords.length > 0) {
+          setRecords((prev) => {
+            const byId = new Map(prev.map((r) => [r.id, r]));
+            createdRecords.forEach((r) => byId.set(r.id, r));
+            const merged = Array.from(byId.values()).sort((a, b) =>
+              (b.createdAt || '').localeCompare(a.createdAt || '')
+            );
+            saveStoredCutRecords(merged);
+            return merged;
+          });
+        }
+      }
+    }
+  };
+
   // Aggregate metrics
   const totalRemainingMeters = rolls.reduce((sum, r) => sum + r.remainingMeters, 0);
   const activeRollsCount = rolls.filter((r) => r.remainingMeters > 0).length;
@@ -1071,6 +1090,23 @@ export default function App() {
         {activeTab === 'rolls' && (
           <FoilRollTable
             rolls={rolls}
+            archivedRolls={archivedRolls}
+            archiveLoaded={archiveLoaded}
+            isLoadingArchive={isLoadingArchive}
+            onLoadArchive={async () => {
+              if (isLoadingArchive) return;
+              setIsLoadingArchive(true);
+              try {
+                const archived = await fetchArchivedFoilRolls();
+                setArchivedRolls(archived);
+                setArchiveLoaded(true);
+                showToast(`โหลดคลังข้อมูลเก่าแล้ว ${archived.length} ม้วน`, 'info');
+              } catch (err: any) {
+                showToast(err?.message || 'โหลดคลังข้อมูลเก่าไม่สำเร็จ', 'info');
+              } finally {
+                setIsLoadingArchive(false);
+              }
+            }}
             onOpenCutModal={(rollId) => requireEditorPermission(() => handleOpenCutForRoll(rollId))}
             onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
             onViewRollHistory={(roll) => setDetailRoll(roll)}
@@ -1141,8 +1177,6 @@ export default function App() {
               requireEditorPermission(handleManualSaveToCloud);
             }}
             onManualFetchFromCloud={handleManualFetchFromCloud}
-            isSavingToCloud={isSavingToCloud}
-            isFetchingFromCloud={isFetchingFromCloud}
             onRestoreData={(newRolls, newRecords) => {
               requireEditorPermission(() => {
                 updateRollsState(newRolls);
@@ -1163,7 +1197,8 @@ export default function App() {
             isRunningIntegrityCheck={isRunningIntegrityCheck}
             integrityCheckState={getCheckState()}
             onOpenSOAudit={() => handleOpenSOAudit()}
-            onOpenCycleCount={() => setIsCycleCountOpen(true)}
+            onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
+            onOpenCycleCountHistory={() => setIsCycleCountHistoryOpen(true)}
           />
         )}
       </main>
@@ -1329,18 +1364,23 @@ export default function App() {
         canEdit={userMode === 'editor'}
       />
 
-      {/* Physical Cycle Count (ตรวจนับสต๊อกประจำเดือน) Modal */}
+      {/* Physical Cycle Count Modal */}
       <CycleCountModal
         isOpen={isCycleCountOpen}
         onClose={() => setIsCycleCountOpen(false)}
         rolls={rolls}
+        onSaveSession={handleSaveCycleCount}
+        showToast={showToast}
         canEdit={userMode === 'editor'}
-        onSaveSession={handleSaveCycleCountSession}
-        onApplyAdjustment={handleApplyCycleCountAdjustment}
-        onLoadHistory={handleLoadCycleCountHistory}
-        onFetchFreshRemaining={handleFetchFreshRemainingForCycleCount}
-        onDeleteEntry={handleDeleteCycleCountEntry}
-        onDeleteSession={handleDeleteCycleCountSession}
+      />
+
+      {/* Cycle Count History / Compare Modal */}
+      <CycleCountHistoryModal
+        isOpen={isCycleCountHistoryOpen}
+        onClose={() => setIsCycleCountHistoryOpen(false)}
+        showToast={showToast}
+        canEdit={userMode === 'editor'}
+        onRequestUnlock={() => requireEditorPermission(() => {})}
       />
 
       {/* Firebase Rules Configuration Guide Modal */}

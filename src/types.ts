@@ -81,33 +81,6 @@ export interface StockCutRecord {
   createdAt: string;
 }
 
-/**
- * A single roll's result within a monthly physical stock count
- * (ระบบตรวจนับสต๊อกประจำเดือน / Physical Cycle Count).
- * One document per roll counted, grouped by `sessionId` (one session =
- * one count-day/round). `varianceMeters` = physicalMeters - systemMeters;
- * a reason is required whenever the variance is non-zero.
- */
-export interface CycleCountRecord {
-  id: string;
-  sessionId: string;         // จัดกลุ่มรอบตรวจนับ เช่น "2569-09" หรือ timestamp ของรอบนั้น
-  sessionLabel: string;      // ป้ายรอบตรวจนับที่มนุษย์อ่านง่าย เช่น "ตรวจนับประจำเดือน ก.ย. 2569"
-  rollId: string;
-  lotNumber: string;
-  rollNumber: string;
-  pattern: FoilPattern;
-  width: FoilWidth;
-  systemMeters: number;      // ยอดคงเหลือตามระบบ ณ เวลาที่ตรวจนับ
-  physicalMeters: number;    // ยอดที่นับได้จริงหน้างาน
-  varianceMeters: number;    // physicalMeters - systemMeters (0 = ตรงกัน)
-  reason?: string;           // เหตุผลของส่วนต่าง (บังคับกรอกถ้า variance != 0)
-  countedBy: string;         // ผู้ตรวจนับ
-  countedAt: string;         // วันที่ตรวจนับ YYYY-MM-DD
-  adjustmentApplied?: boolean; // true ถ้ามีการกดปรับยอดในระบบให้ตรงกับของจริงแล้ว
-  notes?: string;
-  createdAt: string;
-}
-
 export interface SOComponents {
   yearBE: string;   // xx เช่น 69 (พ.ศ. 2569)
   month: string;    // yy เช่น 09 (ก.ย.)
@@ -178,4 +151,32 @@ export interface PuSandwichCutRecord {
   recordedBy?: string;            // ผู้บันทึก
   notes?: string;                 // หมายเหตุ
   createdAt: string;              // Timestamp บันทึก
+}
+
+/**
+ * ระบบตรวจนับสต๊อกประจำเดือน (Physical Cycle Count)
+ * เปรียบเทียบยอดในระบบ vs ของจริง และบันทึกเหตุผลส่วนต่าง
+ */
+export interface CycleCountLine {
+  rollId: string;
+  lotNumber: string;
+  rollNumber: string;
+  width: number | string;
+  pattern: string;
+  systemRemaining: number;   // ยอดในระบบ ณ เวลานับ
+  physicalCount: number;     // ยอดนับจริง
+  variance: number;          // physical - system
+  reason?: string;           // บังคับเมื่อ variance !== 0
+  adjusted?: boolean;        // ปรับยอดระบบให้เท่าของจริงแล้วหรือยัง
+}
+
+export interface CycleCountSession {
+  id: string;
+  period: string;            // YYYY-MM
+  status: 'draft' | 'completed';
+  countedBy?: string;
+  notes?: string;
+  lines: CycleCountLine[];
+  createdAt: string;
+  completedAt?: string;
 }
