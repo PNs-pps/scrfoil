@@ -136,12 +136,15 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         });
 
         const merged = Array.from(map.values()).sort((a, b) => {
-  // เรียงลำดับจากยอดคงเหลือ "น้อย" ไป "มาก" 
-  // (ทำให้รายการที่ถูกตัดยอดล่าสุด ซึ่งเหลือน้อยที่สุด อยู่บรรทัดบนสุดเสมอ)
-  const remA = Number(a.remainingAfter) || 0;
-  const remB = Number(b.remainingAfter) || 0;
-  
-  return remA - remB;
+  // เรียงตามเวลาที่ตัดจริง (วันใช้งาน → วันบันทึก → เวลาสร้าง) จากล่าสุดไปเก่าสุด
+  // ห้ามเรียงจากค่ายอดคงเหลือ (remainingAfter) เพราะรายการที่กรอกย้อนหลัง หรือ
+  // สองรายการที่บังเอิญเหลือเท่ากัน จะทำให้ลำดับกระโดดและยอดก่อนตัด-หลังตัด
+  // ของแต่ละแถวดูไม่ต่อเนื่องกัน ทั้งที่ข้อมูลจริงเรียงถูกต้องตามเวลา
+  const timeA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
+  const timeB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
+  if (timeA !== timeB) return timeB - timeA;
+  // เสมอกัน: ใช้เวลาบันทึกจริง (createdAt) เป็นตัวตัดสินลำดับสุดท้าย
+  return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 });
 
 setHistoryItems(merged);
