@@ -91,11 +91,12 @@ export function auditRollSOHistory(
   // Filter all records belonging to this roll
   const rollRecords = allRecords.filter((r) => r.foilId === roll.id);
 
-  // Chronological sort: oldest cuts first to evaluate the continuous chain
+  // เรียงตามวันใบงาน (usageDate) เป็นหลัก — ให้ตรงกับ realignRollCutChainInFirestore
   const sortedRecords = [...rollRecords].sort((a, b) => {
-    const timeA = new Date(a.createdAt || a.usageDate || a.recordedDate || 0).getTime();
-    const timeB = new Date(b.createdAt || b.usageDate || b.recordedDate || 0).getTime();
-    return timeA - timeB;
+    const timeA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
+    const timeB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
+    if (timeA !== timeB) return timeA - timeB;
+    return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
   });
 
   const issues: SOBugIssue[] = [];
