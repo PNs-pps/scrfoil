@@ -118,13 +118,17 @@ export function auditRollSOHistory(
       const explicitRounds = new Set(cuts.map((c) => (c.productionRound || '').trim()).filter(Boolean));
       const hasDistinctExplicitRounds = explicitRounds.size > 1 && explicitRounds.size === cuts.length;
 
-      // Group cuts by their cut meter amounts AND production round to detect accidental duplicates
+      // จัดกลุ่มตามยอดใช้+NG (ใช้ abs กันกรณี totalDeducted ติดลบ) + รอบผลิต
       const meterGroups = new Map<string, StockCutRecord[]>();
       cuts.forEach((c) => {
-        const roundedMeters = round2(c.totalDeducted || (c.usedMeters + c.ngMeters));
+        const used = round2(Math.abs(Number(c.usedMeters) || 0));
+        const ng = round2(Math.abs(Number(c.ngMeters) || 0));
+        const total = round2(
+          Math.abs(Number(c.totalDeducted)) || used + ng
+        );
         const roundKey = (c.productionRound || '').trim();
-        // A cut is considered an exact duplicate if both meter amount AND production round are the same (or neither specified)
-        const groupKey = `${roundKey}::${roundedMeters}`;
+        // ซ้ำจริง = ใช้/NG/รวม เท่ากัน และรอบเดียวกัน (หรือไม่ระบุรอบ)
+        const groupKey = `${roundKey}::u${used}::n${ng}::t${total}`;
         const group = meterGroups.get(groupKey) || [];
         group.push(c);
         meterGroups.set(groupKey, group);
@@ -136,8 +140,12 @@ export function auditRollSOHistory(
           if (group.length > 1) {
             hasExactDup = true;
             const duplicateRecordIds = group.slice(1).map((g) => g.id);
-            const [roundName, meterStr] = groupKey.split('::');
-            const meterKey = Number(meterStr) || 0;
+            const parts = groupKey.split('::');
+            const roundName = parts[0] || '';
+            const meterKey =
+              round2(Math.abs(Number(group[0].totalDeducted)) ||
+                Math.abs(Number(group[0].usedMeters) || 0) +
+                  Math.abs(Number(group[0].ngMeters) || 0));
             issues.push({
               id: `dup-exact-${roll.id}-${soKey}-${groupKey}`,
               type: 'DUPLICATE_SO_EXACT',
@@ -461,4 +469,79 @@ export function getSOAuditOverallSummary(
     zeroedOutExcludedCount,
     readyToAdjustCount,
   };
+}
+
+/** กลุ่มใบงานซ้ำที่ซ่อนอยู่ในประวัติ (SO + ม้วน + ยอดใช้/NG เท่ากัน) */
+export interface HiddenDuplicateGroup {
+  key: string;
+  soNumber: string;
+  foilId: string;
+  lotNumber: string;
+  rollNumber: string;
+  pattern: string;
+  width: number | string;
+  usedMeters: number;
+  ngMeters: number;
+  totalDeducted: number;
+  count: number;
+  recordIds: string[];
+  /** id ที่ควรลบ (ทุกใบยกเว้นใบแรก) */
+  duplicateRecordIds: string[];
+}
+
+/**
+ * สแกนทั้งฐานประวัติตัด หาใบ SO ซ้ำที่ม้วนเดียวกัน ยอดใช้+NG เท่ากัน
+ * (กรณี totalDeducted ติดลบหรือรอบผลิตว่าง ยังจับได้)
+ */
+export function findHiddenExactDuplicates(
+  records: StockCutRecord[]
+): HiddenDuplicateGroup[] {
+  const map = new Map<string, StockCutRecord[]>();
+
+  records.forEach((r) => {
+    if (r.cutType === 'non_so') return;
+    const so = (r.soNumber || '').trim().toUpperCase();
+    if (!so) return;
+    const foil = r.foilId || `${r.lotNumber}|${r.rollNumber}|${r.width}|${r.pattern}`;
+    const used = round2(Math.abs(Number(r.usedMeters) || 0));
+    const ng = round2(Math.abs(Number(r.ngMeters) || 0));
+    const key = `${so}::${foil}::u${used}::n${ng}`;
+    const list = map.get(key) || [];
+    list.push(r);
+    map.set(key, list);
+  });
+
+  const groups: HiddenDuplicateGroup[] = [];
+  map.forEach((list, key) => {
+    if (list.length < 2) return;
+    // เรียงเก่า → ใหม่ เก็บใบแรก ลบที่เหลือ
+    const sorted = [...list].sort((a, b) =>
+      String(a.createdAt || a.usageDate || '').localeCompare(
+        String(b.createdAt || b.usageDate || '')
+      )
+    );
+    const first = sorted[0];
+    const used = round2(Math.abs(Number(first.usedMeters) || 0));
+    const ng = round2(Math.abs(Number(first.ngMeters) || 0));
+    const total = round2(
+      Math.abs(Number(first.totalDeducted)) || used + ng
+    );
+    groups.push({
+      key,
+      soNumber: first.soNumber,
+      foilId: first.foilId,
+      lotNumber: first.lotNumber,
+      rollNumber: first.rollNumber,
+      pattern: first.pattern,
+      width: first.width,
+      usedMeters: used,
+      ngMeters: ng,
+      totalDeducted: total,
+      count: sorted.length,
+      recordIds: sorted.map((r) => r.id),
+      duplicateRecordIds: sorted.slice(1).map((r) => r.id),
+    });
+  });
+
+  return groups.sort((a, b) => b.count - a.count || a.soNumber.localeCompare(b.soNumber));
 }
