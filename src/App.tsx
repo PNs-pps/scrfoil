@@ -35,7 +35,9 @@ import {
   deleteCycleCountSession,
   firebaseConfig,
   activeTarget,
-  setActiveTarget
+  setActiveTarget,
+  auth,
+  signOutUser
 } from './lib/firebase';
 import { CycleCountSession } from './types';
 import { Navbar } from './components/Navbar';
@@ -105,6 +107,21 @@ export default function App() {
   const [userMode, setUserMode] = useState<UserMode>(() => getUserMode());
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [pendingGuardedAction, setPendingGuardedAction] = useState<(() => void) | null>(null);
+
+  // Signed-in Google account (AuthGate guarantees this exists by the time App
+  // mounts, but keep it live here too so the Navbar can show who's signed in
+  // and offer sign-out).
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(auth.currentUser?.email || null);
+  useEffect(() => {
+    setCurrentUserEmail(auth.currentUser?.email || null);
+  }, []);
+  const handleSignOut = async () => {
+    try {
+      await signOutUser();
+    } catch (err) {
+      console.warn('Sign-out notice:', err);
+    }
+  };
 
   // Firebase Realtime Sync State
   const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'error' | 'offline' | 'permission-denied'>('syncing');
@@ -1254,6 +1271,8 @@ export default function App() {
         onLockVisitor={handleLockToVisitor}
         onOpenSOAudit={() => handleOpenSOAudit()}
         soBugCount={soBugCount}
+        currentUserEmail={currentUserEmail}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Content Area */}
