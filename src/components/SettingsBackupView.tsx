@@ -50,6 +50,16 @@ import {
   exportCutsDateCSV 
 } from '../utils/dateGrouping';
 import { formatMeters } from '../utils/formatters';
+import {
+  getD1BackupConfig,
+  saveD1BackupConfig,
+  testD1Connection,
+  uploadBackupToD1,
+  listD1Backups,
+  fetchD1Backup,
+  deleteD1Backup,
+  D1BackupListItem,
+} from '../utils/d1Backup';
 
 interface SettingsBackupViewProps {
   rolls: FoilRoll[];
@@ -113,6 +123,12 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   // Backup config state
   const [backupConfig, setBackupConfig] = useState<AutoBackupConfig>(getAutoBackupConfig());
   const [snapshots, setSnapshots] = useState<AutoBackupSnapshot[]>(getBackupSnapshots());
+
+  // Cloudflare D1 snapshot backup
+  const [d1Config, setD1Config] = useState(getD1BackupConfig());
+  const [d1List, setD1List] = useState<D1BackupListItem[]>([]);
+  const [d1Busy, setD1Busy] = useState(false);
+  const [d1Status, setD1Status] = useState<string | null>(null);
   const [copiedRules, setCopiedRules] = useState(false);
   const [isBackingUpNow, setIsBackingUpNow] = useState(false);
 
@@ -456,6 +472,201 @@ service cloud.firestore {
                   )}
                 </div>
               )}
+
+              {/* Cloudflare D1 — สำรอง snapshot นอก Firebase */}
+              <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-200 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-slate-900 font-bold text-xs">
+                    <Server className="w-4 h-4 text-sky-600" />
+                    <span>Cloudflare D1 (สำรองนอก Firebase)</span>
+                  </div>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-600 text-white">
+                    Snapshot
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  เก็บ snapshot ม้วน + ประวัติตัด บน D1 แยกจาก Firebase — ใช้กู้เมื่อคลาวด์หลักมีปัญหา
+                  (ดูวิธีตั้ง Worker ในโฟลเดอร์ <code className="text-[10px] bg-white px-1 rounded">cloudflare-d1/</code>)
+                </p>
+                <div className="space-y-1.5">
+                  <input
+                    type="url"
+                    placeholder="https://foil-stock-d1-backup.xxx.workers.dev"
+                    value={d1Config.workerUrl}
+                    onChange={(e) => {
+                      const next = saveD1BackupConfig({ workerUrl: e.target.value });
+                      setD1Config(next);
+                    }}
+                    className="w-full px-2.5 py-1.5 text-[11px] font-mono bg-white border border-sky-200 rounded-lg"
+                  />
+                  <input
+                    type="password"
+                    placeholder="BACKUP_SECRET"
+                    value={d1Config.secret}
+                    onChange={(e) => {
+                      const next = saveD1BackupConfig({ secret: e.target.value });
+                      setD1Config(next);
+                    }}
+                    className="w-full px-2.5 py-1.5 text-[11px] font-mono bg-white border border-sky-200 rounded-lg"
+                    autoComplete="off"
+                  />
+                </div>
+                {d1Status && (
+                  <p className="text-[10px] text-slate-700 bg-white/80 rounded px-2 py-1 border border-sky-100">
+                    {d1Status}
+                  </p>
+                )}
+                {d1Config.lastBackupAt && (
+                  <p className="text-[10px] text-sky-800 font-mono">
+                    สำรอง D1 ล่าสุด: {new Date(d1Config.lastBackupAt).toLocaleString('th-TH')}
+                    {d1Config.lastBackupId ? ` · ${d1Config.lastBackupId.slice(0, 12)}…` : ''}
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    disabled={d1Busy}
+                    onClick={async () => {
+                      setD1Busy(true);
+                      setD1Status(null);
+                      try {
+                        const r = await testD1Connection(d1Config);
+                        setD1Status(r.message);
+                        showToast(r.message, r.ok ? 'success' : 'info');
+                        if (r.ok && d1Config.secret) {
+                          const list = await listD1Backups(15);
+                          setD1List(list);
+                        }
+                      } catch (err: any) {
+                        setD1Status(String(err?.message || err));
+                        showToast(String(err?.message || err), 'info');
+                      } finally {
+                        setD1Busy(false);
+                      }
+                    }}
+                    className="py-1.5 px-2 rounded-lg bg-white border border-sky-300 text-sky-900 text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    ทดสอบเชื่อมต่อ
+                  </button>
+                  <button
+                    type="button"
+                    disabled={d1Busy || userMode !== 'editor'}
+                    onClick={async () => {
+                      if (userMode !== 'editor') {
+                        onRequestUnlock?.();
+                        return;
+                      }
+                      setD1Busy(true);
+                      setD1Status(null);
+                      try {
+                        const result = await uploadBackupToD1({
+                          rolls,
+                          records,
+                          label: 'จากแอปโรงงาน',
+                          reason: 'manual',
+                        });
+                        setD1Config(getD1BackupConfig());
+                        setD1Status(`สำรองสำเร็จ · id ${result.id}`);
+                        showToast('สำรอง snapshot ขึ้น Cloudflare D1 สำเร็จ');
+                        const list = await listD1Backups(15);
+                        setD1List(list);
+                      } catch (err: any) {
+                        setD1Status(String(err?.message || err));
+                        showToast(String(err?.message || err), 'info');
+                      } finally {
+                        setD1Busy(false);
+                      }
+                    }}
+                    className="py-1.5 px-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1"
+                  >
+                    {d1Busy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                    สำรองขึ้น D1
+                  </button>
+                </div>
+                {d1List.length > 0 && (
+                  <div className="max-h-36 overflow-y-auto space-y-1 border-t border-sky-200 pt-2">
+                    {d1List.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-1 text-[10px] bg-white rounded-lg px-2 py-1.5 border border-sky-100"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-mono font-semibold text-slate-800 truncate">
+                            {new Date(item.created_at).toLocaleString('th-TH')}
+                          </div>
+                          <div className="text-slate-500">
+                            {item.rolls_count} ม้วน · {item.records_count} ตัด
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={d1Busy || userMode !== 'editor'}
+                            title="กู้คืนลงแอป (แทนที่ข้อมูลปัจจุบัน)"
+                            onClick={async () => {
+                              if (userMode !== 'editor') {
+                                onRequestUnlock?.();
+                                return;
+                              }
+                              if (
+                                !confirm(
+                                  `กู้คืนจาก D1?\n${new Date(item.created_at).toLocaleString('th-TH')}\n${item.rolls_count} ม้วน · ${item.records_count} รายการตัด\n\nระบบจะสร้างจุดสำรองฉุกเฉินในเครื่องก่อน`
+                                )
+                              ) {
+                                return;
+                              }
+                              setD1Busy(true);
+                              try {
+                                createBackupSnapshot(rolls, records, 'before_reset');
+                                const full = await fetchD1Backup(item.id);
+                                const payload = full.payload;
+                                if (!payload?.rolls || !payload?.records) {
+                                  throw new Error('snapshot ไม่มีข้อมูล rolls/records');
+                                }
+                                onRestoreData(payload.rolls, payload.records);
+                                setSnapshots(getBackupSnapshots());
+                                showToast('กู้คืนจาก Cloudflare D1 สำเร็จ');
+                                setD1Status(`กู้แล้ว · ${item.id.slice(0, 10)}…`);
+                              } catch (err: any) {
+                                showToast(String(err?.message || err), 'info');
+                              } finally {
+                                setD1Busy(false);
+                              }
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold cursor-pointer disabled:opacity-40"
+                          >
+                            กู้
+                          </button>
+                          <button
+                            type="button"
+                            disabled={d1Busy || userMode !== 'editor'}
+                            onClick={async () => {
+                              if (userMode !== 'editor') {
+                                onRequestUnlock?.();
+                                return;
+                              }
+                              if (!confirm('ลบ snapshot นี้บน D1?')) return;
+                              setD1Busy(true);
+                              try {
+                                await deleteD1Backup(item.id);
+                                setD1List((prev) => prev.filter((x) => x.id !== item.id));
+                                showToast('ลบ snapshot บน D1 แล้ว');
+                              } catch (err: any) {
+                                showToast(String(err?.message || err), 'info');
+                              } finally {
+                                setD1Busy(false);
+                              }
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-bold cursor-pointer disabled:opacity-40"
+                          >
+                            ลบ
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Combined Stock Integrity + SO Bug Inspector (รวมเข้าด้วยกัน) */}
               {(onRunIntegrityCheck || onOpenSOAudit) && (

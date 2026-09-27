@@ -459,12 +459,12 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   }, [hiddenDups]);
 
   return (
-    <div className="space-y-3">
-      {/* แจ้งใบงานซ้ำที่ซ่อนอยู่ */}
+    <div className="space-y-4">
+      {/* แจ้งใบงานซ้ำ */}
       {hiddenDups.length > 0 && (
-        <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2.5 text-[11px] text-rose-950 space-y-1.5">
-          <div className="flex items-center gap-1.5 font-bold">
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+        <div className="rounded-2xl border border-rose-300 bg-gradient-to-r from-rose-50 to-amber-50 px-3.5 py-3 text-[11px] text-rose-950 space-y-1.5 shadow-sm">
+          <div className="flex items-center gap-1.5 font-bold text-sm">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             พบใบงานซ้ำ {hiddenDups.length} กลุ่ม (หักสต๊อกเบิ้ล)
           </div>
           <ul className="space-y-1 max-h-28 overflow-y-auto">
@@ -487,107 +487,168 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                 <span className="font-mono">
                   {formatMeters(g.usedMeters)}+NG{formatMeters(g.ngMeters)} ม. ×{g.count}
                 </span>
-                <span className="text-rose-700 font-semibold">
-                  ควรลบ {g.count - 1} ใบ
-                </span>
+                <span className="text-rose-700 font-semibold">ควรลบ {g.count - 1} ใบ</span>
               </li>
             ))}
           </ul>
-          <p className="text-[10px] text-rose-800/80">
-            กดรหัส SO เพื่อกรอง · ลบรายการซ้ำในตาราง (โหมด Editor) เพื่อคืนยอด
-          </p>
         </div>
       )}
 
-      {/* แถบค้น/กรอง กระชับ — มือถือไม่เกิน ~3/8 จอ */}
-      <div className="bg-white px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-xl border border-slate-200 shadow-sm space-y-1.5 max-h-[38vh] sm:max-h-none overflow-y-auto">
-        {/* แถว 1: ค้นหา + scope + export */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <div className="relative flex-1 min-w-[140px]">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              id="history-search-input"
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') setSearchQuery('');
-              }}
-              placeholder={
+      {/* แถบค้นหา — สไตล์เดียวกับหน้าม้วนฟอยล์ */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
+        {/* แถว 1: ช่องค้นหาใหญ่ + scope + ปุ่ม */}
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+          <div className="relative flex-1">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-amber-500 absolute left-3.5 pointer-events-none" />
+              <input
+                id="history-search-input"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setSearchQuery('');
+                }}
+                placeholder={
+                  searchScope === 'so'
+                    ? 'ค้นหาเฉพาะรหัส SO เช่น so6909412...'
+                    : searchScope === 'employee'
+                    ? 'ค้นหาเฉพาะชื่อพนักงาน เช่น บอต, ช่างคุม...'
+                    : searchScope === 'lot_roll'
+                    ? 'ค้นหาเฉพาะเลขล็อต หรือ เบอร์ม้วน...'
+                    : 'ค้นหารหัส SO, ชื่อพนักงาน, ล็อต หรือเบอร์ม้วน...'
+                }
+                className="w-full pl-10 pr-24 py-2.5 text-sm bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-400"
+              />
+              <div className="absolute right-2.5 flex items-center gap-1.5">
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    title="ล้างคำค้นหา"
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : null}
+                <span className="text-[11px] font-mono text-slate-500 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200 hidden sm:inline">
+                  {filteredRecords.length}/{records.length}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs shrink-0 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setSearchScope('all')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                searchScope === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ทั้งหมด
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchScope('so')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap ${
                 searchScope === 'so'
-                  ? 'SO...'
-                  : searchScope === 'employee'
-                  ? 'ชื่อพนักงาน...'
-                  : searchScope === 'lot_roll'
-                  ? 'ล็อต / เบอร์...'
-                  : 'ค้นหา...'
-              }
-              className="w-full pl-7 pr-7 py-1.5 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30"
-            />
-            {searchQuery ? (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            ) : null}
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-3 h-3" />
+              SO
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchScope('employee')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                searchScope === 'employee'
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <User className="w-3 h-3" />
+              พนักงาน
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchScope('lot_roll')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                searchScope === 'lot_roll'
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Tag className="w-3 h-3" />
+              ล็อต
+            </button>
           </div>
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[10px] shrink-0">
-            {(
-              [
-                ['all', 'ทั้งหมด'],
-                ['so', 'SO'],
-                ['employee', 'พนักงาน'],
-                ['lot_roll', 'ล็อต'],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setSearchScope(key)}
-                className={`px-1.5 py-1 rounded-md font-semibold cursor-pointer ${
-                  searchScope === key
-                    ? 'bg-amber-500 text-slate-950'
-                    : 'text-slate-600'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleCopyBatchSummary(filteredRecords)}
+              className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                copiedBatch
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'border-slate-200 hover:bg-slate-50 text-slate-700 bg-white'
+              }`}
+              title="คัดลอก"
+            >
+              {copiedBatch ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5 text-amber-600" />}
+              <span className="hidden sm:inline">{copiedBatch ? 'คัดลอกแล้ว' : 'คัดลอก'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => exportCutRecordsToCSV(filteredRecords)}
+              className="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer bg-white"
+              title="CSV"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden sm:inline">CSV</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => handleCopyBatchSummary(filteredRecords)}
-            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 cursor-pointer"
-            title="คัดลอก"
-          >
-            {copiedBatch ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => exportCutRecordsToCSV(filteredRecords)}
-            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 cursor-pointer"
-            title="CSV"
-          >
-            <Download className="w-3.5 h-3.5" />
-          </button>
-          <span className="text-[10px] font-mono text-slate-400 shrink-0">
-            {filteredRecords.length}/{records.length}
-          </span>
         </div>
 
-        {/* แถว 2: dropdown กระชับ ไม่มี label ยาว */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+        {searchQuery.trim() && (
+          <div className="flex items-center justify-between bg-amber-50/90 border border-amber-200 px-3.5 py-2 rounded-xl text-xs text-amber-950">
+            <div className="flex items-center gap-2 min-w-0">
+              <Search className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span className="truncate">
+                กรอง: <strong className="font-mono">"{searchQuery}"</strong>
+                {' · '}
+                พบ <strong className="text-amber-800">{filteredRecords.length}</strong> รายการ
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="text-xs font-semibold text-amber-900 hover:text-rose-700 flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+              ล้าง
+            </button>
+          </div>
+        )}
+
+        {/* กรอง dropdown */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-1 text-slate-500 font-medium">
+            <Filter className="w-3.5 h-3.5 text-amber-600" />
+            <span>กรองตาม:</span>
+          </div>
           <select
             value={selectedSo}
             onChange={(e) => setSelectedSo(e.target.value)}
-            className={`px-1.5 py-1 rounded-lg border text-[11px] font-mono cursor-pointer ${
-              selectedSo !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono cursor-pointer ${
+              selectedSo !== 'all'
+                ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                : 'bg-slate-50 border-slate-200 text-slate-800'
             }`}
           >
-            <option value="all">SO ทั้งหมด</option>
+            <option value="all">SO: ทั้งหมด</option>
             {sosList.map(({ so, count }) => (
               <option key={so} value={so}>
                 {so} ({count})
@@ -597,11 +658,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           <select
             value={selectedLot}
             onChange={(e) => setSelectedLot(e.target.value)}
-            className={`px-1.5 py-1 rounded-lg border text-[11px] font-mono cursor-pointer ${
-              selectedLot !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono cursor-pointer ${
+              selectedLot !== 'all'
+                ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                : 'bg-slate-50 border-slate-200 text-slate-800'
             }`}
           >
-            <option value="all">ล็อตทั้งหมด</option>
+            <option value="all">ล็อต: ทั้งหมด</option>
             {lotsList.map(({ lot, count }) => (
               <option key={lot} value={lot}>
                 {lot} ({count})
@@ -611,11 +674,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           <select
             value={selectedWidth}
             onChange={(e) => setSelectedWidth(e.target.value)}
-            className={`px-1.5 py-1 rounded-lg border text-[11px] font-mono cursor-pointer ${
-              selectedWidth !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono cursor-pointer ${
+              selectedWidth !== 'all'
+                ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                : 'bg-slate-50 border-slate-200 text-slate-800'
             }`}
           >
-            <option value="all">หน้ากว้าง</option>
+            <option value="all">หน้ากว้าง: ทั้งหมด</option>
             {widthsList.map((w) => (
               <option key={w} value={String(w)}>
                 {w} มม.
@@ -625,11 +690,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           <select
             value={selectedPattern}
             onChange={(e) => setSelectedPattern(e.target.value)}
-            className={`px-1.5 py-1 rounded-lg border text-[11px] cursor-pointer ${
-              selectedPattern !== 'all' ? 'bg-amber-50 border-amber-400 font-bold' : 'bg-slate-50 border-slate-200'
+            className={`px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${
+              selectedPattern !== 'all'
+                ? 'bg-amber-50 border-amber-400 text-amber-950 font-bold'
+                : 'bg-slate-50 border-slate-200 text-slate-800'
             }`}
           >
-            <option value="all">ลายทั้งหมด</option>
+            <option value="all">ท้องฟอยล์: ทั้งหมด</option>
             <option value="ขาว">ขาว</option>
             <option value="ดำ">ดำ</option>
             <option value="ไม้อ่อน">ไม้อ่อน</option>
@@ -637,43 +704,55 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
             <option value="เทา">เทา</option>
             <option value="กลีบบัว">กลีบบัว</option>
           </select>
-        </div>
-
-        {/* แถว 3: วันที่ + preset + ล้าง */}
-        <div className="flex flex-wrap items-center gap-1">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="px-1.5 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg font-mono cursor-pointer"
-          />
-          <span className="text-[10px] text-slate-400">–</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="px-1.5 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg font-mono cursor-pointer"
-          />
-          {(['today', '7days', '30days', 'this_month'] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => handleDatePreset(p)}
-              className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] text-slate-700 cursor-pointer"
-            >
-              {p === 'today' ? 'วันนี้' : p === '7days' ? '7วัน' : p === '30days' ? '30วัน' : 'เดือนนี้'}
-            </button>
-          ))}
           {hasActiveFilters && (
             <button
               type="button"
               onClick={handleClearAllFilters}
-              className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 text-[10px] font-bold border border-rose-200 cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
             >
-              ล้าง
+              <X className="w-3.5 h-3.5" />
+              ล้างตัวกรอง
             </button>
           )}
-          {employeesList.slice(0, 4).map((emp) => (
+        </div>
+
+        {/* วันที่ + พนักงาน */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-slate-500 font-semibold flex items-center gap-1">
+            <Calendar className="w-3.5 h-3.5 text-amber-600" />
+            วันที่
+          </span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-amber-500 cursor-pointer"
+          />
+          <span className="text-slate-400">–</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-amber-500 cursor-pointer"
+          />
+          {(
+            [
+              ['today', 'วันนี้'],
+              ['7days', '7 วัน'],
+              ['30days', '30 วัน'],
+              ['this_month', 'เดือนนี้'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => handleDatePreset(key)}
+              className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-950 text-[11px] font-semibold cursor-pointer transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+          {employeesList.slice(0, 5).map((emp) => (
             <button
               key={emp}
               type="button"
@@ -686,10 +765,10 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                   setSearchScope('employee');
                 }
               }}
-              className={`px-1.5 py-0.5 rounded text-[10px] border cursor-pointer ${
+              className={`px-2 py-1 rounded-lg text-[11px] border cursor-pointer transition-all ${
                 searchQuery === emp && searchScope === 'employee'
-                  ? 'bg-blue-100 border-blue-300 font-bold'
-                  : 'bg-slate-50 border-slate-200 text-slate-600'
+                  ? 'bg-blue-100 text-blue-900 border-blue-300 font-bold ring-1 ring-blue-400'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
               }`}
             >
               {emp}
@@ -697,51 +776,63 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           ))}
         </div>
 
-        {/* แถว 4: โหมดตาราง */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[10px]">
-            <button
-              type="button"
-              onClick={() => setViewMode('flat')}
-              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
-                viewMode === 'flat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              ตาราง ({filteredRecords.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('date_folder')}
-              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
-                viewMode === 'date_folder' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              โฟลเดอร์ ({dateGroups.length})
-            </button>
-          </div>
-
+        {/* โหมดดู + KPI สี */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('flat')}
+                className={`px-3 py-1.5 rounded-lg font-semibold cursor-pointer flex items-center gap-1.5 ${
+                  viewMode === 'flat' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                ตาราง ({filteredRecords.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('date_folder')}
+                className={`px-3 py-1.5 rounded-lg font-semibold cursor-pointer flex items-center gap-1.5 ${
+                  viewMode === 'date_folder' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                <Folder className="w-3.5 h-3.5 text-amber-600" />
+                โฟลเดอร์ ({dateGroups.length})
+              </button>
+            </div>
             {viewMode === 'date_folder' && (
-              <>
+              <div className="flex items-center gap-1.5 text-xs text-slate-600">
                 <button
                   type="button"
                   onClick={() => toggleAllFolders(true)}
-                  className="px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[10px] cursor-pointer"
+                  className="hover:text-amber-800 hover:underline cursor-pointer font-medium"
                 >
                   เปิดทั้งหมด
                 </button>
+                <span className="text-slate-300">|</span>
                 <button
                   type="button"
                   onClick={() => toggleAllFolders(false)}
-                  className="px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[10px] cursor-pointer"
+                  className="hover:text-amber-800 hover:underline cursor-pointer font-medium"
                 >
-                  ปิดทั้งหมด
+                  ย่อทั้งหมด
                 </button>
-              </>
+              </div>
             )}
-          <span className="text-[10px] font-mono text-slate-500 ml-auto">
-            ใช้ {formatMeters(totalUsedFiltered)} · NG {formatMeters(totalNgFiltered)} · รวม{' '}
-            {formatMeters(totalUsedFiltered + totalNgFiltered)} ม.
-          </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
+              ใช้ {formatMeters(totalUsedFiltered)} ม.
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 font-bold">
+              NG {formatMeters(totalNgFiltered)} ม.
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-950 font-bold">
+              รวม {formatMeters(totalUsedFiltered + totalNgFiltered)} ม.
+            </span>
+          </div>
         </div>
       </div>
 
