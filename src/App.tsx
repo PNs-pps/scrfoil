@@ -16,6 +16,7 @@ import {
   subscribeToFoilRolls, 
   subscribeToStockCutRecords, 
   subscribeToPuSandwichCuts,
+  isRecentLocalWrite,
   savePuSandwichCutToFirestore,
   deletePuSandwichCutFromFirestore,
   saveFoilRollToFirestore, 
@@ -212,19 +213,44 @@ export default function App() {
       (firestoreRolls) => {
         // activeOnly query already filters status==='active'; also drop any legacy
         // depleted/zeroed that slipped through so the main list stays lean.
-        const activeRolls = firestoreRolls.filter(
-          (r) => r.status === 'active' && (r.remainingMeters > 0 || !r.isZeroedOut)
-        );
-        if (activeRolls.length > 0 || firestoreRolls.length === 0) {
-          setRolls(activeRolls.length > 0 ? activeRolls : firestoreRolls);
-          saveStoredRolls(activeRolls.length > 0 ? activeRolls : firestoreRolls);
-        } else if (isInitialRollsFetch && loadedRolls.length > 0) {
-          // If cloud is initially empty, seed from existing local rolls
-          uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
-            console.warn('Initial cloud seed notice:', err);
+        setRolls((prev) => {
+          const prevMap = new Map(prev.map((r) => [r.id, r]));
+          // ถเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่เด้งกลับ
+          const mergedServer = firestoreRolls.map((r) => {
+            if (isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
+              const local = prevMap.get(r.id)!;
+              return {
+                ...r,
+                remainingMeters: local.remainingMeters,
+                usedMeters: local.usedMeters,
+                ngMeters: local.ngMeters,
+                recentCuts: local.recentCuts ?? r.recentCuts,
+                isZeroedOut: local.isZeroedOut,
+                status: local.status,
+              };
+            }
+            return r;
           });
-        }
-        isInitialRollsFetch = false;
+          const activeRolls = mergedServer.filter(
+            (r) => r.status === 'active' && (r.remainingMeters > 0 || !r.isZeroedOut)
+          );
+          const next =
+            activeRolls.length > 0 || firestoreRolls.length === 0
+              ? activeRolls.length > 0
+                ? activeRolls
+                : mergedServer
+              : prev;
+
+          if (activeRolls.length > 0 || firestoreRolls.length === 0) {
+            saveStoredRolls(next);
+          } else if (isInitialRollsFetch && loadedRolls.length > 0) {
+            uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
+              console.warn('Initial cloud seed notice:', err);
+            });
+          }
+          isInitialRollsFetch = false;
+          return next;
+        });
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       },
@@ -252,12 +278,26 @@ export default function App() {
           const map = new Map<string, StockCutRecord>();
           // Keep all existing historical records from local cache
           prev.forEach((r) => map.set(r.id, r));
-          // Drop anything the server just told us was deleted (e.g. an SO cut
-          // that was cancelled) — otherwise a plain "add/update only" merge
-          // would keep a deleted record around forever in local cache.
-          (removedIds || []).forEach((id) => map.delete(id));
-          // Overlay updated recent records from Firestore
-          firestoreRecords.forEach((r) => map.set(r.id, r));
+          // Drop server-deleted ids (ยกเว้นเพิ่งเขียนเอง — กันเด้งหายตอน sync)
+          (removedIds || []).forEach((id) => {
+            if (!isRecentLocalWrite(id)) map.delete(id);
+          });
+          // Overlay จาก Firestore — ถ้าเพิ่ง realign/ตัด เก็บยอด local ไม่ให้เด้งกลับ
+          firestoreRecords.forEach((r) => {
+            if (isRecentLocalWrite(r.id) && map.has(r.id)) {
+              const local = map.get(r.id)!;
+              map.set(r.id, {
+                ...r,
+                remainingBefore: local.remainingBefore,
+                remainingAfter: local.remainingAfter,
+                usedMeters: local.usedMeters,
+                ngMeters: local.ngMeters,
+                totalDeducted: local.totalDeducted,
+              });
+            } else {
+              map.set(r.id, r);
+            }
+          });
           const merged = Array.from(map.values());
           merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
           saveStoredCutRecords(merged);
