@@ -62,7 +62,7 @@ import { CycleCountModal } from './components/CycleCountModal';
 import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
-import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
+import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON, getAllDueD1ScheduleSlots, markD1ScheduleSlotRun } from './utils/autoBackup';
 import { getD1BackupConfig, uploadBackupToD1 } from './utils/d1Backup';
 import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
@@ -369,28 +369,6 @@ export default function App() {
           console.warn('Background auto cloud backup notice:', err);
         });
       }
-
-      // Also snapshot to Cloudflare D1 (uses the worker URL + secret already
-      // saved in Settings > Backup) — independent of Firebase, so it still
-      // works as a real-time fallback if Firestore is down.
-      if (config.autoSyncD1) {
-        const d1Config = getD1BackupConfig();
-        if (d1Config.workerUrl && d1Config.secret) {
-          uploadBackupToD1({
-            rolls,
-            records,
-            sandwichRecords: puSandwichRecords,
-            label: 'สำรองอัตโนมัติ (real-time)',
-            reason: 'scheduled',
-          })
-            .then(() => {
-              saveAutoBackupConfig({ ...getAutoBackupConfig(), lastD1AutoBackupTime: new Date().toISOString() });
-            })
-            .catch((err) => {
-              console.warn('Background auto D1 backup notice:', err);
-            });
-        }
-      }
     };
 
     const config = getAutoBackupConfig();
@@ -398,7 +376,49 @@ export default function App() {
     const intervalId = setInterval(runAutoBackup, intervalMs);
 
     return () => clearInterval(intervalId);
-  }, [rolls, records, puSandwichRecords, syncStatus]);
+  }, [rolls, records, syncStatus]);
+
+  // Cloudflare D1 scheduled backup — fixed times daily (12:30 / 17:30), using
+  // the Worker URL + secret already saved in Settings > Backup. Independent
+  // of the Firebase interval above. Checks right away on open and once a
+  // minute after that; if the device/app was closed at 12:30 or 17:30, the
+  // moment it's opened again after that time it treats the slot as still due
+  // and backs up immediately (catching up on any slots missed since midnight,
+  // in one upload) rather than waiting for the next scheduled time. The
+  // person can also always press "สำรองขึ้น D1" in Settings on demand.
+  useEffect(() => {
+    if (rolls.length === 0) return;
+
+    const checkD1Schedule = () => {
+      const config = getAutoBackupConfig();
+      if (!config.autoSyncD1) return;
+
+      const dueSlots = getAllDueD1ScheduleSlots();
+      if (dueSlots.length === 0) return;
+
+      const d1Config = getD1BackupConfig();
+      if (!d1Config.workerUrl || !d1Config.secret) return;
+
+      dueSlots.forEach(markD1ScheduleSlotRun);
+      uploadBackupToD1({
+        rolls,
+        records,
+        sandwichRecords: puSandwichRecords,
+        label: 'สำรองอัตโนมัติ (ตามเวลาที่ตั้งไว้)',
+        reason: 'scheduled',
+      })
+        .then(() => {
+          saveAutoBackupConfig({ ...getAutoBackupConfig(), lastD1AutoBackupTime: new Date().toISOString() });
+        })
+        .catch((err) => {
+          console.warn('Scheduled D1 backup notice:', err);
+        });
+    };
+
+    checkD1Schedule();
+    const intervalId = setInterval(checkD1Schedule, 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [rolls, records, puSandwichRecords]);
 
   // Automatic daily stock-integrity check (runs by itself, up to 2x/day, the
   // first couple of times someone opens the app each day — see
