@@ -22,11 +22,17 @@ import {
 import { 
   getAuth, 
   GoogleAuthProvider, 
+  FacebookAuthProvider,
+  OAuthProvider,
   signInWithPopup, 
   signInWithRedirect,
   getRedirectResult,
   signOut, 
   onAuthStateChanged, 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
   Auth, 
   User 
 } from 'firebase/auth';
@@ -116,32 +122,50 @@ export const db: Firestore = createDb();
 // Initialize Auth
 export const auth: Auth = getAuth(firebaseApp);
 
-// --- Google Sign-In (mandatory) ---------------------------------------------
-// Guest/anonymous access has been removed: every person must sign in with a
-// real Google account before the app loads any data. See AuthGate.tsx, which
+// --- Sign-in providers (mandatory login, no guest/anonymous access) --------
+// Everyone must sign in with one of: Google, Facebook, Apple, or an email +
+// password account, before the app loads any data. See AuthGate.tsx, which
 // wraps the whole app and shows a sign-in screen until `auth.currentUser`
 // exists.
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export async function signInWithGoogle(): Promise<User> {
+export const facebookProvider = new FacebookAuthProvider();
+
+export const appleProvider = new OAuthProvider('apple.com');
+appleProvider.addScope('email');
+appleProvider.addScope('name');
+
+/** Shared popup-with-redirect-fallback flow for any OAuth provider. */
+async function signInWithProviderPopup(
+  provider: GoogleAuthProvider | FacebookAuthProvider | OAuthProvider
+): Promise<User> {
   try {
-    const result = await signInWithPopup(auth, googleProvider);
+    const result = await signInWithPopup(auth, provider);
     return result.user;
   } catch (err: any) {
     // Popup blocked or not allowed (common on some mobile browsers/webviews)
     // — fall back to a full-page redirect flow instead of failing outright.
     if (
       err?.code === 'auth/popup-blocked' ||
-      err?.code === 'auth/operation-not-supported-in-this-environment' ||
-      err?.code === 'auth/popup-closed-by-user'
+      err?.code === 'auth/operation-not-supported-in-this-environment'
     ) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        await signInWithRedirect(auth, googleProvider);
-      }
+      await signInWithRedirect(auth, provider);
     }
     throw err;
   }
+}
+
+export function signInWithGoogle(): Promise<User> {
+  return signInWithProviderPopup(googleProvider);
+}
+
+export function signInWithFacebook(): Promise<User> {
+  return signInWithProviderPopup(facebookProvider);
+}
+
+export function signInWithApple(): Promise<User> {
+  return signInWithProviderPopup(appleProvider);
 }
 
 /** Call once at app startup to pick up the result of a signInWithRedirect fallback. */
@@ -153,6 +177,30 @@ export async function checkRedirectSignIn(): Promise<User | null> {
     console.warn('Redirect sign-in check notice:', err);
     return null;
   }
+}
+
+export function signInWithEmail(email: string, password: string): Promise<User> {
+  return signInWithEmailAndPassword(auth, email.trim(), password).then((r) => r.user);
+}
+
+export async function registerWithEmail(
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<User> {
+  const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  if (displayName?.trim()) {
+    try {
+      await updateProfile(result.user, { displayName: displayName.trim() });
+    } catch (err) {
+      console.warn('Failed to set display name:', err);
+    }
+  }
+  return result.user;
+}
+
+export function sendResetPasswordEmail(email: string): Promise<void> {
+  return sendPasswordResetEmail(auth, email.trim());
 }
 
 export function signOutUser(): Promise<void> {
