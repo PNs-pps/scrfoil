@@ -29,7 +29,8 @@ import {
   Hash,
   Upload,
   FileSpreadsheet,
-  Edit2
+  Edit2,
+  ArrowLeft
 } from 'lucide-react';
 
 interface FoilRollTableProps {
@@ -632,6 +633,25 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
   return (
     <div className="space-y-4">
+
+      {/* ปุ่มย้อนกลับเมื่อเข้า Archive / กรองหลายชั้น */}
+      {(statusFilter === 'depleted' || selectedWidth !== 'all' || selectedPattern !== 'all' || searchQuery.trim()) && (
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter('all');
+            setSelectedWidth('all');
+            setSelectedPattern('all');
+            setSearchQuery('');
+            setSearchTarget('all');
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-amber-300 text-xs font-bold shadow-sm cursor-pointer hover:bg-slate-800"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          กลับหน้ารายการม้วนทั้งหมด
+        </button>
+      )}
+
       {/* Top Controls: Search Bar & Filters */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
         {/* Row 1: Search Bar & Target Mode & Actions */}
@@ -714,64 +734,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </button>
           </div>
 
-          {/* Action Buttons */}
-          {onOpenMonthlySummary && (
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={onOpenMonthlySummary}
-                className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
-                title="เปิดหน้าต่างสรุปการใช้ฟอยล์รายเดือน"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>สรุปรายเดือน</span>
-              </button>
-            </div>
-          )}
-        </div>
 
-        {/* Row 1.5: Quick Lot Number Chips for Faster Access */}
-        {uniqueLots.length > 0 && (
-          <div className="flex items-center flex-wrap gap-1.5 pt-1 text-xs">
-            <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1 mr-1">
-              <Tag className="w-3 h-3 text-slate-400" />
-              <span>คลิกเลือกล็อตด่วน:</span>
-            </span>
-            {uniqueLots.map((lot) => {
-              const isSelected = searchQuery.trim().toLowerCase() === lot.toLowerCase();
-              return (
-                <button
-                  key={lot}
-                  type="button"
-                  onClick={() => {
-                    if (isSelected) {
-                      setSearchQuery('');
-                    } else {
-                      setSearchQuery(lot);
-                      setSearchTarget('lot');
-                    }
-                  }}
-                  className={`px-2 py-0.5 rounded-md font-mono text-[11px] transition-all cursor-pointer border ${
-                    isSelected
-                      ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold shadow-2xs ring-1 ring-amber-400'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  {lot}
-                </button>
-              );
-            })}
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="text-[11px] text-rose-600 hover:underline ml-1 font-medium cursor-pointer"
-              >
-                ล้างคำค้น
-              </button>
-            )}
-          </div>
-        )}
+        </div>
 
         {/* Active Search Summary Notification Banner */}
         {searchQuery.trim() && (
@@ -898,7 +862,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 statusFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              ทั้งหมด ({rolls.length})
+              ทั้งหมด ({rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut).length})
             </button>
             <button
               onClick={() => setStatusFilter('active')}
@@ -906,7 +870,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 statusFilter === 'active' ? 'bg-white text-emerald-700 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              มีของ ({rolls.filter(r => r.remainingMeters > 0).length})
+              มีของ ({rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut).length})
             </button>
             <button
               onClick={() => {
@@ -980,20 +944,19 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           )}
         </div>
 
-        {/* Stock Level Warning Legend */}
-        <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-slate-100 text-[11px] font-medium text-slate-600">
-          <span className="text-slate-400 font-semibold">ไฮไลท์ระดับสต๊อก:</span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-yellow-100/90 text-yellow-900 border border-yellow-300 font-mono">
-            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
-            &le; 200 ม. (สีเหลือง - สต๊อกเหลือน้อย / เตรียมสั่ง)
+        {/* คำอธิบายสี — ง่าย ชัด */}
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-1.5 pt-2.5 border-t border-slate-100 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+            เขียว = พร้อมใช้ (เหลือมากกว่า 200 ม.)
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-100/90 text-rose-900 border border-rose-300 font-mono">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></span>
-            &le; 50 ม. (สีแดง - สต๊อกใกล้หมด / มีช่องติ๊กตัดสล็อตเป็น 0)
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-50 text-yellow-900 border border-yellow-300 font-semibold">
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+            เหลือง = เหลือน้อย (ไม่เกิน 200 ม. ควรเตรียมสั่ง)
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            &gt; 200 ม. (ปกติ / พร้อมใช้งาน)
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-900 border border-rose-300 font-semibold">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-600" />
+            แดง = ใกล้หมด (ไม่เกิน 50 ม. / ติ๊กตัดเป็น 0 ได้)
           </span>
         </div>
       </div>
@@ -1321,6 +1284,22 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           </div>
         </div>
       )}
+
+      {/* สรุปรายเดือน — ย้ายไว้ล่างสุดตามที่ใช้งาน */}
+      {onOpenMonthlySummary && (
+        <div className="sticky bottom-20 md:bottom-4 z-10 flex justify-center pointer-events-none">
+          <button
+            type="button"
+            onClick={onOpenMonthlySummary}
+            className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg border border-emerald-500 flex items-center gap-2 cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            สรุปรายเดือน
+          </button>
+        </div>
+      )}
+
+
     </div>
   );
 };

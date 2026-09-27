@@ -18,7 +18,8 @@ import {
   Sparkles, 
   RefreshCw, 
   AlertCircle,
-  Trash2
+  Trash2,
+  ArrowLeft
 } from 'lucide-react';
 import { 
   auditAllRollsSOHistory, 
@@ -27,6 +28,7 @@ import {
   SOBugIssue 
 } from '../utils/soHistoryAudit';
 import { formatMeters } from '../utils/formatters';
+import { KpiSlideRow } from './KpiSlideRow';
 
 interface SOBugInspectorModalProps {
   isOpen: boolean;
@@ -222,35 +224,73 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
           </button>
         </div>
 
-        {/* Top Metric Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-4 bg-slate-50 border-b border-slate-200 text-center text-xs">
-          <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-            <span className="text-slate-500 block text-[11px]">ม้วนทั้งหมด</span>
-            <span className="font-mono font-bold text-slate-900 text-base">{summary.totalRolls}</span>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-            <span className="text-slate-500 block text-[11px]">พบข้อสังเกต/บัค</span>
-            <span className={`font-mono font-bold text-base ${summary.rollsWithIssues > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-              {summary.rollsWithIssues} ม้วน
-            </span>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-            <span className="text-slate-500 block text-[11px]">SO บันทึกซ้ำ</span>
-            <span className={`font-mono font-bold text-base ${summary.duplicateSOIssuesCount > 0 ? 'text-amber-600' : 'text-slate-700'}`}>
-              {summary.duplicateSOIssuesCount} จุด
-            </span>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white border border-slate-200">
-            <span className="text-slate-500 block text-[11px]">ยอดคงเหลือไม่ตรง</span>
-            <span className={`font-mono font-bold text-base ${summary.masterMismatchCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-              {summary.masterMismatchCount} ม้วน
-            </span>
-          </div>
-          <div className="col-span-2 sm:col-span-1 p-2.5 rounded-xl bg-white border border-slate-200">
-            <span className="text-slate-500 block text-[11px]">กดตัดเป็น 0 แล้ว (ยกเว้น)</span>
-            <span className="font-mono font-bold text-slate-700 text-base">{summary.zeroedOutExcludedCount} ม้วน</span>
-          </div>
+        {/* KPI สไลด์ — มือถือเลื่อนดูได้ */}
+        <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200">
+          <KpiSlideRow
+            title="สรุปการตรวจ"
+            cardWidthClass="w-[70vw] max-w-[200px] sm:w-[160px]"
+            cards={[
+              {
+                id: 'total',
+                label: 'ม้วนทั้งหมด',
+                value: String(summary.totalRolls),
+                unit: 'ม้วน',
+                icon: <Layers className="w-4 h-4" />,
+                iconClass: 'bg-slate-100 text-slate-700',
+              },
+              {
+                id: 'bugs',
+                label: 'พบข้อสังเกต/บัค',
+                value: String(summary.rollsWithIssues),
+                unit: 'ม้วน',
+                icon: <Bug className="w-4 h-4" />,
+                iconClass: 'bg-rose-50 text-rose-600',
+                valueClass: summary.rollsWithIssues > 0 ? 'text-rose-600' : 'text-emerald-600',
+              },
+              {
+                id: 'dup',
+                label: 'SO บันทึกซ้ำ',
+                value: String(summary.duplicateSOIssuesCount),
+                unit: 'จุด',
+                icon: <AlertTriangle className="w-4 h-4" />,
+                iconClass: 'bg-amber-50 text-amber-600',
+                valueClass: summary.duplicateSOIssuesCount > 0 ? 'text-amber-600' : 'text-slate-700',
+              },
+              {
+                id: 'mismatch',
+                label: 'ยอดคงเหลือไม่ตรง',
+                value: String(summary.masterMismatchCount),
+                unit: 'ม้วน',
+                icon: <AlertCircle className="w-4 h-4" />,
+                iconClass: 'bg-rose-50 text-rose-600',
+                valueClass: summary.masterMismatchCount > 0 ? 'text-rose-600' : 'text-emerald-600',
+              },
+              {
+                id: 'zero',
+                label: 'ตัดเป็น 0 แล้ว',
+                value: String(summary.zeroedOutExcludedCount),
+                unit: 'ม้วน',
+                icon: <CheckCircle2 className="w-4 h-4" />,
+                iconClass: 'bg-slate-100 text-slate-600',
+                footer: 'ยกเว้นจากปรับอัตโนมัติ',
+              },
+            ]}
+          />
         </div>
+
+        {expandedRollId && (
+          <div className="px-3 sm:px-5 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setExpandedRollId(null)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-amber-300 text-xs font-bold cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              กลับรายการม้วน
+            </button>
+            <span className="text-[11px] text-slate-600">กำลังดูรายละเอียดม้วนที่เลือก</span>
+          </div>
+        )}
 
         {/* Search & Filter Tabs Bar */}
         <div className="p-3 sm:px-5 sm:py-3 border-b border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white">

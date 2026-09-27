@@ -16,6 +16,9 @@ import { MonthlyFoilUsageBarChart } from './MonthlyFoilUsageBarChart';
 interface DashboardOverviewProps {
   rolls: FoilRoll[];
   records: StockCutRecord[];
+  archivedRolls?: FoilRoll[];
+  archiveLoaded?: boolean;
+  onLoadArchive?: () => void | Promise<void>;
   onOpenCutModal: (rollId?: string) => void;
   onOpenAddModal: () => void;
   onViewAllRolls: () => void;
@@ -31,6 +34,9 @@ interface DashboardOverviewProps {
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   rolls,
   records,
+  archivedRolls = [],
+  archiveLoaded = false,
+  onLoadArchive,
   onViewAllHistory,
   onOpenMonthlySummary,
   onDoubleBackup,
@@ -38,7 +44,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   lastDoubleBackupTime,
   showToast,
 }) => {
-  const totalRemainingMeters = rolls.reduce((acc, r) => acc + r.remainingMeters, 0);
+  // โหลดคลังเก่าครั้งหนึ่งเพื่อให้นับ "หมดแล้ว" ตรงของจริง
+  useEffect(() => {
+    if (!archiveLoaded && onLoadArchive) {
+      void onLoadArchive();
+    }
+  }, [archiveLoaded, onLoadArchive]);
+
+  const totalRemainingMeters = rolls.reduce((acc, r) => acc + Math.max(0, Number(r.remainingMeters) || 0), 0);
   const totalOriginalMeters = rolls.reduce((acc, r) => acc + r.totalMeters, 0);
   const totalUsedMeters = records.reduce((acc, r) => acc + r.usedMeters, 0);
   const totalNgMeters = records.reduce((acc, r) => acc + r.ngMeters, 0);
@@ -48,10 +61,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       ? ((totalNgMeters / totalDeductedMeters) * 100).toFixed(1)
       : '0.0';
 
-  const activeRolls = rolls.filter((r) => r.remainingMeters > 0);
-  const depletedRolls = rolls.filter((r) => r.remainingMeters <= 0);
-  const redAlertRolls = rolls.filter((r) => r.remainingMeters > 0 && r.remainingMeters <= 50);
-  const yellowAlertRolls = rolls.filter(
+  // พร้อมใช้ = ยังมีเมตร และไม่ติ๊ก 0
+  const activeRolls = rolls.filter(
+    (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted'
+  );
+  // หมดแล้ว = ในลิสต์หลัก (เหลือ 0) + คลัง Archive
+  const localDepleted = rolls.filter(
+    (r) => Number(r.remainingMeters) <= 0 || r.isZeroedOut || r.status === 'depleted'
+  );
+  const depletedCount = archiveLoaded
+    ? new Set([...localDepleted.map((r) => r.id), ...archivedRolls.map((r) => r.id)]).size
+    : localDepleted.length;
+  const redAlertRolls = activeRolls.filter((r) => r.remainingMeters > 0 && r.remainingMeters <= 50);
+  const yellowAlertRolls = activeRolls.filter(
     (r) => r.remainingMeters > 50 && r.remainingMeters <= 200
   );
   const remainPct =
@@ -142,7 +164,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       footer: (
         <div className="space-y-1">
           <p className="text-[11px] text-slate-500">
-            หมดแล้ว <span className="font-mono font-semibold text-slate-700">{depletedRolls.length}</span> ม้วน
+            หมดแล้ว{' '}
+            <span className="font-mono font-semibold text-rose-700">{depletedCount}</span> ม้วน
+            {!archiveLoaded ? <span className="text-slate-400"> (กำลังโหลดคลัง…)</span> : null}
           </p>
           {redAlertRolls.length > 0 && (
             <p className="text-[11px] font-bold text-rose-700 flex items-center gap-1">

@@ -419,92 +419,87 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
         </div>
       </div>
 
-      {/* Visual Process Flow Diagram */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Factory className="w-5 h-5 text-amber-600" />
-            <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-              ขั้นตอนกระบวนการผลิตและการไหลของวัสดุ (Manufacturing Process Flow)
+      {/* แผนผังกระบวนการผลิต (Mind Map) */}
+      <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Factory className="w-5 h-5 text-amber-600 shrink-0" />
+            <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+              แผนผังกระบวนการผลิต
             </h3>
           </div>
-          <span className="text-xs text-slate-500 font-mono">บูรณาการฟอยล์ & แซนวิช</span>
+          <span className="text-[10px] text-slate-500 font-mono shrink-0">ฟอยล์ + แซนวิช</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          {/* Step 1: Order Intake */}
-          <div className="relative p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-amber-50/40 border border-slate-200 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="w-6 h-6 rounded-full bg-slate-900 text-amber-400 font-mono font-bold text-xs flex items-center justify-center">
-                1
-              </span>
-              <span className="text-[11px] font-mono text-slate-500 font-semibold">SO Intake</span>
-            </div>
-            <h4 className="font-bold text-slate-900 text-sm">
-              รับคำสั่งผลิต SO
-            </h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              ตรวจสอบใบสั่งผลิต SO สำหรับทั้งสายติดฟอยล์และ PU แซนวิช
-            </p>
-            <div className="pt-1 text-[11px] font-mono text-amber-800 font-medium">
-              • วันนี้: {distinctDailySo.length} คำสั่งซื้อ SO
+        {/* ศูนย์กลาง */}
+        <div className="flex flex-col items-center gap-3">
+          <div className="px-4 py-2.5 rounded-2xl bg-slate-900 text-amber-300 text-sm font-bold shadow-md text-center">
+            ผลิตวันนี้
+            <div className="text-[11px] font-mono text-slate-300 font-normal mt-0.5">
+              {distinctDailySo.length} SO · ฟอยล์ {stats.totalUsed.toLocaleString()} ม. · แซนวิช{' '}
+              {puStats.totalKg.toLocaleString()} กก.
             </div>
           </div>
 
-          {/* Step 2: Roll & Coil Allocation */}
-          <div className="relative p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50/40 border border-slate-200 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="w-6 h-6 rounded-full bg-blue-700 text-white font-mono font-bold text-xs flex items-center justify-center">
-                2
-              </span>
-              <span className="text-[11px] font-mono text-blue-600 font-semibold">Allocation</span>
-            </div>
-            <h4 className="font-bold text-slate-900 text-sm">
-              เบิกจ่ายม้วนฟอยล์ / คอล์ยเหล็ก
-            </h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              เบิกม้วนฟอยล์ตามลาย หรือชั่งน้ำหนักคอล์ยเหล็กก่อนขึ้นเครื่องแซนวิช
-            </p>
-            <div className="pt-1 text-[11px] font-mono text-blue-800 font-medium">
-              • ฟอยล์ {stats.rollCount} ม้วน | แซนวิช {puStats.count} ม้วนคอล์ย
-            </div>
-          </div>
+          {/* ก้านลง */}
+          <div className="w-0.5 h-4 bg-slate-300" />
 
-          {/* Step 3: PU Foaming & Lamination */}
-          <div className="relative p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-amber-50/60 border border-amber-200 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-mono font-bold text-xs flex items-center justify-center">
-                3
-              </span>
-              <span className="text-[11px] font-mono text-amber-700 font-semibold">Lamination</span>
+          {/* 4 โหนดกระจายแบบแผนผัง */}
+          <div className="w-full grid grid-cols-2 gap-2.5 sm:gap-3">
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-slate-50 to-amber-50 border border-amber-200 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-slate-900 text-amber-400 font-mono font-bold text-[10px] flex items-center justify-center">
+                  1
+                </span>
+                <span className="text-[10px] font-mono text-slate-500">Intake</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">รับ SO</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">ตรวจใบสั่งทั้งสายฟอยล์/แซนวิช</p>
+              <p className="text-[11px] font-mono font-bold text-amber-800">
+                {distinctDailySo.length} คำสั่ง
+              </p>
             </div>
-            <h4 className="font-bold text-slate-900 text-sm">
-              Processing (ดำเนินการผลิต) 
-            </h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              เดินเครื่องฉีดโฟม PU และประกบฟอยล์ หรือประกบเหล็กแซนวิช 2 ด้าน
-            </p>
-            <div className="pt-1 text-[11px] font-mono text-amber-900 font-bold">
-              • ฟอยล์: {stats.totalUsed.toLocaleString()} ม. | แซนวิช: {puStats.totalKg.toLocaleString()} กก.
-            </div>
-          </div>
 
-          {/* Step 4: Quality Inspection & Stock Deduction */}
-          <div className="relative p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-emerald-50/50 border border-emerald-200 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-mono font-bold text-xs flex items-center justify-center">
-                4
-              </span>
-              <span className="text-[11px] font-mono text-emerald-700 font-semibold">Quality & Cut</span>
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50 border border-blue-200 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-blue-700 text-white font-mono font-bold text-[10px] flex items-center justify-center">
+                  2
+                </span>
+                <span className="text-[10px] font-mono text-blue-600">เบิก</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">เบิกม้วน / คอยล์</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">เบิกฟอยล์ตามลาย หรือชั่งเหล็ก</p>
+              <p className="text-[11px] font-mono font-bold text-blue-800">
+                ฟอยล์ {stats.rollCount} · แซนวิช {puStats.count}
+              </p>
             </div>
-            <h4 className="font-bold text-slate-900 text-sm">
-              ตรวจรับ & บันทึกยอดตัด
-            </h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              คัดแยกเศษ NG ชั่งน้ำหนักคืน ตัดสต๊อกฟอยล์และบันทึกคอล์ย Realtime
-            </p>
-            <div className="pt-1 text-[11px] font-mono text-emerald-800 font-bold">
-              • NG ฟอยล์: {stats.totalNg.toLocaleString()} ม. | NG แซนวิช: {puStats.totalNgKg.toLocaleString()} กก.
+
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-300 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-mono font-bold text-[10px] flex items-center justify-center">
+                  3
+                </span>
+                <span className="text-[10px] font-mono text-amber-700">ผลิต</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">เดินเครื่อง</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">ฉีดโฟม / ประกบฟอยล์หรือเหล็ก</p>
+              <p className="text-[11px] font-mono font-bold text-amber-900">
+                {stats.totalUsed.toLocaleString()} ม. · {puStats.totalKg.toLocaleString()} กก.
+              </p>
+            </div>
+
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-mono font-bold text-[10px] flex items-center justify-center">
+                  4
+                </span>
+                <span className="text-[10px] font-mono text-emerald-700">ตัดสต๊อก</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">ตรวจรับ & บันทึก</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">คัด NG ตัดสต๊อก Realtime</p>
+              <p className="text-[11px] font-mono font-bold text-emerald-800">
+                NG {stats.totalNg.toLocaleString()} ม. · {puStats.totalNgKg.toLocaleString()} กก.
+              </p>
             </div>
           </div>
         </div>
