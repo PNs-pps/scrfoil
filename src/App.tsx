@@ -63,6 +63,7 @@ import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON } from './utils/autoBackup';
+import { getD1BackupConfig, uploadBackupToD1 } from './utils/d1Backup';
 import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
 import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X } from 'lucide-react';
@@ -368,6 +369,28 @@ export default function App() {
           console.warn('Background auto cloud backup notice:', err);
         });
       }
+
+      // Also snapshot to Cloudflare D1 (uses the worker URL + secret already
+      // saved in Settings > Backup) — independent of Firebase, so it still
+      // works as a real-time fallback if Firestore is down.
+      if (config.autoSyncD1) {
+        const d1Config = getD1BackupConfig();
+        if (d1Config.workerUrl && d1Config.secret) {
+          uploadBackupToD1({
+            rolls,
+            records,
+            sandwichRecords: puSandwichRecords,
+            label: 'สำรองอัตโนมัติ (real-time)',
+            reason: 'scheduled',
+          })
+            .then(() => {
+              saveAutoBackupConfig({ ...getAutoBackupConfig(), lastD1AutoBackupTime: new Date().toISOString() });
+            })
+            .catch((err) => {
+              console.warn('Background auto D1 backup notice:', err);
+            });
+        }
+      }
     };
 
     const config = getAutoBackupConfig();
@@ -375,7 +398,7 @@ export default function App() {
     const intervalId = setInterval(runAutoBackup, intervalMs);
 
     return () => clearInterval(intervalId);
-  }, [rolls, records, syncStatus]);
+  }, [rolls, records, puSandwichRecords, syncStatus]);
 
   // Automatic daily stock-integrity check (runs by itself, up to 2x/day, the
   // first couple of times someone opens the app each day — see
