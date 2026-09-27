@@ -231,8 +231,12 @@ export default function App() {
             }
             return r;
           });
+          // พร้อมใช้เท่านั้น — เหลือ 0 / depleted / zeroed ไม่นับในลิสต์หลัก
           const activeRolls = mergedServer.filter(
-            (r) => r.status === 'active' && (r.remainingMeters > 0 || !r.isZeroedOut)
+            (r) =>
+              r.status !== 'depleted' &&
+              !r.isZeroedOut &&
+              Number(r.remainingMeters) > 0
           );
           const next =
             activeRolls.length > 0 || firestoreRolls.length === 0
@@ -1215,6 +1219,21 @@ export default function App() {
           <DashboardOverview
             rolls={rolls}
             records={records}
+            archivedRolls={archivedRolls}
+            archiveLoaded={archiveLoaded}
+            onLoadArchive={async () => {
+              if (isLoadingArchive || archiveLoaded) return;
+              setIsLoadingArchive(true);
+              try {
+                const archived = await fetchArchivedFoilRolls();
+                setArchivedRolls(archived);
+                setArchiveLoaded(true);
+              } catch (err) {
+                console.warn('Dashboard archive load:', err);
+              } finally {
+                setIsLoadingArchive(false);
+              }
+            }}
             onOpenCutModal={(rollId) => {
               requireEditorPermission(() => {
                 setPreselectedRollId(rollId || null);
