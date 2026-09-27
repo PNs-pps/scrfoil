@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory, Bug } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory, Bug, LogOut } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
@@ -20,6 +20,8 @@ interface NavbarProps {
   onLockVisitor: () => void;
   onOpenSOAudit?: () => void;
   soBugCount?: number;
+  currentUserEmail?: string | null;
+  onSignOut?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -40,6 +42,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLockVisitor,
   onOpenSOAudit,
   soBugCount = 0,
+  currentUserEmail,
+  onSignOut,
 }) => {
   return (
     <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30 shadow-sm">
@@ -128,6 +132,22 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Download className="w-4 h-4" />
               </button>
+
+              {/* Signed-in Google account chip + sign out */}
+              {currentUserEmail && (
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  title={`เข้าสู่ระบบด้วย ${currentUserEmail} — คลิกเพื่อออกจากระบบ`}
+                  className="hidden sm:flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-slate-600 hover:text-rose-700 transition-colors cursor-pointer group"
+                >
+                  <span className="w-6 h-6 rounded-full bg-slate-900 text-amber-400 text-[11px] font-bold flex items-center justify-center shrink-0">
+                    {currentUserEmail.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="text-[11px] font-medium max-w-[140px] truncate">{currentUserEmail}</span>
+                  <LogOut className="w-3.5 h-3.5 shrink-0 text-slate-400 group-hover:text-rose-600" />
+                </button>
+              )}
             </div>
           </div>
 
