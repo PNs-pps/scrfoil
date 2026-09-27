@@ -148,14 +148,18 @@ const RECORDS_COLLECTION = 'stock_cut_records';
  * for genuinely-external updates (e.g. to prompt the user to refresh).
  */
 const recentLocalWriteIds = new Map<string, number>();
-const LOCAL_WRITE_TTL_MS = 10000;
+/** กัน snapshot/cache เก่ทับค่าหลังปรับยอด — ต้องยาวพอให้ server confirm */
+const LOCAL_WRITE_TTL_MS = 45000;
 
 function markLocalWrite(ids: string[]): void {
   const expiry = Date.now() + LOCAL_WRITE_TTL_MS;
-  ids.forEach((id) => recentLocalWriteIds.set(id, expiry));
+  ids.forEach((id) => {
+    if (id) recentLocalWriteIds.set(id, expiry);
+  });
 }
 
-function isRecentLocalWrite(id: string): boolean {
+/** ใช้ใน App merge realtime — ถ้าเพิ่งเขียนเอง อย่าให้ cache เก่ทับยอด */
+export function isRecentLocalWrite(id: string): boolean {
   const expiry = recentLocalWriteIds.get(id);
   if (expiry === undefined) return false;
   if (Date.now() > expiry) {
@@ -897,9 +901,9 @@ export async function realignRollCutChainInFirestore(
       };
       updatedRecords.push(updatedRec);
 
-      // Write cut record in RECORDS_COLLECTION
+      // เขียนทั้งเอกสาร (ไม่ merge บางฟิลด์) เพื่อให้ remainingBefore/After ติดแน่นอน
       const recRef = doc(db, RECORDS_COLLECTION, rec.id);
-      tx.set(recRef, sanitizeForFirestore(updatedRec), { merge: true });
+      tx.set(recRef, sanitizeForFirestore(updatedRec));
 
       // Write to subcollection cut_history and cuts
       const historyItem: CutHistoryItem = {
@@ -928,9 +932,9 @@ export async function realignRollCutChainInFirestore(
         pattern: serverRoll.pattern,
       };
 
-      // merge: true ให้อัปเดต remainingBefore/After ทับของเดิมในประวัติม้วน
-      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', rec.id), sanitizeForFirestore(historyItem), { merge: true });
-      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem), { merge: true });
+      // เขียนทับประวัติม้วนทั้งก้อน (ยอดก่อนตัด–หลังตัด)
+      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', rec.id), sanitizeForFirestore(historyItem));
+      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem));
     });
 
     const finalRemaining = runningBalance;
@@ -965,7 +969,8 @@ export async function realignRollCutChainInFirestore(
     return { updatedRoll, updatedRecords };
   });
 
-  markLocalWrite([rollId, ...recordIds]);
+  // กัน realtime/cache ทับยอดใหม่ ~45 วินาที
+  markLocalWrite([rollId, ...recordIds, ...result.updatedRecords.map((r) => r.id)]);
   return result;
 }
 
