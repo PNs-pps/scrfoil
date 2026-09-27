@@ -488,6 +488,25 @@ service cloud.firestore {
                   เก็บ snapshot ม้วน + ประวัติตัด บน D1 แยกจาก Firebase — ใช้กู้เมื่อคลาวด์หลักมีปัญหา
                   (ดูวิธีตั้ง Worker ในโฟลเดอร์ <code className="text-[10px] bg-white px-1 rounded">cloudflare-d1/</code>)
                 </p>
+                <label className="flex items-center justify-between p-3 rounded-xl bg-white border border-sky-200 cursor-pointer">
+                  <div className="text-[11px]">
+                    <span className="font-bold text-slate-800 block">สำรองขึ้น D1 อัตโนมัติตามเวลาจริง</span>
+                    <span className="text-slate-500">
+                      สำรองซ้ำทุกรอบเดียวกับ "สำรองลงคลาวด์ Firebase" ด้านบน (ทุก {backupConfig.intervalMinutes} นาที) — ต้องใส่ Worker URL และรหัสลับด้านล่างไว้ก่อน
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={backupConfig.autoSyncD1}
+                    onChange={(e) => updateConfig({ autoSyncD1: e.target.checked })}
+                    className="w-4 h-4 rounded text-sky-600 focus:ring-sky-400 shrink-0 ml-2"
+                  />
+                </label>
+                {backupConfig.autoSyncD1 && backupConfig.lastD1AutoBackupTime && (
+                  <p className="text-[10px] text-sky-800 font-mono">
+                    สำรองอัตโนมัติขึ้น D1 ล่าสุด: {new Date(backupConfig.lastD1AutoBackupTime).toLocaleString('th-TH')}
+                  </p>
+                )}
                 <div className="space-y-1.5">
                   <input
                     type="url"
