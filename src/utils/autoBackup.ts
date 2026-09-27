@@ -6,8 +6,10 @@ export interface AutoBackupConfig {
   intervalMinutes: number;
   autoSyncCloud: boolean;
   saveLocalSnapshots: boolean;
+  autoSyncD1: boolean;
   lastBackupTime: string | null;
   lastDoubleBackupTime?: string | null;
+  lastD1AutoBackupTime?: string | null;
 }
 
 export interface AutoBackupSnapshot {
@@ -32,7 +34,9 @@ export const DEFAULT_BACKUP_CONFIG: AutoBackupConfig = {
   intervalMinutes: 10,
   autoSyncCloud: true,
   saveLocalSnapshots: true,
+  autoSyncD1: false,
   lastBackupTime: null,
+  lastD1AutoBackupTime: null,
 };
 
 export function getAutoBackupConfig(): AutoBackupConfig {
