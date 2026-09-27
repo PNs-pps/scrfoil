@@ -133,6 +133,89 @@ export function clearAllSnapshots(): void {
   } catch {}
 }
 
+// --- Cloudflare D1: fixed-time daily schedule (client-side) ---------------
+// Same idea as the stock-integrity check above: there's no server-side cron
+// in this app, so "automatic" means the app checks, on every load/render,
+// whether the current time has already passed one of the two scheduled slots
+// (12:30 / 17:30) and that slot hasn't backed up yet today. If the device was
+// off or the app closed at the exact time, the very next time the app is
+// opened after that time it sees the slot is still "due" and backs up right
+// away — it doesn't wait for the clock to hit the slot again.
+
+export const D1_SCHEDULED_TIMES: { hour: number; minute: number }[] = [
+  { hour: 12, minute: 30 },
+  { hour: 17, minute: 30 },
+];
+
+const D1_SCHEDULE_STATE_KEY = 'pufoam_d1_scheduled_backup_state_v1';
+
+interface D1ScheduleState {
+  date: string; // YYYY-MM-DD
+  doneSlots: number[];
+}
+
+function todayStr(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+function readD1ScheduleState(): D1ScheduleState {
+  try {
+    const raw = localStorage.getItem(D1_SCHEDULE_STATE_KEY);
+    if (raw) {
+      const parsed: D1ScheduleState = JSON.parse(raw);
+      if (parsed.date === todayStr() && Array.isArray(parsed.doneSlots)) return parsed;
+    }
+  } catch {
+    // ignore corrupt/missing state
+  }
+  return { date: todayStr(), doneSlots: [] };
+}
+
+/** Index of a scheduled D1 backup slot (12:30 or 17:30) that is due right now
+ * and hasn't run yet today, or null if none is due. */
+export function getDueD1ScheduleSlot(): number | null {
+  const now = new Date();
+  const state = readD1ScheduleState();
+  for (let i = 0; i < D1_SCHEDULED_TIMES.length; i++) {
+    if (state.doneSlots.includes(i)) continue;
+    const { hour, minute } = D1_SCHEDULED_TIMES[i];
+    const slotTime = new Date(now);
+    slotTime.setHours(hour, minute, 0, 0);
+    if (now >= slotTime) return i;
+  }
+  return null;
+}
+
+/** All scheduled slots (12:30, 17:30) whose time has already passed today
+ * but that haven't backed up yet — e.g. every slot missed while the app/
+ * device was closed. Used so opening the app late catches up in one go
+ * instead of trickling out one slot per minute. */
+export function getAllDueD1ScheduleSlots(): number[] {
+  const now = new Date();
+  const state = readD1ScheduleState();
+  const due: number[] = [];
+  for (let i = 0; i < D1_SCHEDULED_TIMES.length; i++) {
+    if (state.doneSlots.includes(i)) continue;
+    const { hour, minute } = D1_SCHEDULED_TIMES[i];
+    const slotTime = new Date(now);
+    slotTime.setHours(hour, minute, 0, 0);
+    if (now >= slotTime) due.push(i);
+  }
+  return due;
+}
+
+export function markD1ScheduleSlotRun(slot: number): void {
+  const state = readD1ScheduleState();
+  if (!state.doneSlots.includes(slot)) {
+    state.doneSlots.push(slot);
+  }
+  try {
+    localStorage.setItem(D1_SCHEDULE_STATE_KEY, JSON.stringify(state));
+  } catch (err) {
+    console.warn('Failed to save D1 schedule state:', err);
+  }
+}
+
 export function exportFullBackupJSON(rolls: FoilRoll[], records: StockCutRecord[]): void {
   const exportPayload = {
     app: 'pufoam-foil-metalsheet-stock',
