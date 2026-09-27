@@ -19,7 +19,17 @@ import {
   where,
   Firestore
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously, Auth } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
+  signOut, 
+  onAuthStateChanged, 
+  Auth, 
+  User 
+} from 'firebase/auth';
 import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 
@@ -106,10 +116,53 @@ export const db: Firestore = createDb();
 // Initialize Auth
 export const auth: Auth = getAuth(firebaseApp);
 
-// Initialize anonymous auth if available
-signInAnonymously(auth).catch((err) => {
-  console.warn('Anonymous auth notification (normal if not enabled on console):', err?.message || err);
-});
+// --- Google Sign-In (mandatory) ---------------------------------------------
+// Guest/anonymous access has been removed: every person must sign in with a
+// real Google account before the app loads any data. See AuthGate.tsx, which
+// wraps the whole app and shows a sign-in screen until `auth.currentUser`
+// exists.
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export async function signInWithGoogle(): Promise<User> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
+  } catch (err: any) {
+    // Popup blocked or not allowed (common on some mobile browsers/webviews)
+    // — fall back to a full-page redirect flow instead of failing outright.
+    if (
+      err?.code === 'auth/popup-blocked' ||
+      err?.code === 'auth/operation-not-supported-in-this-environment' ||
+      err?.code === 'auth/popup-closed-by-user'
+    ) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        await signInWithRedirect(auth, googleProvider);
+      }
+    }
+    throw err;
+  }
+}
+
+/** Call once at app startup to pick up the result of a signInWithRedirect fallback. */
+export async function checkRedirectSignIn(): Promise<User | null> {
+  try {
+    const result = await getRedirectResult(auth);
+    return result?.user || null;
+  } catch (err) {
+    console.warn('Redirect sign-in check notice:', err);
+    return null;
+  }
+}
+
+export function signOutUser(): Promise<void> {
+  return signOut(auth);
+}
+
+/** Subscribe to sign-in state; callback fires with `null` when signed out. */
+export function subscribeToAuthState(callback: (user: User | null) => void): () => void {
+  return onAuthStateChanged(auth, callback);
+}
 
 // Test connection (On-demand only - do NOT run automatically at module load to save reads)
 export async function testFirestoreConnection(): Promise<{ isConnected: boolean; error?: string }> {
