@@ -35,44 +35,46 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Connection test document
+    // Connection test document — left open for connectivity checks (no real
+    // business data lives here)
     match /test/{docId} {
       allow read, write: if true;
     }
 
-    // Foil rolls inventory collection
+    // Foil rolls inventory collection — requires a signed-in Google account
+    // (guest/anonymous access has been removed; see AuthGate.tsx on the client)
     match /foil_rolls/{rollId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
 
       // Cuts subcollection per roll
       match /cuts/{cutId} {
-        allow read, write: if true;
+        allow read, write: if request.auth != null;
       }
 
       // Cut history subcollection per roll (foil_rolls/{rollId}/cut_history)
       match /cut_history/{cutId} {
-        allow read, write: if true;
+        allow read, write: if request.auth != null;
       }
     }
 
     // Collection group query for cut_history across all rolls
     match /{path=**}/cut_history/{cutId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // Stock cut records collection
     match /stock_cut_records/{recordId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // PU Sandwich cut records (no foil) collection
     match /pu_sandwich_cuts/{recordId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // Physical Cycle Count sessions (monthly stock count + variance)
     match /cycle_counts/{sessionId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
   }
 }
