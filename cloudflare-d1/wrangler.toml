@@ -1,0 +1,21 @@
+# Cloudflare Worker + D1 for foil stock snapshot backup
+# 1) npm i -g wrangler && wrangler login
+# 2) wrangler d1 create foil-stock-backups
+# 3) ใส่ database_id ด้านล่าง
+# 4) wrangler d1 execute foil-stock-backups --file=./schema.sql
+# 5) ตั้ง secret: wrangler secret put BACKUP_SECRET
+# 6) wrangler deploy
+
+name = "foil-stock-d1-backup"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# เปลี่ยนเป็น database_id จริงหลังสร้าง D1
+[[d1_databases]]
+binding = "DB"
+database_name = "foil-stock-backups"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# อย่าใส่ secret จริงตรงนี้ — ใช้ wrangler secret put BACKUP_SECRET
+APP_NAME = "scrfoil-backup"
