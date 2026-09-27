@@ -490,9 +490,9 @@ service cloud.firestore {
                 </p>
                 <label className="flex items-center justify-between p-3 rounded-xl bg-white border border-sky-200 cursor-pointer">
                   <div className="text-[11px]">
-                    <span className="font-bold text-slate-800 block">สำรองขึ้น D1 อัตโนมัติตามเวลาจริง</span>
+                    <span className="font-bold text-slate-800 block">สำรองขึ้น D1 อัตโนมัติ วันละ 2 ครั้ง</span>
                     <span className="text-slate-500">
-                      สำรองซ้ำทุกรอบเดียวกับ "สำรองลงคลาวด์ Firebase" ด้านบน (ทุก {backupConfig.intervalMinutes} นาที) — ต้องใส่ Worker URL และรหัสลับด้านล่างไว้ก่อน
+                      ระบบจะสำรองให้เองเวลา 12:30 น. และ 17:30 น. ของทุกวัน (ต้องเปิดแอปทิ้งไว้ช่วงเวลานั้น) หรือกดปุ่ม "สำรองขึ้น D1" ด้านล่างเพื่อสำรองเองได้ทุกเมื่อ — ต้องใส่ Worker URL และรหัสลับไว้ก่อน
                     </span>
                   </div>
                   <input
@@ -507,29 +507,40 @@ service cloud.firestore {
                     สำรองอัตโนมัติขึ้น D1 ล่าสุด: {new Date(backupConfig.lastD1AutoBackupTime).toLocaleString('th-TH')}
                   </p>
                 )}
-                <div className="space-y-1.5">
-                  <input
-                    type="url"
-                    placeholder="https://foil-stock-d1-backup.xxx.workers.dev"
-                    value={d1Config.workerUrl}
-                    onChange={(e) => {
-                      const next = saveD1BackupConfig({ workerUrl: e.target.value });
-                      setD1Config(next);
-                    }}
-                    className="w-full px-2.5 py-1.5 text-[11px] font-mono bg-white border border-sky-200 rounded-lg"
-                  />
-                  <input
-                    type="password"
-                    placeholder="BACKUP_SECRET"
-                    value={d1Config.secret}
-                    onChange={(e) => {
-                      const next = saveD1BackupConfig({ secret: e.target.value });
-                      setD1Config(next);
-                    }}
-                    className="w-full px-2.5 py-1.5 text-[11px] font-mono bg-white border border-sky-200 rounded-lg"
-                    autoComplete="off"
-                  />
-                </div>
+                {userMode === 'editor' ? (
+                  <div className="space-y-1.5">
+                    <input
+                      type="url"
+                      placeholder="https://foil-stock-d1-backup.xxx.workers.dev"
+                      value={d1Config.workerUrl}
+                      onChange={(e) => {
+                        const next = saveD1BackupConfig({ workerUrl: e.target.value });
+                        setD1Config(next);
+                      }}
+                      className="w-full px-2.5 py-1.5 text-[11px] font-mono bg-white border border-sky-200 rounded-lg"
+                    />
+                    <input
+                      type="password"
+                      placeholder="BACKUP_SECRET"
+                      value={d1Config.secret}
+                      onChange={(e) => {
+                        const next = saveD1BackupConfig({ secret: e.target.value });
+                        setD1Config(next);
+                      }}
+                      className="w-full px-2.5 py-1.5 text-[11px] font-mono bg-white border border-sky-200 rounded-lg"
+                      autoComplete="off"
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onRequestUnlock?.()}
+                    className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2 text-[11px] font-bold text-sky-900 bg-white border border-dashed border-sky-300 rounded-lg cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Worker URL / รหัสลับ — ปลดล็อคโหมดแก้ไขเพื่อดูและตั้งค่า</span>
+                  </button>
+                )}
                 {d1Status && (
                   <p className="text-[10px] text-slate-700 bg-white/80 rounded px-2 py-1 border border-sky-100">
                     {d1Status}

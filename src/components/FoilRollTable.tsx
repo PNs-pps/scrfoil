@@ -944,18 +944,18 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           )}
         </div>
 
-        {/* คำอธิบายสี — ง่าย ชัด */}
-        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-1.5 pt-2.5 border-t border-slate-100 text-[11px]">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+        {/* คำอธิบายสี — บรรทัดเดียว เลื่อนดูได้ถ้าจอแคบ */}
+        <div className="flex flex-nowrap items-center gap-1.5 pt-2.5 border-t border-slate-100 text-[11px] overflow-x-auto">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold shrink-0 whitespace-nowrap">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
             เขียว = พร้อมใช้ (เหลือมากกว่า 200 ม.)
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-50 text-yellow-900 border border-yellow-300 font-semibold">
-            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-50 text-yellow-900 border border-yellow-300 font-semibold shrink-0 whitespace-nowrap">
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" />
             เหลือง = เหลือน้อย (ไม่เกิน 200 ม. ควรเตรียมสั่ง)
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-900 border border-rose-300 font-semibold">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-600" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-900 border border-rose-300 font-semibold shrink-0 whitespace-nowrap">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0" />
             แดง = ใกล้หมด (ไม่เกิน 50 ม. / ติ๊กตัดเป็น 0 ได้)
           </span>
         </div>
