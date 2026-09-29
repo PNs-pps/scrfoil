@@ -183,6 +183,7 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isCutModalOpen, setIsCutModalOpen] = useState(false);
   const [isPuSandwichModalOpen, setIsPuSandwichModalOpen] = useState(false);
+  const [editingPuSandwich, setEditingPuSandwich] = useState<PuSandwichCutRecord | null>(null);
   const [cutModalInitialMode, setCutModalInitialMode] = useState<'so' | 'non_so'>('so');
   const [preselectedRollId, setPreselectedRollId] = useState<string | null>(null);
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
@@ -803,7 +804,10 @@ export default function App() {
 
   // PU Sandwich Cut Handlers (ไม่ใช้ฟอยล์)
   const handleSavePuSandwichCut = async (record: PuSandwichCutRecord) => {
-    const updated = [record, ...puSandwichRecords];
+    const exists = puSandwichRecords.some((r) => r.id === record.id);
+    const updated = exists
+      ? puSandwichRecords.map((r) => (r.id === record.id ? record : r))
+      : [record, ...puSandwichRecords];
     setPuSandwichRecords(updated);
     saveStoredPuSandwichRecords(updated);
 
@@ -811,10 +815,14 @@ export default function App() {
       await savePuSandwichCutToFirestore(record);
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-      showToast(`บันทึกตัด SO แซนวิช ${record.soNumber} (คอล์ย ${record.coilNumber} ใช้ ${record.weightUsed} กก.) สำเร็จ! [ซิงค์ Cloud]`);
+      const metersTxt = record.soLengthMeters ? ` · ${record.soLengthMeters} ม.` : '';
+      showToast(
+        `${exists ? 'แก้ไข' : 'บันทึก'} SO แซนวิช ${record.soNumber}${metersTxt} สำเร็จ [Cloud]`,
+        'success'
+      );
     } catch (err: any) {
       console.warn('Notice: PU Sandwich cloud sync pending/offline:', err?.message || err);
-      showToast(`บันทึกตัด SO แซนวิช ${record.soNumber} ในเครื่องเรียบร้อย (รอซิงค์ Cloud เมื่อออนไลน์)`, 'info');
+      showToast(`บันทึก SO แซนวิช ${record.soNumber} ในเครื่องแล้ว (รอซิงค์ Cloud)`, 'info');
     }
   };
 
@@ -1382,7 +1390,14 @@ export default function App() {
         {activeTab === 'sandwich' && (
           <PuSandwichView
             records={puSandwichRecords}
-            onOpenCreateModal={() => requireEditorPermission(() => setIsPuSandwichModalOpen(true))}
+            onOpenCreateModal={() => requireEditorPermission(() => {
+              setEditingPuSandwich(null);
+              setIsPuSandwichModalOpen(true);
+            })}
+            onEditRecord={(rec) => requireEditorPermission(() => {
+              setEditingPuSandwich(rec);
+              setIsPuSandwichModalOpen(true);
+            })}
             onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
             userMode={userMode}
             onUnlockEditor={() => requireEditorPermission(() => {})}
@@ -1468,7 +1483,11 @@ export default function App() {
 
       <PuSandwichModal
         isOpen={isPuSandwichModalOpen}
-        onClose={() => setIsPuSandwichModalOpen(false)}
+        onClose={() => {
+          setIsPuSandwichModalOpen(false);
+          setEditingPuSandwich(null);
+        }}
+        editingRecord={editingPuSandwich}
         records={puSandwichRecords}
         onSaveCut={handleSavePuSandwichCut}
         onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
