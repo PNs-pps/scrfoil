@@ -212,25 +212,6 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             <h2 className="text-sm sm:text-base font-bold truncate">PU Sandwich · ตัด SO ไม่ใช้ฟอยล์</h2>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => setIsMonthlyModalOpen(true)}
-            className="px-2.5 py-1.5 rounded-xl bg-amber-400 text-slate-950 text-[11px] font-bold cursor-pointer inline-flex items-center gap-1"
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            สรุปรายเดือน
-          </button>
-          <button
-            type="button"
-            onClick={() => exportPuSandwichRecordsToCSV(records)}
-            disabled={records.length === 0}
-            className="px-2.5 py-1.5 rounded-xl bg-white/15 text-white text-[11px] font-bold border border-white/20 cursor-pointer disabled:opacity-40 inline-flex items-center gap-1"
-          >
-            <Download className="w-3.5 h-3.5" />
-            CSV
-          </button>
-        </div>
       </div>
 
       {/* KPI 2 แถวสไลด์ — เห็นทันทีใต้หัวข้อ */}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { FoilRoll, StockCutRecord } from '../types';
-import { X, Layers, Scissors, Calendar, User, FileText, CheckCircle2 } from 'lucide-react';
+import { X, ArrowLeft, Layers, Scissors, Calendar, User, FileText, CheckCircle2 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
 
 interface RollDetailModalProps {
@@ -22,29 +22,36 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
   const percentLeft = roll.totalMeters > 0 ? Math.round((roll.remainingMeters / roll.totalMeters) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
       <div 
         id="modal-roll-detail"
         className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold">
-              <Layers className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-white leading-tight">
+        <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
+              title="ย้อนกลับ / ปิด"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>ย้อนกลับ</span>
+            </button>
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-bold text-white leading-tight truncate">
                 ประวัติการตัด: ล็อต {roll.lotNumber} #{roll.rollNumber}
               </h2>
-              <p className="text-xs text-slate-300">
+              <p className="text-[11px] text-slate-300 truncate">
                 ลาย {roll.pattern} | หน้ากว้าง {roll.width} มม.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+            title="ปิด"
           >
             <X className="w-5 h-5" />
           </button>
@@ -170,16 +177,6 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
               </div>
             )}
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
-          >
-            ปิดหน้าต่าง
-          </button>
         </div>
       </div>
     </div>

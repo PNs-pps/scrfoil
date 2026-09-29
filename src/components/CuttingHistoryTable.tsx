@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { StockCutRecord, WIDTH_SPECIFICATIONS } from '../types';
+import React, { useState, useMemo, useRef } from 'react';
+import { StockCutRecord, FoilRoll, WIDTH_SPECIFICATIONS } from '../types';
 import { 
   Search, 
   Download, 
@@ -21,7 +21,8 @@ import {
   ArrowUp,
   ArrowDown,
   Copy,
-  Check
+  Check,
+  SlidersHorizontal
 } from 'lucide-react';
 import { exportCutRecordsToCSV } from '../utils/storage';
 import { formatMeters, compareLotAndRoll } from '../utils/formatters';
@@ -29,12 +30,240 @@ import { UserMode } from '../utils/auth';
 import { groupCutsByDate, exportCutsDateCSV } from '../utils/dateGrouping';
 import { getPatternStyle } from '../utils/patternStyles';
 import { findHiddenExactDuplicates } from '../utils/soHistoryAudit';
+import { SODetailModal } from './SODetailModal';
 
 type SortField = 'date' | 'so' | 'lot_roll' | 'width' | 'pattern' | 'used' | 'ng' | 'total' | 'remaining' | 'recorder';
 type SortDirection = 'asc' | 'desc';
 
+interface SwipeableCutRecordCardProps {
+  item: StockCutRecord;
+  searchQuery: string;
+  isDup: boolean;
+  onOpenDetail: (item: StockCutRecord) => void;
+  onDelete: (item: StockCutRecord) => void;
+  highlightMatch: (text: string, query: string) => React.ReactNode;
+}
+
+const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
+  item,
+  searchQuery,
+  isDup,
+  onOpenDetail,
+  onDelete,
+  highlightMatch,
+}) => {
+  const [translateX, setTranslateX] = useState(0);
+  const [isSwiped, setIsSwiped] = useState(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const isHorizontalScrollRef = useRef<boolean | null>(null);
+
+  const patternStyle = getPatternStyle(item.pattern);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startXRef.current = e.touches[0].clientX;
+    startYRef.current = e.touches[0].clientY;
+    isDraggingRef.current = true;
+    isHorizontalScrollRef.current = null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDraggingRef.current) return;
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const diffX = currentX - startXRef.current;
+    const diffY = currentY - startYRef.current;
+
+    if (isHorizontalScrollRef.current === null) {
+      if (Math.abs(diffX) > 8 || Math.abs(diffY) > 8) {
+        isHorizontalScrollRef.current = Math.abs(diffX) > Math.abs(diffY);
+      }
+    }
+
+    if (!isHorizontalScrollRef.current) return;
+
+    if (isSwiped) {
+      const next = Math.max(-144, Math.min(0, -144 + diffX));
+      setTranslateX(next);
+    } else if (diffX < 0) {
+      const next = Math.max(-144, diffX);
+      setTranslateX(next);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    if (translateX < -45) {
+      setTranslateX(-144);
+      setIsSwiped(true);
+    } else {
+      setTranslateX(0);
+      setIsSwiped(false);
+    }
+  };
+
+  const toggleSwipe = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isSwiped) {
+      setTranslateX(0);
+      setIsSwiped(false);
+    } else {
+      setTranslateX(-144);
+      setIsSwiped(true);
+    }
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 shadow-2xs select-none">
+      {/* Background slide actions revealed upon sliding left (2 actions: รายละเอียด + ลบ) */}
+      <div className="absolute inset-y-0 right-0 w-[144px] flex items-stretch bg-slate-900 text-white z-0">
+        {/* 1. รายละเอียด (Pop-up) */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setTranslateX(0);
+            setIsSwiped(false);
+            onOpenDetail(item);
+          }}
+          className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[11px] font-bold bg-blue-600 hover:bg-blue-500 text-white active:bg-blue-700 transition-colors cursor-pointer"
+          title="ดูรายละเอียดใบงานนี้แบบเต็ม (Pop-up)"
+        >
+          <FileText className="w-4 h-4 mb-0.5" />
+          <span className="leading-tight">รายละเอียด</span>
+        </button>
+
+        {/* 2. ลบ */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setTranslateX(0);
+            setIsSwiped(false);
+            onDelete(item);
+          }}
+          className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white active:bg-rose-700 transition-colors cursor-pointer"
+          title="ยกเลิกรายการนี้ (คืนยอดเข้าม้วน)"
+        >
+          <Trash2 className="w-4 h-4 mb-0.5" />
+          <span className="leading-tight">ลบ</span>
+        </button>
+      </div>
+
+      {/* Foreground Swipeable Card */}
+      <div
+        style={{
+          transform: `translateX(${translateX}px)`,
+          transition: isDraggingRef.current ? 'none' : 'transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)',
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={() => {
+          if (isSwiped) {
+            setTranslateX(0);
+            setIsSwiped(false);
+          } else {
+            onOpenDetail(item);
+          }
+        }}
+        className={`relative z-10 p-3 bg-white transition-colors cursor-pointer active:bg-slate-50 ${
+          isDup ? 'border-l-4 border-l-rose-500 bg-rose-50/50' : 'border-l-4 border-l-amber-500'
+        }`}
+      >
+        {/* Row 1: SO Number and Usage Date */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-mono font-black text-amber-950 text-sm bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 inline-block shadow-2xs truncate">
+              {highlightMatch(item.soNumber, searchQuery)}
+            </span>
+            {isDup && (
+              <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded shrink-0">
+                ซ้ำ
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 text-xs text-slate-500 font-mono shrink-0">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <span>{item.usageDate || '-'}</span>
+          </div>
+        </div>
+
+        {/* Row 2: Lot & Roll, Width, Pattern */}
+        <div className="mt-2 flex items-center justify-between gap-1.5 text-xs">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-mono text-slate-700 font-bold truncate">
+              ล็อต {highlightMatch(item.lotNumber, searchQuery)}
+            </span>
+            <span className="font-mono text-[11px] font-bold text-slate-950 bg-amber-400 px-1.5 py-0.2 rounded border border-amber-500 shrink-0">
+              #{highlightMatch(item.rollNumber, searchQuery)}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
+              {item.width} มม.
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+              <span>{patternStyle.name}</span>
+            </span>
+            {item.isSilverSide && (
+              <span className="inline-flex items-center font-bold text-[10px] text-slate-700 bg-gradient-to-r from-slate-100 to-zinc-200 px-1.5 py-0.5 rounded border border-slate-300 shadow-2xs">
+                เงิน
+              </span>
+            )}
+            {item.isWhiteSide && (
+              <span className="inline-flex items-center font-bold text-[10px] text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-2xs">
+                ขาว
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Row 3: Used Meters & NG (ตัดคงเหลือออกตามที่ผู้ใช้กำหนด) */}
+        <div className="mt-2 flex items-baseline gap-3 text-xs font-mono pt-1.5 border-t border-slate-100">
+          <span>
+            ตัดใช้: <strong className="text-slate-900 font-bold">{formatMeters(item.usedMeters)}</strong> ม.
+          </span>
+          {item.ngMeters > 0 && (
+            <span className="text-rose-600 font-semibold">
+              NG: {formatMeters(item.ngMeters)} ม.
+            </span>
+          )}
+        </div>
+
+        {/* Row 4: Recorded By and Slide button (ตัดปุ่มรายละเอียดออก เหลือสไลด์) */}
+        <div className="mt-2 flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-[11px]">
+          <div className="flex items-center gap-1.5 text-slate-600 truncate min-w-0">
+            <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="truncate">
+              ผู้บันทึก: <strong className="text-slate-800">{highlightMatch(item.recordedBy, searchQuery)}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={toggleSwipe}
+              className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-100 text-amber-950 text-[10px] font-bold border border-amber-300 cursor-pointer active:scale-95 transition-transform"
+              title="สไลด์เพื่อดูเมนูรายละเอียดและลบ"
+            >
+              <span>{isSwiped ? 'ปิด' : 'สไลด์'}</span>
+              <SlidersHorizontal className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface CuttingHistoryTableProps {
   records: StockCutRecord[];
+  rolls?: FoilRoll[];
   onDeleteRecord: (recordId: string) => void;
   onOpenCutModal: () => void;
   userMode?: UserMode;
@@ -43,11 +272,13 @@ interface CuttingHistoryTableProps {
 
 export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   records,
+  rolls = [],
   onDeleteRecord,
   onOpenCutModal,
   userMode = 'visitor',
   onRequestUnlock,
 }) => {
+  const [selectedDetailRecord, setSelectedDetailRecord] = useState<StockCutRecord | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchScope, setSearchScope] = useState<'all' | 'so' | 'employee' | 'lot_roll'>('all');
   const [selectedSo, setSelectedSo] = useState('all');
@@ -855,9 +1086,56 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           )}
         </div>
       ) : viewMode === 'flat' ? (
-        /* Flat Table View */
+        /* Flat View: Mobile cards and Desktop Table */
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile View: Swipeable SO Cards */}
+          <div className="block md:hidden space-y-2.5 p-3 bg-slate-50/60">
+            {filteredRecords.map((item, index) => {
+              const currentDateKey = (item.usageDate || item.recordedDate || '').slice(0, 10) || 'ไม่ระบุวันที่';
+              const prevDateKey = index > 0 
+                ? ((filteredRecords[index - 1].usageDate || filteredRecords[index - 1].recordedDate || '').slice(0, 10) || 'ไม่ระบุวันที่') 
+                : null;
+              const isNewDate = currentDateKey !== prevDateKey;
+              const dayGroup = dateGroupMap.get(currentDateKey);
+
+              return (
+                <React.Fragment key={item.id}>
+                  {isNewDate && (
+                    <div className="pt-2 pb-1 flex items-center justify-between gap-2 border-b-2 border-amber-300 text-xs select-none">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                        <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                        <span>{dayGroup?.displayDate || currentDateKey}</span>
+                      </div>
+                      <span className="font-mono text-[11px] text-slate-500 font-medium">
+                        {dayGroup?.records.length || 1} รายการ ({formatMeters(dayGroup?.totalUsedMeters || 0)} ม.)
+                      </span>
+                    </div>
+                  )}
+                  <SwipeableCutRecordCard
+                    item={item}
+                    searchQuery={searchQuery}
+                    isDup={hiddenDupIdSet.has(item.id)}
+                    onOpenDetail={(rec) => setSelectedDetailRecord(rec)}
+                    onDelete={(rec) => {
+                      handleActionGuarded(() => {
+                        if (
+                          confirm(
+                            `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${rec.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
+                          )
+                        ) {
+                          onDeleteRecord(rec.id);
+                        }
+                      });
+                    }}
+                    highlightMatch={highlightMatch}
+                  />
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {/* Desktop View: Clean Table without Total Cut column */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
                 <tr>
@@ -868,7 +1146,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                   {renderSortHeader('pattern', 'ท้องฟอยล์')}
                   {renderSortHeader('used', 'เมตรที่ใช้', 'right')}
                   {renderSortHeader('ng', 'NG ที่เสีย', 'right')}
-                  {renderSortHeader('total', 'รวมตัดออก', 'right')}
                   {renderSortHeader('remaining', 'คงเหลือหลังตัด', 'right')}
                   {renderSortHeader('recorder', 'ผู้บันทึก')}
                   <th className="px-4 py-3.5 text-center">จัดการ</th>
@@ -889,7 +1166,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       {/* hiddenDup highlight applied on row below */}
                       {isNewDate && (
                         <tr className="bg-gradient-to-r from-amber-100/90 via-amber-50 to-slate-50 border-y-2 border-amber-300 select-none">
-                          <td colSpan={11} className="px-4 py-2.5">
+                          <td colSpan={10} className="px-4 py-2.5">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div className="flex items-center gap-2.5">
                                 <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
@@ -1062,12 +1339,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         )}
                       </td>
 
-                      {/* Total Deducted */}
-                      <td className="px-4 py-3.5 text-right font-mono text-xs font-bold text-amber-800">
-                        -{formatMeters(item.totalDeducted)}{' '}
-                        <span className="text-[11px] font-normal text-slate-400">ม.</span>
-                      </td>
-
                       {/* Remaining After */}
                       <td className="px-4 py-3.5 text-right font-mono text-xs font-bold text-emerald-700">
                         {formatMeters(item.remainingAfter)}{' '}
@@ -1084,9 +1355,18 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         </div>
                       </td>
 
-                      {/* Actions: Copy Details for LINE & Delete/Void */}
+                      {/* Actions: View Details (Pop-up), Copy for LINE, and Delete */}
                       <td className="px-4 py-3.5 text-center">
                         <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDetailRecord(item)}
+                            title="ดูรายละเอียดใบงานนี้แบบเต็ม (Pop-up)"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
+
                           <button
                             type="button"
                             onClick={() => handleCopySingleRecord(item)}
@@ -1254,145 +1534,178 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                   </div>
                 </div>
 
-                {/* Folder Content Table */}
+                {/* Folder Content */}
                 {!isCollapsed && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50/50 text-slate-400 text-[11px] uppercase border-b border-slate-100 font-semibold">
-                        <tr>
-                          <th className="px-4 py-2.5">รหัส SO</th>
-                          <th className="px-4 py-2.5">ล็อต & เบอร์ม้วน</th>
-                          <th className="px-4 py-2.5">หน้ากว้าง</th>
-                          <th className="px-4 py-2.5">ท้องฟอยล์</th>
-                          <th className="px-4 py-2.5 text-right">เมตรที่ใช้</th>
-                          <th className="px-4 py-2.5 text-right">NG</th>
-                          <th className="px-4 py-2.5 text-right">รวมตัดออก</th>
-                          <th className="px-4 py-2.5">ผู้บันทึก</th>
-                          <th className="px-4 py-2.5 text-center">จัดการ</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {group.records.map((item) => {
-                          const patternStyle = getPatternStyle(item.pattern);
-                          return (
-                            <tr
-                              key={item.id}
-                              className={`transition-colors ${
-                                hiddenDupIdSet.has(item.id)
-                                  ? 'bg-rose-50/90 hover:bg-rose-100/80 ring-1 ring-inset ring-rose-200'
-                                  : 'hover:bg-slate-50/70'
-                              }`}
-                            >
-                              <td className="px-4 py-3">
-                                <div className="flex flex-wrap items-center gap-1">
-                                  <span className="font-mono font-bold text-amber-900 text-xs bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                    {highlightMatch(item.soNumber, searchQuery)}
-                                  </span>
-                                  {hiddenDupIdSet.has(item.id) && (
-                                    <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1 rounded">
-                                      ซ้ำ
+                  <div>
+                    {/* Mobile View: Swipeable Cards */}
+                    <div className="block md:hidden space-y-2 p-2.5 bg-slate-50/60">
+                      {group.records.map((item) => (
+                        <SwipeableCutRecordCard
+                          key={item.id}
+                          item={item}
+                          searchQuery={searchQuery}
+                          isDup={hiddenDupIdSet.has(item.id)}
+                          onOpenDetail={(rec) => setSelectedDetailRecord(rec)}
+                          onDelete={(rec) => {
+                            handleActionGuarded(() => {
+                              if (
+                                confirm(
+                                  `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${rec.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
+                                )
+                              ) {
+                                onDeleteRecord(rec.id);
+                              }
+                            });
+                          }}
+                          highlightMatch={highlightMatch}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Desktop View: Clean Table without Total Cut column */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50/50 text-slate-400 text-[11px] uppercase border-b border-slate-100 font-semibold">
+                          <tr>
+                            <th className="px-4 py-2.5">รหัส SO</th>
+                            <th className="px-4 py-2.5">ล็อต & เบอร์ม้วน</th>
+                            <th className="px-4 py-2.5">หน้ากว้าง</th>
+                            <th className="px-4 py-2.5">ท้องฟอยล์</th>
+                            <th className="px-4 py-2.5 text-right">เมตรที่ใช้</th>
+                            <th className="px-4 py-2.5 text-right">NG</th>
+                            <th className="px-4 py-2.5">ผู้บันทึก</th>
+                            <th className="px-4 py-2.5 text-center">จัดการ</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {group.records.map((item) => {
+                            const patternStyle = getPatternStyle(item.pattern);
+                            return (
+                              <tr
+                                key={item.id}
+                                className={`transition-colors ${
+                                  hiddenDupIdSet.has(item.id)
+                                    ? 'bg-rose-50/90 hover:bg-rose-100/80 ring-1 ring-inset ring-rose-200'
+                                    : 'hover:bg-slate-50/70'
+                                }`}
+                              >
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <span className="font-mono font-bold text-amber-900 text-xs bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                      {highlightMatch(item.soNumber, searchQuery)}
                                     </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-1.5 text-xs">
-                                  <span className="inline-flex items-center px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-black font-mono text-[11px]">
-                                    #{highlightMatch(item.rollNumber, searchQuery)}
-                                  </span>
-                                  <span className="font-mono text-slate-700">
-                                    {highlightMatch(item.lotNumber, searchQuery)}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="font-mono font-bold text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-300">
-                                  หน้า {item.width} มม.
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex flex-col gap-1">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className={`w-3 h-3 rounded-full shrink-0 ${patternStyle.dotClass}`} />
-                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${patternStyle.badgeClass}`}>
-                                      {patternStyle.name}
+                                    {hiddenDupIdSet.has(item.id) && (
+                                      <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1 rounded">
+                                        ซ้ำ
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1.5 text-xs">
+                                    <span className="inline-flex items-center px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-black font-mono text-[11px]">
+                                      #{highlightMatch(item.rollNumber, searchQuery)}
+                                    </span>
+                                    <span className="font-mono text-slate-700">
+                                      {highlightMatch(item.lotNumber, searchQuery)}
                                     </span>
                                   </div>
-                                  {item.isSilverSide && (
-                                    <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[10px] font-bold border border-slate-300">
-                                      เงิน
-                                    </span>
-                                  )}
-                                  {item.isWhiteSide && (
-                                    <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-white text-slate-800 text-[10px] font-bold border border-slate-300">
-                                      ขาว
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 text-xs">
-                                {formatMeters(item.usedMeters)} ม.
-                              </td>
-                              <td className="px-4 py-3 text-right font-mono text-xs text-rose-600">
-                                {item.ngMeters > 0 ? `${formatMeters(item.ngMeters)} ม.` : '-'}
-                              </td>
-                              <td className="px-4 py-3 text-right font-mono font-bold text-amber-800 text-xs">
-                                -{formatMeters(item.totalDeducted)} ม.
-                              </td>
-                              <td className="px-4 py-3 text-xs text-slate-700">
-                                <div className="flex items-center gap-1">
-                                  <User className="w-3 h-3 text-slate-400" />
-                                  <span>{highlightMatch(item.recordedBy, searchQuery)}</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopySingleRecord(item)}
-                                    title={
-                                      copiedRecordId === item.id
-                                        ? 'คัดลอกลงคลิปบอร์ดแล้ว!'
-                                        : 'คัดลอกรายละเอียดงาน SO นี้เพื่อนำไปวางใน LINE'
-                                    }
-                                    className={`p-1 rounded transition-colors cursor-pointer ${
-                                      copiedRecordId === item.id
-                                        ? 'text-emerald-600 bg-emerald-50'
-                                        : 'text-slate-400 hover:text-amber-600'
-                                    }`}
-                                  >
-                                    {copiedRecordId === item.id ? (
-                                      <Check className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <Copy className="w-3.5 h-3.5" />
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="font-mono font-bold text-xs bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-300">
+                                    หน้า {item.width} มม.
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`w-3 h-3 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${patternStyle.badgeClass}`}>
+                                        {patternStyle.name}
+                                      </span>
+                                    </div>
+                                    {item.isSilverSide && (
+                                      <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[10px] font-bold border border-slate-300">
+                                        เงิน
+                                      </span>
                                     )}
-                                  </button>
+                                    {item.isWhiteSide && (
+                                      <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-white text-slate-800 text-[10px] font-bold border border-slate-300">
+                                        ขาว
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 text-xs">
+                                  {formatMeters(item.usedMeters)} ม.
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono text-xs text-rose-600">
+                                  {item.ngMeters > 0 ? `${formatMeters(item.ngMeters)} ม.` : '-'}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-700">
+                                  <div className="flex items-center gap-1">
+                                    <User className="w-3 h-3 text-slate-400" />
+                                    <span>{highlightMatch(item.recordedBy, searchQuery)}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedDetailRecord(item)}
+                                      title="ดูรายละเอียดใบงานนี้แบบเต็ม (Pop-up)"
+                                      className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                    >
+                                      <FileText className="w-3.5 h-3.5" />
+                                    </button>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      handleActionGuarded(() => {
-                                        if (
-                                          confirm(
-                                            `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
-                                          )
-                                        ) {
-                                          onDeleteRecord(item.id);
-                                        }
-                                      });
-                                    }}
-                                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                                    title="ยกเลิกรายการ"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopySingleRecord(item)}
+                                      title={
+                                        copiedRecordId === item.id
+                                          ? 'คัดลอกลงคลิปบอร์ดแล้ว!'
+                                          : 'คัดลอกรายละเอียดงาน SO นี้เพื่อนำไปวางใน LINE'
+                                      }
+                                      className={`p-1 rounded transition-colors cursor-pointer ${
+                                        copiedRecordId === item.id
+                                          ? 'text-emerald-600 bg-emerald-50'
+                                          : 'text-slate-400 hover:text-amber-600'
+                                      }`}
+                                    >
+                                      {copiedRecordId === item.id ? (
+                                        <Check className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleActionGuarded(() => {
+                                          if (
+                                            confirm(
+                                              `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                            )
+                                          ) {
+                                            onDeleteRecord(item.id);
+                                          }
+                                        });
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                      title="ยกเลิกรายการ"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1400,6 +1713,17 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           })}
         </div>
       )}
+
+      {/* Pop-up Modal: Full SO Cut Details with Roll Inspection */}
+      <SODetailModal
+        record={selectedDetailRecord}
+        rolls={rolls || []}
+        records={records}
+        onClose={() => setSelectedDetailRecord(null)}
+        onDeleteRecord={onDeleteRecord}
+        userMode={userMode}
+        onRequestUnlock={onRequestUnlock}
+      />
     </div>
   );
 };

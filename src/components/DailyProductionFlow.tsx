@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   StockCutRecord, 
   FoilRoll,
@@ -59,6 +59,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterLine, setFilterLine] = useState<'all' | 'foil' | 'sandwich'>('all');
   const [copiedDaily, setCopiedDaily] = useState<boolean>(false);
+  const flowContainerRef = useRef<HTMLDivElement>(null);
 
   const safePuRecords = useMemo(() => Array.isArray(puRecords) ? puRecords : [], [puRecords]);
 
@@ -304,7 +305,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div ref={flowContainerRef} className="space-y-6 animate-in fade-in duration-200">
       {/* Top Header Card */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -327,7 +328,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
             </div>
           </div>
 
-          {/* Date Selector & Copy Button */}
+          {/* Date Selector, Screenshot & Copy Button */}
           <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
               <Calendar className="w-4 h-4 text-amber-600" />

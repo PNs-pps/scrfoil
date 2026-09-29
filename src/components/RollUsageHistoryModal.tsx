@@ -562,7 +562,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                         );
                         // ใช้ updatedRecords จาก realign ทันที (ไม่รอ React re-render / snapshot)
                         const fresh =
-                          result?.updatedRecords && result.updatedRecords.length > 0
+                          result && typeof result === 'object' && result.updatedRecords && result.updatedRecords.length > 0
                             ? result.updatedRecords
                             : records;
                         // รวมกับ records อื่นของม้วนนี้ที่ไม่อยู่ใน realign
@@ -571,7 +571,9 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                             .filter((r) => r.foilId === roll.id)
                             .map((r) => [r.id, r])
                         );
-                        (result?.updatedRecords || []).forEach((r) => byId.set(r.id, r));
+                        if (result && typeof result === 'object' && result.updatedRecords) {
+                          result.updatedRecords.forEach((r) => byId.set(r.id, r));
+                        }
                         const mergedRoot = Array.from(byId.values());
                         setHistoryItems(
                           buildMergedHistory(roll.id, mergedRoot.length ? mergedRoot : fresh, subItemsRef.current)

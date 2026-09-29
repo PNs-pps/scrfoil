@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
+import React, { useState, useMemo, useRef } from 'react';
+import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS, isRollUnused } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
@@ -30,7 +30,10 @@ import {
   Upload,
   FileSpreadsheet,
   Edit2,
-  ArrowLeft
+  ArrowLeft,
+  AlertTriangle,
+  SlidersHorizontal,
+  MoreVertical
 } from 'lucide-react';
 
 interface FoilRollTableProps {
@@ -56,6 +59,355 @@ interface FoilRollTableProps {
 
 type GroupByCategory = 'none' | 'width' | 'pattern';
 
+interface SwipeableRollCardProps {
+  roll: FoilRoll;
+  searchQuery: string;
+  onOpenCut: (rollId: string) => void;
+  onViewHistory: (roll: FoilRoll) => void;
+  onEdit?: (roll: FoilRoll) => void;
+  onDelete: (roll: FoilRoll) => void;
+  onOpenActionMenu: (roll: FoilRoll) => void;
+  onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
+  highlightMatch: (text: string, query: string) => React.ReactNode;
+}
+
+const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
+  roll,
+  searchQuery,
+  onOpenCut,
+  onViewHistory,
+  onEdit,
+  onDelete,
+  onOpenActionMenu,
+  onToggleZeroOut,
+  highlightMatch,
+}) => {
+  const [translateX, setTranslateX] = useState(0);
+  const [isSwiped, setIsSwiped] = useState(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const isHorizontalScrollRef = useRef<boolean | null>(null);
+
+  const pStyle = getPatternStyle(roll.pattern);
+  const isZeroed = Boolean(roll.isZeroedOut);
+  const rem = roll.remainingMeters;
+  const isDepleted = rem <= 0 && !isZeroed;
+
+  const percentLeft = roll.totalMeters > 0 ? Math.round((rem / roll.totalMeters) * 100) : 0;
+
+  // Highlight level: red <= 50m / zeroed, yellow <= 200m, normal > 200m, depleted <= 0
+  let highlightLevel: 'red' | 'yellow' | 'normal' | 'depleted' = 'normal';
+  if (isZeroed || (rem > 0 && rem <= 50)) {
+    highlightLevel = 'red';
+  } else if (rem > 50 && rem <= 200) {
+    highlightLevel = 'yellow';
+  } else if (isDepleted) {
+    highlightLevel = 'depleted';
+  }
+
+  let cardBgClass = 'bg-white';
+  let borderLeftClass = 'border-l-4 border-l-emerald-500';
+  if (highlightLevel === 'red') {
+    cardBgClass = 'bg-white';
+    borderLeftClass = 'border-l-4 border-l-rose-500';
+  } else if (highlightLevel === 'yellow') {
+    cardBgClass = 'bg-white';
+    borderLeftClass = 'border-l-4 border-l-amber-400';
+  } else if (highlightLevel === 'depleted') {
+    cardBgClass = 'bg-slate-100 text-slate-500';
+    borderLeftClass = 'border-l-4 border-l-slate-300';
+  }
+
+  // Touch handlers for smooth horizontal slide
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startXRef.current = e.touches[0].clientX;
+    startYRef.current = e.touches[0].clientY;
+    isDraggingRef.current = true;
+    isHorizontalScrollRef.current = null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDraggingRef.current) return;
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const diffX = currentX - startXRef.current;
+    const diffY = currentY - startYRef.current;
+
+    if (isHorizontalScrollRef.current === null) {
+      if (Math.abs(diffX) > 8 || Math.abs(diffY) > 8) {
+        isHorizontalScrollRef.current = Math.abs(diffX) > Math.abs(diffY);
+      }
+    }
+
+    if (!isHorizontalScrollRef.current) return;
+
+    if (isSwiped) {
+      const next = Math.max(-224, Math.min(0, -224 + diffX));
+      setTranslateX(next);
+    } else if (diffX < 0) {
+      const next = Math.max(-224, diffX);
+      setTranslateX(next);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    if (translateX < -60) {
+      setTranslateX(-224);
+      setIsSwiped(true);
+    } else {
+      setTranslateX(0);
+      setIsSwiped(false);
+    }
+  };
+
+  const toggleSwipe = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isSwiped) {
+      setTranslateX(0);
+      setIsSwiped(false);
+    } else {
+      setTranslateX(-224);
+      setIsSwiped(true);
+    }
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 shadow-2xs select-none">
+      {/* Background action tray revealed upon sliding left (4 menu actions) */}
+      <div className="absolute inset-y-0 right-0 w-[224px] flex items-stretch bg-slate-900 text-white z-0">
+        {/* 1. ตัดสต๊อก */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setTranslateX(0);
+            setIsSwiped(false);
+            onOpenCut(roll.id);
+          }}
+          disabled={isDepleted || isZeroed}
+          className={`flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold transition-colors cursor-pointer ${
+            isDepleted || isZeroed
+              ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              : 'bg-amber-500 hover:bg-amber-400 text-slate-950 active:bg-amber-600'
+          }`}
+          title="ตัดสต๊อกฟอยล์"
+        >
+          <Scissors className="w-4 h-4 mb-0.5" />
+          <span className="leading-tight">ตัดสต๊อก</span>
+        </button>
+
+        {/* 2. ดูไทม์ไลน์ */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setTranslateX(0);
+            setIsSwiped(false);
+            onViewHistory(roll);
+          }}
+          className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 active:bg-slate-900 transition-colors cursor-pointer"
+          title="ดูไทม์ไลน์การตัด"
+        >
+          <History className="w-4 h-4 mb-0.5" />
+          <span className="leading-tight">ไทม์ไลน์</span>
+        </button>
+
+        {/* 3. แก้ไข */}
+        {onEdit && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setTranslateX(0);
+              setIsSwiped(false);
+              onEdit(roll);
+            }}
+            className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-500 text-white active:bg-blue-700 transition-colors cursor-pointer"
+            title="แก้ไขข้อมูลม้วน"
+          >
+            <Edit2 className="w-4 h-4 mb-0.5" />
+            <span className="leading-tight">แก้ไข</span>
+          </button>
+        )}
+
+        {/* 4. ลบ */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setTranslateX(0);
+            setIsSwiped(false);
+            onDelete(roll);
+          }}
+          className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white active:bg-rose-700 transition-colors cursor-pointer"
+          title="ลบม้วนนี้"
+        >
+          <Trash2 className="w-4 h-4 mb-0.5" />
+          <span className="leading-tight">ลบ</span>
+        </button>
+      </div>
+
+      {/* Foreground Swipeable Card: Fits within mobile screen */}
+      <div
+        style={{
+          transform: `translateX(${translateX}px)`,
+          transition: isDraggingRef.current ? 'none' : 'transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)',
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={() => {
+          if (isSwiped) {
+            setTranslateX(0);
+            setIsSwiped(false);
+          } else {
+            onOpenActionMenu(roll);
+          }
+        }}
+        className={`relative z-10 p-3 ${cardBgClass} ${borderLeftClass} transition-colors cursor-pointer active:bg-slate-50`}
+      >
+        {/* Row 1: Lot, Roll Number, Width, Pattern */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-mono font-bold text-slate-900 text-sm truncate">
+              {highlightMatch(roll.lotNumber, searchQuery)}
+            </span>
+            <span className="font-mono text-xs font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
+              #{highlightMatch(roll.rollNumber, searchQuery)}
+            </span>
+            {isRollUnused(roll) ? (
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
+                ม้วนเต็ม
+              </span>
+            ) : !isDepleted && (
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200 shrink-0">
+                ใช้งาน
+              </span>
+            )}
+            {highlightLevel === 'red' && (
+              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 shrink-0">
+                ≤50ม.
+              </span>
+            )}
+            {highlightLevel === 'yellow' && (
+              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 shrink-0">
+                ≤200ม.
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-white text-slate-800 border border-slate-200 shadow-2xs">
+              {roll.width} มม.
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${pStyle.dotClass}`} />
+              <span>{pStyle.name}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Row 2: Remaining meters & Progress */}
+        <div className="mt-2 flex items-baseline justify-between gap-2">
+          <div className="flex items-baseline gap-1 min-w-0">
+            <span className="text-[11px] text-slate-500 shrink-0">คงเหลือ:</span>
+            <span
+              className={`font-mono font-bold text-base truncate ${
+                isZeroed
+                  ? 'text-rose-700 line-through'
+                  : highlightLevel === 'red'
+                  ? 'text-rose-700'
+                  : highlightLevel === 'yellow'
+                  ? 'text-yellow-700'
+                  : isDepleted
+                  ? 'text-slate-400'
+                  : 'text-emerald-700'
+              }`}
+            >
+              {formatMeters(rem)}
+            </span>
+            <span className="text-xs font-normal text-slate-500">ม.</span>
+            {isZeroed && (
+              <span className="text-[10px] text-rose-700 font-bold ml-1 shrink-0">
+                (ตัด 0)
+              </span>
+            )}
+          </div>
+
+          <div className="text-[11px] font-mono text-slate-500 shrink-0">
+            จาก {formatMeters(roll.totalMeters)} ม. ({percentLeft}%)
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="w-full bg-slate-200/80 rounded-full h-1.5 mt-1 overflow-hidden">
+          <div
+            className={`h-1.5 rounded-full transition-all duration-300 ${
+              isZeroed
+                ? 'bg-rose-500'
+                : highlightLevel === 'red'
+                ? 'bg-rose-600'
+                : highlightLevel === 'yellow'
+                ? 'bg-yellow-500'
+                : isDepleted
+                ? 'bg-slate-300'
+                : 'bg-emerald-500'
+            }`}
+            style={{ width: `${percentLeft}%` }}
+          />
+        </div>
+
+        {/* Row 3: Used, NG, Checkbox and Slide hint */}
+        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] font-mono text-slate-600 pt-1 border-t border-slate-100">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="truncate">ใช้: <strong className="text-slate-900">{formatMeters(roll.usedMeters)}</strong> ม.</span>
+            <span className="text-slate-300">·</span>
+            <span className={`truncate ${roll.ngMeters > 0 ? 'text-rose-600 font-semibold' : 'text-slate-500'}`}>
+              NG: {formatMeters(roll.ngMeters)} ม.
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (
+              <label
+                onClick={(e) => e.stopPropagation()}
+                htmlFor={`zero-toggle-mob-${roll.id}`}
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
+                  isZeroed
+                    ? 'bg-rose-600 text-white border-rose-700'
+                    : 'bg-white text-rose-700 border-rose-300'
+                }`}
+              >
+                <input
+                  id={`zero-toggle-mob-${roll.id}`}
+                  type="checkbox"
+                  checked={isZeroed}
+                  onChange={(e) => onToggleZeroOut(roll.id, e.target.checked)}
+                  className="w-3 h-3 accent-rose-600 rounded"
+                />
+                <span>ตัด 0</span>
+              </label>
+            )}
+
+            <button
+              type="button"
+              onClick={toggleSwipe}
+              className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-amber-100/90 text-amber-950 font-sans text-[10px] font-bold border border-amber-300/80 cursor-pointer active:scale-95 transition-transform"
+              title="สไลด์เปิดเมนูจัดการ"
+            >
+              <span>{isSwiped ? 'ปิด' : 'สไลด์'}</span>
+              <SlidersHorizontal className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   rolls,
   archivedRolls = [],
@@ -76,12 +428,25 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
   const [selectedWidth, setSelectedWidth] = useState<string>('all');
   const [selectedPattern, setSelectedPattern] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'depleted'>('all');
+  // เปิดแท็บ "ใช้งาน" เป็นค่าเริ่มต้น — แสดงเฉพาะม้วนที่มีการตัดแล้ว ลดงานเรนเดอร์
+  const [statusFilter, setStatusFilter] = useState<'all' | 'in_use' | 'unused' | 'depleted'>('in_use');
   const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedSubGroups, setCollapsedSubGroups] = useState<Record<string, boolean>>({});
+  const [actionMenuRoll, setActionMenuRoll] = useState<FoilRoll | null>(null);
+  const [deleteConfirmRoll, setDeleteConfirmRoll] = useState<FoilRoll | null>(null);
 
-  // Source list: active rolls, or archived when viewing depleted
+  const inUseCount = useMemo(
+    () => rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && !isRollUnused(r)).length,
+    [rolls]
+  );
+  const unusedCount = useMemo(
+    () => rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r)).length,
+    [rolls]
+  );
+  const activeCount = inUseCount + unusedCount;
+
+  // Source list: แยกม้วนเต็มที่ยังไม่มีการใช้งาน กับม้วนที่มีการใช้งานแล้ว
   const sourceRolls = useMemo(() => {
     if (statusFilter === 'depleted') {
       const localDepleted = rolls.filter(
@@ -93,6 +458,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         return Array.from(byId.values());
       }
       return localDepleted;
+    }
+    if (statusFilter === 'in_use') {
+      return rolls.filter(
+        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && !isRollUnused(r)
+      );
+    }
+    if (statusFilter === 'unused') {
+      return rolls.filter(
+        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r)
+      );
     }
     return rolls;
   }, [rolls, archivedRolls, archiveLoaded, statusFilter]);
@@ -162,11 +537,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       // Pattern with canonical normalization (e.g. ท้องขาว vs ขาว)
       const matchPattern = selectedPattern === 'all' || normalizePattern(r.pattern) === normalizePattern(selectedPattern);
 
-      // Status — when viewing archive sourceRolls are already depleted-only
-      const matchStatus = 
-        statusFilter === 'all' ||
-        (statusFilter === 'active' && r.remainingMeters > 0) ||
-        (statusFilter === 'depleted' && (r.remainingMeters <= 0 || r.status === 'depleted' || r.isZeroedOut));
+      // Status is already handled cleanly in sourceRolls
+      const matchStatus = true;
 
       return matchQuery && matchWidth && matchPattern && matchStatus;
     });
@@ -415,29 +787,48 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       highlightLevel = 'depleted';
     }
 
-    let rowClass = 'hover:bg-slate-50/80 transition-colors';
+    let rowClass = 'hover:bg-slate-50/80 transition-colors bg-white';
+    let borderCellClass = 'border-l-4 border-l-emerald-500';
     if (highlightLevel === 'red') {
-      rowClass = 'bg-rose-50/90 hover:bg-rose-100/80 border-l-4 border-l-rose-500 transition-colors';
+      rowClass = 'hover:bg-rose-50/40 transition-colors bg-white';
+      borderCellClass = 'border-l-4 border-l-rose-500';
     } else if (highlightLevel === 'yellow') {
-      rowClass = 'bg-yellow-50/90 hover:bg-yellow-100/80 border-l-4 border-l-yellow-500 transition-colors';
+      rowClass = 'hover:bg-amber-50/40 transition-colors bg-white';
+      borderCellClass = 'border-l-4 border-l-amber-400';
     } else if (highlightLevel === 'depleted') {
-      rowClass = 'bg-slate-50/50 opacity-75 transition-colors';
+      rowClass = 'bg-slate-50/90 text-slate-500 hover:bg-slate-100 transition-colors';
+      borderCellClass = 'border-l-4 border-l-slate-300';
     }
 
     return (
       <tr 
         key={roll.id} 
-        className={rowClass}
+        className={`${rowClass} cursor-pointer group`}
+        onClick={() => setActionMenuRoll(roll)}
+        title="คลิกเพื่อเปิดเมนูจัดการ (ตัดสต๊อก / ดูไทม์ไลน์ / แก้ไข / ลบ)"
       >
         {/* Lot & Roll */}
-        <td className="px-4 py-3.5">
+        <td className={`px-4 py-3.5 ${borderCellClass}`}>
           <div className="font-mono font-bold text-slate-900 text-sm flex items-center gap-1.5">
             <span>{highlightMatch(roll.lotNumber, searchQuery)}</span>
+            {isRollUnused(roll) ? (
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
+                ม้วนเต็ม
+              </span>
+            ) : !isDepleted && (
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200 shrink-0">
+                ใช้งาน
+              </span>
+            )}
             {highlightLevel === 'red' && (
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" title="สต๊อกใกล้หมด (<= 50 ม.)" />
+              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 shrink-0" title="สต๊อกใกล้หมด (<= 50 ม.)">
+                ≤50ม.
+              </span>
             )}
             {highlightLevel === 'yellow' && (
-              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" title="สต๊อกเหลือน้อย (<= 200 ม.)" />
+              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 shrink-0" title="สต๊อกเหลือน้อย (<= 200 ม.)">
+                ≤200ม.
+              </span>
             )}
           </div>
           <div className="text-xs text-slate-600 font-mono">
@@ -519,7 +910,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
           {/* Checkbox to zero-out roll (for rolls highlighted in red <= 50m, or currently zeroed) */}
           {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (
-            <div className="mt-1.5 flex items-center justify-end">
+            <div className="mt-1.5 flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
               <label 
                 htmlFor={`zero-toggle-${roll.id}`}
                 title={isZeroed ? "คลิกเพื่อติ๊กออกและคืนค่ายอดเดิม" : "ติ๊กเพื่อตัดยอดคงเหลือสล็อตนี้เป็น 0 เมตร"}
@@ -552,82 +943,38 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           {roll.ngMeters > 0 ? `${formatMeters(roll.ngMeters)} ม.` : '-'}
         </td>
 
-        {/* Status */}
-        <td className="px-4 py-3.5 text-center">
-          {isZeroed ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
-              ตัดเป็น 0 แล้ว
-            </span>
-          ) : isDepleted ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-              หมดแล้ว
-            </span>
-          ) : highlightLevel === 'red' ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-300 animate-pulse">
-              &le; 50 ม. (แดง)
-            </span>
-          ) : highlightLevel === 'yellow' ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-yellow-100 text-yellow-800 border border-yellow-300">
-              &le; 200 ม. (เหลือง)
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              พร้อมใช้งาน
-            </span>
-          )}
-        </td>
-
-        {/* Actions */}
-        <td className="px-4 py-3.5 text-center">
-          <div className="flex items-center justify-center gap-1">
-            <button
-              onClick={() => onOpenCutModal(roll.id)}
-              disabled={isDepleted || isZeroed}
-              title={isZeroed ? "ม้วนนี้ถูกตัดเป็น 0 แล้ว (ติ๊กออกเพื่อคืนค่าก่อนตัด)" : "ตัดสต๊อกม้วนนี้"}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                isDepleted || isZeroed
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-slate-950 border border-amber-300'
-              }`}
-            >
-              <Scissors className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">ตัดสต๊อก</span>
-            </button>
-
-            <button
-              onClick={() => onViewRollHistory(roll)}
-              title="ดูประวัติการใช้งานและใบงาน SO ที่ใช้ตัดม้วนนี้"
-              className="px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors cursor-pointer"
-            >
-              <History className="w-3.5 h-3.5 text-amber-600" />
-              <span className="hidden xl:inline">ประวัติ</span>
-            </button>
-
-            {onEditRoll && (
-              <button
-                onClick={() => onEditRoll(roll)}
-                title="แก้ไขข้อมูลม้วนฟอยล์ (ล็อต, เบอร์, หน้ากว้าง, ลาย, ยอดคงเหลือ)"
-                className="px-2 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 hover:border-blue-300 transition-colors cursor-pointer"
-              >
-                <Edit2 className="w-3.5 h-3.5 text-blue-600" />
-                <span className="hidden xl:inline">แก้ไข</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => {
-                if (confirm(`คุณต้องการลบม้วน ${roll.lotNumber} เบอร์ ${roll.rollNumber} ใช่หรือไม่?`)) {
-                  onDeleteRoll(roll.id);
-                }
-              }}
-              title="ลบม้วนนี้ออกจากสต๊อก"
-              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
+        {/* Slide / Menu Action trigger */}
+        <td className="px-3 py-3.5 text-center">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setActionMenuRoll(roll);
+            }}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer"
+            title="เปิดเมนูจัดการ (ตัดสต๊อก / ไทม์ไลน์ / แก้ไข / ลบ)"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 mx-auto" />
+          </button>
         </td>
       </tr>
+    );
+  };
+
+  const renderMobileCard = (roll: FoilRoll) => {
+    return (
+      <SwipeableRollCard
+        key={roll.id}
+        roll={roll}
+        searchQuery={searchQuery}
+        onOpenCut={onOpenCutModal}
+        onViewHistory={onViewRollHistory}
+        onEdit={onEditRoll}
+        onDelete={(r) => setDeleteConfirmRoll(r)}
+        onOpenActionMenu={(r) => setActionMenuRoll(r)}
+        onToggleZeroOut={onToggleZeroOut}
+        highlightMatch={highlightMatch}
+      />
     );
   };
 
@@ -854,37 +1201,52 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             ))}
           </select>
 
-          {/* Status Filter */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+          {/* สถานะม้วน — แถวเดียว ไม่ใช้อิโมจิ · ค่าเริ่มต้น = ใช้งาน */}
+          <div className="flex flex-nowrap items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 overflow-x-auto max-w-full">
             <button
+              type="button"
               onClick={() => setStatusFilter('all')}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                statusFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                statusFilter === 'all' ? 'bg-white text-slate-900 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
+              title="ม้วนพร้อมใช้ทั้งหมด"
             >
-              ทั้งหมด ({rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut).length})
+              ทั้งหมด ({activeCount})
             </button>
             <button
-              onClick={() => setStatusFilter('active')}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                statusFilter === 'active' ? 'bg-white text-emerald-700 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              type="button"
+              onClick={() => setStatusFilter('in_use')}
+              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                statusFilter === 'in_use' ? 'bg-white text-indigo-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
+              title="ม้วนที่มีการตัดใช้งานแล้ว"
             >
-              มีของ ({rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut).length})
+              ใช้งาน ({inUseCount})
             </button>
             <button
+              type="button"
+              onClick={() => setStatusFilter('unused')}
+              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                statusFilter === 'unused' ? 'bg-white text-emerald-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="ม้วนเต็มที่ยังไม่เคยตัด"
+            >
+              ม้วนเต็ม ({unusedCount})
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setStatusFilter('depleted');
                 if (!archiveLoaded && onLoadArchive) {
                   onLoadArchive();
                 }
               }}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                statusFilter === 'depleted' ? 'bg-white text-rose-700 font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                statusFilter === 'depleted' ? 'bg-white text-rose-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
-              title="ม้วนที่หมดแล้วถูกแยกไปคลังข้อมูลเก่า (โหลดเฉพาะเมื่อต้องการ) เพื่อลดการอ่านข้อมูล"
+              title="ม้วนหมดแล้ว (โหลดคลังเมื่อกด)"
             >
-              หมดแล้ว / Archive
+              หมดแล้ว
               {archiveLoaded
                 ? ` (${archivedRolls.length})`
                 : rolls.filter((r) => r.remainingMeters <= 0).length > 0
@@ -1177,27 +1539,36 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                               </div>
                             </div>
 
-                            {/* Subgroup Rolls Table */}
+                            {/* Subgroup Rolls: Mobile cards & Desktop table */}
                             {!isSubCollapsed && (
-                              <div className="overflow-x-auto bg-white">
-                                <table className="w-full text-left text-sm">
-                                  <thead className="bg-slate-50/70 text-slate-500 text-[11px] uppercase border-b border-slate-200 font-semibold">
-                                    <tr>
-                                      <th className="px-4 py-2.5">ล็อต & เบอร์</th>
-                                      <th className="px-4 py-2.5">หน้ากว้าง</th>
-                                      <th className="px-4 py-2.5">ท้องฟอยล์</th>
-                                      <th className="px-4 py-2.5 text-right">ลูกเต็ม</th>
-                                      <th className="px-4 py-2.5 text-right w-48">คงเหลือปัจจุบัน</th>
-                                      <th className="px-4 py-2.5 text-right">ตัดใช้</th>
-                                      <th className="px-4 py-2.5 text-right">NG เสีย</th>
-                                      <th className="px-4 py-2.5 text-center">สถานะ</th>
-                                      <th className="px-4 py-2.5 text-center">จัดการ</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100">
-                                    {sub.rolls.map(renderRollRow)}
-                                  </tbody>
-                                </table>
+                              <div>
+                                {/* Mobile View: Swipeable Cards */}
+                                <div className="block md:hidden space-y-2 p-2.5 bg-slate-50/60">
+                                  {sub.rolls.map((roll) => renderMobileCard(roll))}
+                                </div>
+
+                                {/* Desktop View: Clean Table without Status and Action columns */}
+                                <div className="hidden md:block overflow-x-auto bg-white">
+                                  <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50/70 text-slate-500 text-[11px] uppercase border-b border-slate-200 font-semibold">
+                                      <tr>
+                                        <th className="px-4 py-2.5">ล็อต & เบอร์</th>
+                                        <th className="px-4 py-2.5">หน้ากว้าง</th>
+                                        <th className="px-4 py-2.5">ท้องฟอยล์</th>
+                                        <th className="px-4 py-2.5 text-right">ลูกเต็ม</th>
+                                        <th className="px-4 py-2.5 text-right w-48">คงเหลือปัจจุบัน</th>
+                                        <th className="px-4 py-2.5 text-right">ตัดใช้</th>
+                                        <th className="px-4 py-2.5 text-right">NG เสีย</th>
+                                        <th className="px-3 py-2.5 text-center w-12" title="เมนูจัดการ">
+                                          <SlidersHorizontal className="w-3.5 h-3.5 mx-auto text-slate-400" />
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {sub.rolls.map(renderRollRow)}
+                                    </tbody>
+                                  </table>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1205,25 +1576,34 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                       })}
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-50/70 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
-                          <tr>
-                            <th className="px-4 py-3">ล็อต & เบอร์</th>
-                            <th className="px-4 py-3">หน้ากว้าง</th>
-                            <th className="px-4 py-3">ท้องฟอยล์</th>
-                            <th className="px-4 py-3 text-right">ลูกเต็ม</th>
-                            <th className="px-4 py-3 text-right w-48">คงเหลือปัจจุบัน</th>
-                            <th className="px-4 py-3 text-right">ตัดใช้</th>
-                            <th className="px-4 py-3 text-right">NG เสีย</th>
-                            <th className="px-4 py-3 text-center">สถานะ</th>
-                            <th className="px-4 py-3 text-center">จัดการ</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {group.rolls.map(renderRollRow)}
-                        </tbody>
-                      </table>
+                    <div>
+                      {/* Mobile View: Swipeable Cards */}
+                      <div className="block md:hidden space-y-2 p-2.5 bg-slate-50/60">
+                        {group.rolls.map((roll) => renderMobileCard(roll))}
+                      </div>
+
+                      {/* Desktop View: Clean Table */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead className="bg-slate-50/70 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
+                            <tr>
+                              <th className="px-4 py-3">ล็อต & เบอร์</th>
+                              <th className="px-4 py-3">หน้ากว้าง</th>
+                              <th className="px-4 py-3">ท้องฟอยล์</th>
+                              <th className="px-4 py-3 text-right">ลูกเต็ม</th>
+                              <th className="px-4 py-3 text-right w-48">คงเหลือปัจจุบัน</th>
+                              <th className="px-4 py-3 text-right">ตัดใช้</th>
+                              <th className="px-4 py-3 text-right">NG เสีย</th>
+                              <th className="px-3 py-3 text-center w-12" title="เมนูจัดการ">
+                                <SlidersHorizontal className="w-3.5 h-3.5 mx-auto text-slate-400" />
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {group.rolls.map(renderRollRow)}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )
                 )}
@@ -1248,7 +1628,13 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       ) : (
         /* Flat View (No Grouping) */
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile View: Swipeable Cards */}
+          <div className="block md:hidden space-y-2.5 p-3 bg-slate-50/60">
+            {filteredRolls.map((roll) => renderMobileCard(roll))}
+          </div>
+
+          {/* Desktop View: Clean Table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
                 <tr>
@@ -1259,8 +1645,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                   <th className="px-4 py-3.5 text-right w-48">คงเหลือปัจจุบัน</th>
                   <th className="px-4 py-3.5 text-right">ตัดใช้</th>
                   <th className="px-4 py-3.5 text-right">NG เสีย</th>
-                  <th className="px-4 py-3.5 text-center">สถานะ</th>
-                  <th className="px-4 py-3.5 text-center">จัดการ</th>
+                  <th className="px-3 py-3.5 text-center w-12" title="เมนูจัดการ">
+                    <SlidersHorizontal className="w-3.5 h-3.5 mx-auto text-slate-400" />
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1285,17 +1672,215 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         </div>
       )}
 
-      {/* สรุปรายเดือน — ย้ายไว้ล่างสุดตามที่ใช้งาน */}
-      {onOpenMonthlySummary && (
-        <div className="sticky bottom-20 md:bottom-4 z-10 flex justify-center pointer-events-none">
-          <button
-            type="button"
-            onClick={onOpenMonthlySummary}
-            className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg border border-emerald-500 flex items-center gap-2 cursor-pointer"
+      {/* Pop-up Modal 1: จัดการม้วนฟอยล์ (ตัดสต๊อก / ดูไทม์ไลน์ / แก้ไข / ลบ) */}
+      {actionMenuRoll && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setActionMenuRoll(null)}
+        >
+          <div 
+            className="bg-white rounded-t-3xl sm:rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
           >
-            <FileSpreadsheet className="w-4 h-4" />
-            สรุปรายเดือน
-          </button>
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                  เมนูจัดการม้วนฟอยล์
+                </span>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5 font-mono">
+                  <span>ล็อต {actionMenuRoll.lotNumber}</span>
+                  <span className="text-amber-600">#{actionMenuRoll.rollNumber}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  หน้ากว้าง {actionMenuRoll.width} มม. · {actionMenuRoll.pattern} · คงเหลือ {formatMeters(actionMenuRoll.remainingMeters)} ม.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActionMenuRoll(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 4 Action Menu Options */}
+            <div className="space-y-2">
+              {/* 1. ตัดสต๊อกฟอยล์ */}
+              <button
+                type="button"
+                onClick={() => {
+                  const rollId = actionMenuRoll.id;
+                  setActionMenuRoll(null);
+                  onOpenCutModal(rollId);
+                }}
+                disabled={actionMenuRoll.remainingMeters <= 0 || actionMenuRoll.isZeroedOut}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200 text-amber-950 font-bold text-xs sm:text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center shadow-xs">
+                    <Scissors className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <div>ตัดสต๊อกฟอยล์</div>
+                    <div className="text-[11px] font-normal text-amber-800">
+                      {actionMenuRoll.isZeroedOut ? 'ม้วนนี้ถูกตัดเป็น 0 แล้ว' : 'บันทึกใบสั่งตัด SO / เบิกใช้ลงแผ่น'}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-amber-600 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 2. ดูไทม์ไลน์ */}
+              <button
+                type="button"
+                onClick={() => {
+                  const r = actionMenuRoll;
+                  setActionMenuRoll(null);
+                  onViewRollHistory(r);
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-900 font-bold text-xs sm:text-sm transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-slate-800 text-amber-400 flex items-center justify-center shadow-xs">
+                    <History className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <div>ดูไทม์ไลน์ & ประวัติ</div>
+                    <div className="text-[11px] font-normal text-slate-500">
+                      ไทม์ไลน์การตัด ยอดก่อน–หลังตัด และรายการ SO ทั้งหมด
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+
+              {/* 3. แก้ไข */}
+              {onEditRoll && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const r = actionMenuRoll;
+                    setActionMenuRoll(null);
+                    onEditRoll(r);
+                  }}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-blue-50/70 hover:bg-blue-100/70 border border-blue-200 text-blue-950 font-bold text-xs sm:text-sm transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                      <Edit2 className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <div>แก้ไขข้อมูลม้วน</div>
+                      <div className="text-[11px] font-normal text-blue-800">
+                        แก้ไขล็อต, เบอร์, หน้ากว้าง, ลาย, ยอดคงเหลือ
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-blue-500 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              )}
+
+              {/* 4. ลบ */}
+              <button
+                type="button"
+                onClick={() => {
+                  const r = actionMenuRoll;
+                  setActionMenuRoll(null);
+                  setDeleteConfirmRoll(r);
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-950 font-bold text-xs sm:text-sm transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-rose-600 text-white flex items-center justify-center shadow-xs">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-rose-700">ลบม้วนนี้</div>
+                    <div className="text-[11px] font-normal text-rose-600">
+                      นำม้วนออกจากระบบสต๊อกฟอยล์
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-rose-500 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pop-up Modal 2: ยืนยันการลบม้วนฟอยล์ */}
+      {deleteConfirmRoll && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setDeleteConfirmRoll(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  ยืนยันการลบม้วนฟอยล์
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  คุณต้องการลบม้วนนี้ออกจากระบบสต๊อกใช่หรือไม่?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-mono">
+              <div className="flex justify-between">
+                <span className="text-slate-500">เลขล็อต & เบอร์ม้วน:</span>
+                <span className="font-bold text-slate-900">
+                  {deleteConfirmRoll.lotNumber} #{deleteConfirmRoll.rollNumber}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-sans">หน้ากว้าง & ลาย:</span>
+                <span className="font-medium text-slate-900 font-sans">
+                  {deleteConfirmRoll.width} มม. · {deleteConfirmRoll.pattern}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-sans">ยอดคงเหลือปัจจุบัน:</span>
+                <span className="font-bold text-emerald-700">
+                  {formatMeters(deleteConfirmRoll.remainingMeters)} เมตร
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">
+                การลบม้วนนี้จะนำม้วนออกจากคลังสต๊อก (หากเคยมีประวัติการตัดเดิม บันทึกใบงาน SO จะยังคงอยู่ในระบบ)
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmRoll(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteRoll(deleteConfirmRoll.id);
+                  setDeleteConfirmRoll(null);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm cursor-pointer"
+              >
+                ยืนยันการลบ
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

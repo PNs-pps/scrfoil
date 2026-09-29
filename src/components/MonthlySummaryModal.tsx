@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { FoilRoll, StockCutRecord } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
 import { 
   X, 
   Calendar, 
@@ -16,11 +16,15 @@ import {
 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
 
+type SummaryScope = 'all' | 'foil' | 'sandwich';
+
 interface MonthlySummaryModalProps {
   isOpen: boolean;
   onClose: () => void;
   rolls: FoilRoll[];
   records: StockCutRecord[];
+  sandwichRecords?: PuSandwichCutRecord[];
+  initialScope?: SummaryScope;
   onOpenRollHistory?: (rollId: string) => void;
 }
 
@@ -44,6 +48,8 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   onClose,
   rolls,
   records,
+  sandwichRecords = [],
+  initialScope = 'all',
   onOpenRollHistory,
 }) => {
   // Default to current month and year
@@ -56,6 +62,11 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   const [filterPattern, setFilterPattern] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [summarySortBy, setSummarySortBy] = useState<'width_lot_roll' | 'most_used'>('width_lot_roll');
+  const [scope, setScope] = useState<SummaryScope>(initialScope);
+
+  useEffect(() => {
+    if (isOpen) setScope(initialScope || 'all');
+  }, [isOpen, initialScope]);
 
   // Available years from records or rolls
   const availableYears = useMemo(() => {
@@ -196,7 +207,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
     return list;
   }, [monthlyRecords, rolls, filterPattern, searchQuery, summarySortBy]);
 
-  // Overall KPIs for this month
+  // Overall KPIs for this month (foil)
   const totalUsedMonth = monthlyRecords.reduce((sum, r) => sum + r.usedMeters, 0);
   const totalNgMonth = monthlyRecords.reduce((sum, r) => sum + r.ngMeters, 0);
   const totalDeductedMonth = totalUsedMonth + totalNgMonth;
@@ -204,6 +215,22 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
     ? ((totalNgMonth / totalDeductedMonth) * 100).toFixed(1) 
     : '0.0';
   const rollsTouchedCount = rollUsageSummary.length;
+
+  // PU Sandwich monthly
+  const monthlySandwich = useMemo(() => {
+    const prefix = `${selectedYear}-${selectedMonth}`;
+    return (sandwichRecords || []).filter((r) => {
+      const d = r.productionDate || r.createdAt || '';
+      return String(d).startsWith(prefix);
+    });
+  }, [sandwichRecords, selectedYear, selectedMonth]);
+
+  const sandwichKg = monthlySandwich.reduce((s, r) => s + (Number(r.weightUsed) || 0), 0);
+  const sandwichNgKg = monthlySandwich.reduce((s, r) => s + (Number(r.ngKg) || 0), 0);
+  const sandwichCount = monthlySandwich.length;
+
+  const showFoil = scope === 'all' || scope === 'foil';
+  const showSandwich = scope === 'all' || scope === 'sandwich';
 
   const currentMonthLabel = THAI_MONTHS.find(m => m.value === selectedMonth)?.label || selectedMonth;
   const thaiYear = selectedYear + 543;
@@ -307,32 +334,55 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
         className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Modal Header */}
-        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
+        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
               <FileSpreadsheet className="w-6 h-6" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold">
-                  หลังคาเย็นสยาม (ร่มเกล้า)
-                </span>
-                <span className="text-xs text-slate-400 font-mono">
-                  MONTHLY FOIL USAGE REPORT
+                  หลังคาเย็นสยาม
                 </span>
               </div>
-              <h2 className="text-lg sm:text-xl font-bold text-white leading-tight mt-0.5">
-                ตารางสรุปการใช้ฟอยล์ประจำเดือน
+              <h2 className="text-base sm:text-xl font-bold text-white leading-tight mt-0.5 truncate">
+                สรุปรายเดือน
               </h2>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* แท็บ รวม / ฟอยล์ / แซนวิช */}
+        <div className="px-4 pt-3 bg-slate-50 border-b border-slate-100">
+          <div className="inline-flex items-center bg-slate-200/80 p-0.5 rounded-xl text-xs font-bold">
+            {(
+              [
+                ['all', 'รวม'],
+                ['foil', 'ฟอยล์'],
+                ['sandwich', 'แซนวิช'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setScope(key)}
+                className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  scope === key
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Filter & Period Selector Bar */}
@@ -437,7 +487,39 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
 
         {/* Main Content Area */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6">
-          
+
+          {showSandwich && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 space-y-3">
+              <h3 className="text-sm font-bold text-emerald-900 flex items-center gap-2">
+                <Layers className="w-4 h-4" />
+                สรุป PU Sandwich · {currentMonthLabel} {thaiYear}
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
+                <div className="bg-white rounded-xl border border-emerald-100 p-3">
+                  <div className="text-[10px] text-slate-500 font-medium">ใบงาน SO</div>
+                  <div className="text-lg font-mono font-bold text-slate-900">{sandwichCount}</div>
+                </div>
+                <div className="bg-white rounded-xl border border-emerald-100 p-3">
+                  <div className="text-[10px] text-slate-500 font-medium">เหล็กใช้ (กก.)</div>
+                  <div className="text-lg font-mono font-bold text-emerald-800">
+                    {sandwichKg.toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-rose-100 p-3 col-span-2 sm:col-span-1">
+                  <div className="text-[10px] text-slate-500 font-medium">NG (กก.)</div>
+                  <div className="text-lg font-mono font-bold text-rose-700">
+                    {sandwichNgKg.toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+              {sandwichCount === 0 && (
+                <p className="text-xs text-slate-500">ไม่มีรายการแซนวิชในเดือนนี้</p>
+              )}
+            </div>
+          )}
+
+          {showFoil && (
+          <>
           {/* Monthly KPI Metrics Banner */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {/* Total Used */}
@@ -693,6 +775,8 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
                 </table>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
 
