@@ -13,8 +13,11 @@
  *   DELETE /backups/:id        → ลบ
  */
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type D1DatabaseInstance = any;
+
 export interface Env {
-  DB: D1Database;
+  DB: D1DatabaseInstance;
   BACKUP_SECRET: string;
   APP_NAME?: string;
 }
