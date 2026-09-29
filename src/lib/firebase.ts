@@ -557,6 +557,7 @@ export async function executeCutBatchInFirestore(
       usedMeters: newUsed,
       ngMeters: newNg,
       status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+      isUnused: false,
       recentCuts: rollCuts,
     };
 
@@ -713,6 +714,7 @@ export async function executeMultiRollCutBatchInFirestore(
         usedMeters: newUsed,
         ngMeters: newNg,
         status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+        isUnused: false,
         recentCuts: rollCuts,
         _freshRemainingBefore: freshRemaining,
       } as any);
@@ -841,12 +843,15 @@ export async function revertCutRecordInFirestore(
     const restoredUsed = Math.max(0, Number(serverRoll.usedMeters || 0) - Number(record.usedMeters || 0));
     const restoredNg = Math.max(0, Number(serverRoll.ngMeters || 0) - Number(record.ngMeters || 0));
 
+    const isNowUnused = round2(restoredUsed) === 0 && round2(restoredNg) === 0 && round2(restoredRemaining) >= Number(serverRoll.totalMeters || 0);
+
     const rollObj: FoilRoll = {
       ...serverRoll,
       remainingMeters: round2(restoredRemaining),
       usedMeters: round2(restoredUsed),
       ngMeters: round2(restoredNg),
       status: restoredRemaining > 0 ? ('active' as const) : ('depleted' as const),
+      isUnused: isNowUnused,
       recentCuts: (serverRoll.recentCuts || []).filter((c) => c.id !== recordId),
     };
 
@@ -1742,7 +1747,7 @@ export async function applyCycleCountAdjustments(
           {
             id: record.id,
             soNumber: record.soNumber,
-            cutType: 'non_so',
+            cutType: 'non_so' as const,
             usedMeters: record.usedMeters,
             ngMeters: 0,
             totalDeducted: record.totalDeducted,
