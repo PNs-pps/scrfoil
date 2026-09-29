@@ -1,3 +1,4 @@
+import { notifySuccess, notifyError } from '../utils/feedback';
 import React, { useState, useEffect } from 'react';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
@@ -274,6 +275,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         } as PuSandwichCutRecord);
       }
 
+      notifySuccess();
+
       if (editingRecord) {
         onClose();
       } else {
@@ -293,6 +296,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         setActiveTab('history');
       }
     } catch (err: any) {
+      notifyError();
       setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
     } finally {
       setIsSubmitting(false);
