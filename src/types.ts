@@ -34,6 +34,7 @@ export interface FoilRoll {
   ngMeters: number;          // จำนวนเมตร NG เสียสะสม
   dateReceived: string;      // วันที่รับเข้า YYYY-MM-DD
   status: 'active' | 'depleted'; // สถานะ (depleted เมื่อเหลือ <= 0)
+  isUnused?: boolean;        // ม้วนเต็มที่เพิ่มเข้าระบบแต่ยังไม่มีการใช้งาน (ลดค่า Firestore read)
   notes?: string;
   isZeroedOut?: boolean;     // ติ๊กตัดสต๊อกเป็น 0 (กรณีเหลือสีแดง <= 50 เมตร)
   manualZeroedOriginalMeters?: number; // เก็บค่าเมตรก่อนติ๊กเป็น 0 เพื่อนำกลับมาใช้ใหม่ได้
@@ -182,4 +183,17 @@ export interface CycleCountSession {
   completedAt?: string;
   /** id ใบตัดที่สร้างตอนปรับยอด — ใช้ตอนลบประวัติเพื่อคืนยอด + ลบใบนับสต๊อก */
   adjustmentRecordIds?: string[];
+}
+
+/** ตรวจสอบว่าม้วนนี้เป็นม้วนเต็มที่ยังไม่มีการใช้งานหรือไม่ */
+export function isRollUnused(roll: FoilRoll): boolean {
+  if (roll.isUnused !== undefined) return roll.isUnused;
+  return (
+    roll.status === 'active' &&
+    !roll.isZeroedOut &&
+    Number(roll.usedMeters || 0) === 0 &&
+    Number(roll.ngMeters || 0) === 0 &&
+    Number(roll.remainingMeters) >= Number(roll.totalMeters) &&
+    (!roll.recentCuts || roll.recentCuts.length === 0)
+  );
 }

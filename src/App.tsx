@@ -188,6 +188,7 @@ export default function App() {
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
   const [editingRoll, setEditingRoll] = useState<FoilRoll | null>(null);
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
+  const [monthlySummaryScope, setMonthlySummaryScope] = useState<'all' | 'foil' | 'sandwich'>('all');
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
   const [isCycleCountOpen, setIsCycleCountOpen] = useState(false);
   const [isCycleCountHistoryOpen, setIsCycleCountHistoryOpen] = useState(false);
@@ -611,6 +612,7 @@ export default function App() {
       usedMeters: 0,
       ngMeters: 0,
       status: 'active',
+      isUnused: true,
       createdAt: new Date().toISOString(),
     };
 
@@ -657,6 +659,7 @@ export default function App() {
       usedMeters: 0,
       ngMeters: 0,
       status: 'active',
+      isUnused: true,
       createdAt: now,
     }));
 
@@ -1306,7 +1309,11 @@ export default function App() {
             onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
             onViewAllRolls={() => setActiveTab('rolls')}
             onViewAllHistory={() => setActiveTab('history')}
-            onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
+            onOpenMonthlySummary={(scope) => {
+              setMonthlySummaryScope(scope || 'all');
+              setIsMonthlySummaryOpen(true);
+            }}
+            onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
             onOpenBatchImport={() => requireEditorPermission(() => setIsBatchImportOpen(true))}
             onDoubleBackup={handleDoubleBackup}
             isDoubleBackingUp={isDoubleBackingUp}
@@ -1342,7 +1349,6 @@ export default function App() {
             onExportRolls={() => exportRollsToCSV(rolls)}
             onToggleZeroOut={(rollId, zeroOut) => requireEditorPermission(() => handleToggleZeroOut(rollId, zeroOut))}
             onOpenBatchImport={() => requireEditorPermission(() => setIsBatchImportOpen(true))}
-            onOpenMonthlySummary={() => setIsMonthlySummaryOpen(true)}
             onUpdateRoll={(updatedRoll) => requireEditorPermission(() => handleUpdateRoll(updatedRoll))}
             onEditRoll={(roll) => requireEditorPermission(() => setEditingRoll(roll))}
             userMode={userMode}
@@ -1353,6 +1359,7 @@ export default function App() {
         {activeTab === 'history' && (
           <CuttingHistoryTable
             records={records}
+            rolls={rolls}
             onDeleteRecord={(recId) => requireEditorPermission(() => {
               // handleDeleteRecord now rethrows on failure (so the duplicate-
               // delete confirm dialog elsewhere can detect it); this call site
@@ -1511,6 +1518,8 @@ export default function App() {
         onClose={() => setIsMonthlySummaryOpen(false)}
         rolls={rolls}
         records={records}
+        sandwichRecords={puSandwichRecords}
+        initialScope={monthlySummaryScope}
         onOpenRollHistory={(rollId) => {
           const target = rolls.find((r) => r.id === rollId);
           if (target) {
