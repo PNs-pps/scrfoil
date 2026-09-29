@@ -227,7 +227,17 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
 
   const sandwichKg = monthlySandwich.reduce((s, r) => s + (Number(r.weightUsed) || 0), 0);
   const sandwichNgKg = monthlySandwich.reduce((s, r) => s + (Number(r.ngKg) || 0), 0);
+  const sandwichMeters = monthlySandwich.reduce(
+    (s, r) => s + (Number(r.soLengthMeters) || 0),
+    0
+  );
+  const sandwichNgMeters = monthlySandwich.reduce(
+    (s, r) => s + (Number(r.ngMeters) || 0),
+    0
+  );
   const sandwichCount = monthlySandwich.length;
+  const sandwichNgRate =
+    sandwichKg > 0 ? ((sandwichNgKg / sandwichKg) * 100).toFixed(1) : '0.0';
 
   const showFoil = scope === 'all' || scope === 'foil';
   const showSandwich = scope === 'all' || scope === 'sandwich';
@@ -235,91 +245,172 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   const currentMonthLabel = THAI_MONTHS.find(m => m.value === selectedMonth)?.label || selectedMonth;
   const thaiYear = selectedYear + 543;
 
-  // Export Monthly Summary to CSV (Ordering: Width > Lot > Roll Number consecutively)
+  // Export Monthly Summary CSV — ฟอยล์ + แซนวิช ตามแท็บที่เลือก
   const handleExportMonthlyCSV = () => {
-    const headers = [
-      'ลำดับ',
-      'หน้ากว้าง (มม.)',
-      'เลขล็อต',
-      'เบอร์ม้วน',
-      'ลายฟอยล์',
-      'เมตรที่ใช้ลงแผ่นจริงเดือนนี้ (ม.)',
-      'NG ที่เสียเดือนนี้ (ม.)',
-      'รวมตัดในเดือนนี้ (ม.)',
-      'คงเหลือปัจจุบันในระบบ (ม.)',
-      'สัดส่วนคงเหลือ (%)',
-      'สถานะม้วน',
-      'จำนวนครั้งที่ตัด',
-      'รายการใบงาน / SO ที่ตัด'
-    ];
+    const parts: string[] = [];
+    const titleScope =
+      scope === 'sandwich' ? 'แซนวิช' : scope === 'foil' ? 'ฟอยล์' : 'รวมฟอยล์และแซนวิช';
+    parts.push(
+      `"สรุปรายเดือน ${titleScope} ${currentMonthLabel} พ.ศ. ${thaiYear} - หลังคาเย็นสยาม (ร่มเกล้า)"`
+    );
 
-    // Ensure rows are sorted Width > Lot > Roll Number for easy physical auditing
-    const sortedForExport = [...rollUsageSummary].sort((a, b) => {
-      if (a.width !== b.width) return Number(a.width) - Number(b.width);
-      const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
-      if (lotComp !== 0) return lotComp;
-      return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
-    });
-
-    const rows = sortedForExport.map((item, idx) => {
-      const pctLeft = item.totalMeters > 0 
-        ? Math.round((item.currentRemaining / item.totalMeters) * 100) 
-        : 0;
-      const statusText = item.isZeroedOut 
-        ? 'ตัดเป็น 0 (เศษเหลือน้อย)' 
-        : item.currentRemaining <= 0 
-          ? 'หมดแล้ว' 
-          : item.currentRemaining <= 50 
-            ? 'วิกฤต (<=50ม. สีแดง)' 
-            : item.currentRemaining <= 200 
-              ? 'เหลือน้อย (<=200ม. สีเหลือง)' 
-              : 'พร้อมใช้งาน';
-
-      return [
-        idx + 1,
-        item.width,
-        `"${item.lotNumber}"`,
-        `"${item.rollNumber}"`,
-        `"${item.pattern}"`,
-        item.usedMetersThisMonth,
-        item.ngMetersThisMonth,
-        item.totalDeductedThisMonth,
-        item.currentRemaining,
-        `${pctLeft}%`,
-        `"${statusText}"`,
-        item.cutCount,
-        `"${item.soNumbers.join(', ')}"`
+    if (showFoil) {
+      const headers = [
+        'ลำดับ',
+        'หน้ากว้าง (มม.)',
+        'เลขล็อต',
+        'เบอร์ม้วน',
+        'ลายฟอยล์',
+        'เมตรที่ใช้ลงแผ่นจริงเดือนนี้ (ม.)',
+        'NG ที่เสียเดือนนี้ (ม.)',
+        'รวมตัดในเดือนนี้ (ม.)',
+        'คงเหลือปัจจุบันในระบบ (ม.)',
+        'สัดส่วนคงเหลือ (%)',
+        'สถานะม้วน',
+        'จำนวนครั้งที่ตัด',
+        'รายการใบงาน / SO ที่ตัด',
       ];
-    });
+      const sortedForExport = [...rollUsageSummary].sort((a, b) => {
+        if (a.width !== b.width) return Number(a.width) - Number(b.width);
+        const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+        if (lotComp !== 0) return lotComp;
+        return a.rollNumber.localeCompare(b.rollNumber, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      });
+      const rows = sortedForExport.map((item, idx) => {
+        const pctLeft =
+          item.totalMeters > 0
+            ? Math.round((item.currentRemaining / item.totalMeters) * 100)
+            : 0;
+        const statusText = item.isZeroedOut
+          ? 'ตัดเป็น 0 (เศษเหลือน้อย)'
+          : item.currentRemaining <= 0
+            ? 'หมดแล้ว'
+            : item.currentRemaining <= 50
+              ? 'วิกฤต (<=50ม. สีแดง)'
+              : item.currentRemaining <= 200
+                ? 'เหลือน้อย (<=200ม. สีเหลือง)'
+                : 'พร้อมใช้งาน';
+        return [
+          idx + 1,
+          item.width,
+          `"${item.lotNumber}"`,
+          `"${item.rollNumber}"`,
+          `"${item.pattern}"`,
+          item.usedMetersThisMonth,
+          item.ngMetersThisMonth,
+          item.totalDeductedThisMonth,
+          item.currentRemaining,
+          `${pctLeft}%`,
+          `"${statusText}"`,
+          item.cutCount,
+          `"${item.soNumbers.join(', ')}"`,
+        ].join(',');
+      });
+      rows.push(
+        [
+          'รวมทั้งสิ้น',
+          '-',
+          '-',
+          '-',
+          '-',
+          totalUsedMonth,
+          totalNgMonth,
+          totalDeductedMonth,
+          '-',
+          '-',
+          '-',
+          monthlyRecords.length,
+          `"รวม ${rollsTouchedCount} ม้วน"`,
+        ].join(',')
+      );
+      parts.push('"=== ฟอยล์ ==="');
+      parts.push(headers.join(','));
+      parts.push(...rows);
+    }
 
-    // Add summary row at bottom
-    rows.push([
-      'รวมทั้งสิ้น',
-      '-',
-      '-',
-      '-',
-      '-',
-      totalUsedMonth,
-      totalNgMonth,
-      totalDeductedMonth,
-      '-',
-      '-',
-      '-',
-      monthlyRecords.length,
-      `"รวม ${rollsTouchedCount} ม้วน"`
-    ]);
+    if (showSandwich) {
+      const sHeaders = [
+        'ลำดับ',
+        'รหัส SO',
+        'วันที่',
+        'เมตรตาม SO (ม.)',
+        'NG (ม.)',
+        'น้ำหนักใช้ (กก.)',
+        'NG (กก.)',
+        'สีคอล์ย',
+        'เบอร์คอล์ย',
+        'ความหนา',
+        'ชนิดเหล็ก',
+        'น้ำหนักก่อนใช้ (กก.)',
+        'น้ำหนักหลังใช้ (กก.)',
+        'ผู้บันทึก',
+        'หมายเหตุ',
+      ];
+      const sRows = [...monthlySandwich]
+        .sort((a, b) =>
+          String(b.productionDate || '').localeCompare(String(a.productionDate || ''))
+        )
+        .map((r, idx) =>
+          [
+            idx + 1,
+            `"${r.soNumber}"`,
+            `"${r.productionDate || ''}"`,
+            r.soLengthMeters ?? '',
+            r.ngMeters ?? 0,
+            r.weightUsed ?? 0,
+            r.ngKg ?? 0,
+            `"${r.coilColor || ''}"`,
+            `"${r.coilNumber || ''}"`,
+            `"${r.thickness || ''}"`,
+            `"${r.steelOrigin || ''}"`,
+            r.weightBefore ?? '',
+            r.weightAfter ?? '',
+            `"${(r.recordedBy || '').replace(/"/g, '""')}"`,
+            `"${(r.notes || '').replace(/"/g, '""')}"`,
+          ].join(',')
+        );
+      sRows.push(
+        [
+          'รวมทั้งสิ้น',
+          `${sandwichCount} SO`,
+          '-',
+          monthlySandwich.reduce((s, r) => s + (Number(r.soLengthMeters) || 0), 0),
+          monthlySandwich.reduce((s, r) => s + (Number(r.ngMeters) || 0), 0),
+          sandwichKg,
+          sandwichNgKg,
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+          '-',
+        ].join(',')
+      );
+      if (showFoil) parts.push('');
+      parts.push('"=== PU Sandwich ==="');
+      parts.push(sHeaders.join(','));
+      parts.push(...sRows);
+    }
 
-    const csvContent = '\uFEFF' + [
-      `"สรุปการใช้ฟอยล์ประจำเดือน ${currentMonthLabel} พ.ศ. ${thaiYear} - หลังคาเย็นสยาม (ร่มเกล้า)"`,
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\r\n');
-
+    const csvContent = '\uFEFF' + parts.join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `สรุปการใช้ฟอยล์_ประจำเดือน_${currentMonthLabel}_${thaiYear}.csv`);
+    const fileTag =
+      scope === 'sandwich' ? 'แซนวิช' : scope === 'foil' ? 'ฟอยล์' : 'รวม';
+    link.setAttribute(
+      'download',
+      `สรุปรายเดือน_${fileTag}_${currentMonthLabel}_${thaiYear}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -477,11 +568,21 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
           <button
             type="button"
             onClick={handleExportMonthlyCSV}
-            disabled={rollUsageSummary.length === 0}
+            disabled={
+              (showFoil && rollUsageSummary.length === 0 && !showSandwich) ||
+              (showSandwich && sandwichCount === 0 && !showFoil) ||
+              (showFoil &&
+                showSandwich &&
+                rollUsageSummary.length === 0 &&
+                sandwichCount === 0)
+            }
             className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
           >
             <Download className="w-4 h-4" />
-            <span>ดาวน์โหลดตารางสรุปรายเดือน (CSV)</span>
+            <span>
+              ดาวน์โหลด CSV
+              {scope === 'sandwich' ? ' แซนวิช' : scope === 'foil' ? ' ฟอยล์' : ' รวม'}
+            </span>
           </button>
         </div>
 
@@ -489,38 +590,132 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6">
 
           {showSandwich && (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 space-y-3">
-              <h3 className="text-sm font-bold text-emerald-900 flex items-center gap-2">
-                <Layers className="w-4 h-4" />
-                สรุป PU Sandwich · {currentMonthLabel} {thaiYear}
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
-                <div className="bg-white rounded-xl border border-emerald-100 p-3">
-                  <div className="text-[10px] text-slate-500 font-medium">ใบงาน SO</div>
-                  <div className="text-lg font-mono font-bold text-slate-900">{sandwichCount}</div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="bg-teal-50/80 border border-teal-200 rounded-xl p-3 text-center">
+                  <span className="text-[11px] font-semibold text-teal-800 uppercase block">
+                    เมตรตาม SO เดือนนี้
+                  </span>
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-teal-900 mt-1 block">
+                    {sandwichMeters.toLocaleString('th-TH', { maximumFractionDigits: 1 })}{' '}
+                    <span className="text-xs font-normal text-teal-600">ม.</span>
+                  </span>
                 </div>
-                <div className="bg-white rounded-xl border border-emerald-100 p-3">
-                  <div className="text-[10px] text-slate-500 font-medium">เหล็กใช้ (กก.)</div>
-                  <div className="text-lg font-mono font-bold text-emerald-800">
-                    {sandwichKg.toLocaleString('th-TH', { maximumFractionDigits: 2 })}
-                  </div>
+                <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-3 text-center">
+                  <span className="text-[11px] font-semibold text-rose-800 uppercase block">
+                    NG เสียเดือนนี้
+                  </span>
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-rose-700 mt-1 block">
+                    {sandwichNgMeters.toLocaleString('th-TH', { maximumFractionDigits: 1 })}{' '}
+                    <span className="text-xs font-normal text-rose-500">ม.</span>
+                  </span>
                 </div>
-                <div className="bg-white rounded-xl border border-rose-100 p-3 col-span-2 sm:col-span-1">
-                  <div className="text-[10px] text-slate-500 font-medium">NG (กก.)</div>
-                  <div className="text-lg font-mono font-bold text-rose-700">
-                    {sandwichNgKg.toLocaleString('th-TH', { maximumFractionDigits: 2 })}
-                  </div>
+                <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 text-center">
+                  <span className="text-[11px] font-semibold text-emerald-800 uppercase block">
+                    น้ำหนักใช้ทั้งหมด
+                  </span>
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-emerald-900 mt-1 block">
+                    {sandwichKg.toLocaleString('th-TH', { maximumFractionDigits: 2 })}{' '}
+                    <span className="text-xs font-normal text-emerald-600">กก.</span>
+                  </span>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                  <span className="text-[11px] font-semibold text-slate-600 uppercase block">
+                    อัตราส่วนของเสีย (% NG)
+                  </span>
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-slate-800 mt-1 block">
+                    {sandwichNgRate}%
+                  </span>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+                  <span className="text-[11px] font-semibold text-slate-600 uppercase block">
+                    จำนวนใบงาน SO
+                  </span>
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-slate-800 mt-1 block">
+                    {sandwichCount}{' '}
+                    <span className="text-xs font-normal text-slate-500">ใบ</span>
+                  </span>
+                </div>
+                <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-center">
+                  <span className="text-[11px] font-semibold text-amber-800 uppercase block">
+                    NG น้ำหนัก
+                  </span>
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-amber-900 mt-1 block">
+                    {sandwichNgKg.toLocaleString('th-TH', { maximumFractionDigits: 2 })}{' '}
+                    <span className="text-xs font-normal text-amber-600">กก.</span>
+                  </span>
                 </div>
               </div>
-              {sandwichCount === 0 && (
+
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-600" />
+                  สรุป SO แซนวิช ประจำเดือน {currentMonthLabel} พ.ศ. {thaiYear}
+                </h3>
+                <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  พบ {sandwichCount} ใบ
+                </span>
+              </div>
+
+              {sandwichCount === 0 ? (
                 <p className="text-xs text-slate-500">ไม่มีรายการแซนวิชในเดือนนี้</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white max-h-64 shadow-2xs">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 sticky top-0 text-slate-700 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-3">SO</th>
+                        <th className="py-2.5 px-3">วันที่</th>
+                        <th className="py-2.5 px-3 text-right text-teal-800">เมตรตาม SO</th>
+                        <th className="py-2.5 px-3 text-right text-rose-700">NG (ม.)</th>
+                        <th className="py-2.5 px-3 text-right text-emerald-800">น้ำหนักใช้ (กก.)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-mono">
+                      {[...monthlySandwich]
+                        .sort((a, b) =>
+                          String(b.productionDate || '').localeCompare(
+                            String(a.productionDate || '')
+                          )
+                        )
+                        .map((r) => (
+                          <tr key={r.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-2.5 font-bold text-slate-900">{r.soNumber}</td>
+                            <td className="py-2 px-2.5 font-sans text-slate-600 whitespace-nowrap">
+                              {r.productionDate}
+                            </td>
+                            <td className="py-2 px-2.5 text-right font-bold text-teal-800">
+                              {r.soLengthMeters != null && Number(r.soLengthMeters) > 0
+                                ? `${Number(r.soLengthMeters).toLocaleString('th-TH', {
+                                    maximumFractionDigits: 1,
+                                  })} ม.`
+                                : '—'}
+                            </td>
+                            <td className="py-2 px-2.5 text-right text-rose-700">
+                              {(r.ngMeters || 0) > 0
+                                ? `${Number(r.ngMeters).toLocaleString('th-TH', {
+                                    maximumFractionDigits: 1,
+                                  })} ม.`
+                                : '—'}
+                            </td>
+                            <td className="py-2 px-2.5 text-right font-bold text-emerald-800">
+                              {Number(r.weightUsed || 0).toLocaleString('th-TH', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}
 
           {showFoil && (
           <>
-          {/* Monthly KPI Metrics Banner */}
+          {/* Monthly KPI Metrics Banner — ฟอยล์ */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {/* Total Used */}
             <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 text-center">

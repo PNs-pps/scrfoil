@@ -59,6 +59,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterLine, setFilterLine] = useState<'all' | 'foil' | 'sandwich'>('all');
   const [copiedDaily, setCopiedDaily] = useState<boolean>(false);
+  const [showCalendar, setShowCalendar] = useState(false);
   const flowContainerRef = useRef<HTMLDivElement>(null);
 
   const safePuRecords = useMemo(() => Array.isArray(puRecords) ? puRecords : [], [puRecords]);
@@ -352,57 +353,64 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
           </button>
         </div>
 
-        {/* ปฏิทินเล็ก — วันที่มีผลิตไฮไลท์ */}
-        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2">
-          <div className="flex items-center justify-between mb-1.5 px-0.5">
-            <button
-              type="button"
-              onClick={() => shiftCalendarMonth(-1)}
-              className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer"
-            >
-              ‹
-            </button>
-            <span className="text-[11px] font-bold text-slate-800">{calendarMonth.label}</span>
-            <button
-              type="button"
-              onClick={() => shiftCalendarMonth(1)}
-              className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer"
-            >
-              ›
-            </button>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-slate-400 font-medium mb-0.5">
-            {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => (
-              <div key={d}>{d}</div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-0.5">
-            {calendarMonth.cells.map((c, i) =>
-              c.day == null ? (
-                <div key={`e-${i}`} className="aspect-square" />
-              ) : (
-                <button
-                  key={c.iso!}
-                  type="button"
-                  onClick={() => setSelectedDate(c.iso!)}
-                  className={`aspect-square rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
-                    c.iso === selectedDate
-                      ? 'bg-amber-500 text-slate-950 shadow-sm'
-                      : c.hasProd
-                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                        : 'text-slate-600 hover:bg-white'
-                  }`}
-                  title={c.hasProd ? 'มีผลิต' : undefined}
-                >
-                  {c.day}
-                </button>
-              )
-            )}
-          </div>
-          <p className="text-[10px] text-slate-400 mt-1 px-0.5">
-            <span className="inline-block w-2 h-2 rounded-sm bg-emerald-200 border border-emerald-400 mr-1 align-middle" />
-            วันที่มีผลิต
-          </p>
+        {/* ปฏิทิน — ย่อไว้ก่อน; วันผลิต = จุดสี */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowCalendar((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left cursor-pointer hover:bg-white/70"
+          >
+            <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-amber-600" />
+              {showCalendar ? 'ซ่อนปฏิทิน' : 'แสดงปฏิทิน'}
+              <span className="font-mono font-normal text-slate-500">· {selectedDate}</span>
+            </span>
+            <span className="text-[10px] text-slate-500">
+              {showCalendar ? '▴' : '▾'} มีผลิต {availableDates.length} วัน
+            </span>
+          </button>
+          {showCalendar && (
+            <div className="px-2 pb-2 border-t border-slate-200/80">
+              <div className="flex items-center justify-between my-1.5 px-0.5">
+                <button type="button" onClick={() => shiftCalendarMonth(-1)} className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer">‹</button>
+                <span className="text-[11px] font-bold text-slate-800">{calendarMonth.label}</span>
+                <button type="button" onClick={() => shiftCalendarMonth(1)} className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer">›</button>
+              </div>
+              <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-slate-400 font-medium mb-0.5">
+                {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => (
+                  <div key={d}>{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">
+                {calendarMonth.cells.map((c, i) =>
+                  c.day == null ? (
+                    <div key={`e-${i}`} className="h-8" />
+                  ) : (
+                    <button
+                      key={c.iso!}
+                      type="button"
+                      onClick={() => setSelectedDate(c.iso!)}
+                      className={`h-8 rounded-lg text-[11px] font-semibold cursor-pointer relative flex flex-col items-center justify-center ${
+                        c.iso === selectedDate
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-700 hover:bg-white'
+                      }`}
+                      title={c.hasProd ? 'มีผลิต' : undefined}
+                    >
+                      <span className="leading-none">{c.day}</span>
+                      {c.hasProd && (
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full ${c.iso === selectedDate ? 'bg-slate-900' : 'bg-emerald-500'}`} />
+                      )}
+                    </button>
+                  )
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 px-0.5 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                จุดสี = วันที่มีการผลิต
+              </p>
+            </div>
+          )}
         </div>
 
         {/* กรองสาย */}
