@@ -27,6 +27,7 @@ import { KpiSlideRow } from './KpiSlideRow';
 interface PuSandwichViewProps {
   records?: PuSandwichCutRecord[];
   onOpenCreateModal?: () => void;
+  onEditRecord?: (record: PuSandwichCutRecord) => void;
   onDeleteRecord?: (id: string) => Promise<void> | void;
   userMode: UserMode;
   onUnlockEditor?: () => void;
@@ -34,6 +35,7 @@ interface PuSandwichViewProps {
 
 export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   records = [],
+  onEditRecord,
   onDeleteRecord,
   userMode,
   onUnlockEditor,
@@ -68,11 +70,13 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
     let otherSteelKg = 0;
     let totalNgKg = 0;
     let totalNgMeters = 0;
+    let totalSoMeters = 0;
     let ngRecordCount = 0;
 
     safeRecords.forEach((r) => {
       const w = Number(r.weightUsed) || 0;
       totalKg += w;
+      totalSoMeters += Number(r.soLengthMeters) || 0;
       if (r.steelOrigin === 'เหล็กนอก') externalSteelKg += w;
       else if (r.steelOrigin === 'เหล็กBlue Scope') blueScopeKg += w;
       else otherSteelKg += w;
@@ -89,6 +93,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
     const ngPercent = totalKg > 0 ? (totalNgKg / totalKg) * 100 : 0;
 
     return {
+      count: safeRecords.length,
       totalCount: safeRecords.length,
       totalKg: Math.round(totalKg * 100) / 100,
       totalTons: Math.round((totalKg / 1000) * 100) / 100,
@@ -97,6 +102,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       otherSteelKg: Math.round(otherSteelKg * 100) / 100,
       totalNgKg: Math.round(totalNgKg * 100) / 100,
       totalNgMeters: Math.round(totalNgMeters * 10) / 10,
+      totalSoMeters: Math.round(totalSoMeters * 10) / 10,
       ngPercent: Math.round(ngPercent * 100) / 100,
       ngRecordCount,
     };
@@ -219,6 +225,15 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
         <KpiSlideRow
           title="สรุปผลิต · น้ำหนัก & ใบงาน"
           cards={[
+            {
+              id: 'meters',
+              label: 'เมตรตามใบ SO',
+              value: stats.totalSoMeters.toLocaleString('th-TH', { maximumFractionDigits: 1 }),
+              unit: 'ม.',
+              icon: <FileText className="w-4 h-4" />,
+              iconClass: 'bg-teal-50 text-teal-700',
+              footer: <span className="text-teal-700 font-semibold">{stats.count} ใบงาน</span>,
+            },
             {
               id: 'kg',
               label: 'น้ำหนักเหล็กใช้สะสม',
@@ -416,16 +431,10 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                       {r.productionDate}
                     </td>
                     <td className="py-3 px-3.5 font-sans">
-                      <span className="font-semibold text-slate-800">
-                        {r.coilColor}
-                      </span>
+                      <span className="font-semibold text-slate-800">{r.coilColor}</span>
                     </td>
-                    <td className="py-3 px-3.5 text-slate-700">
-                      {r.thickness} มม.
-                    </td>
-                    <td className="py-3 px-3.5 font-bold text-slate-800">
-                      {r.coilNumber}
-                    </td>
+                    <td className="py-3 px-3.5 text-slate-700">{r.thickness} มม.</td>
+                    <td className="py-3 px-3.5 font-bold text-slate-800">{r.coilNumber}</td>
                     <td className="py-3 px-3.5 font-sans whitespace-nowrap">
                       <span
                         className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
@@ -451,23 +460,21 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                     </td>
                     <td className="py-3 px-3.5 text-right font-bold text-teal-700">
                       {r.soLengthMeters ? (
-                        <span>{r.soLengthMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.</span>
+                        <span>
+                          {Number(r.soLengthMeters).toLocaleString('th-TH', {
+                            maximumFractionDigits: 1,
+                          })}{' '}
+                          ม.
+                        </span>
                       ) : (
                         <span className="text-slate-400 font-normal">-</span>
                       )}
                     </td>
                     <td className="py-3 px-3.5 text-right">
                       {(r.ngKg || 0) > 0 ? (
-                        <div className="flex flex-col items-end">
-                          <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
-                            {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                          </span>
-                          {r.soLengthMeters ? (
-                            <span className="text-[10px] text-slate-400 mt-0.5 font-sans">
-                              (หักงาน {r.soLengthMeters}ม.)
-                            </span>
-                          ) : null}
-                        </div>
+                        <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                          {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        </span>
                       ) : (
                         <span className="text-slate-400 font-normal">0.00</span>
                       )}
@@ -475,7 +482,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                     <td className="py-3 px-3.5 text-right">
                       {(r.ngMeters || 0) > 0 ? (
                         <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
-                          {r.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 1 })}
+                          {r.ngMeters?.toLocaleString('th-TH', { maximumFractionDigits: 1 })}
                         </span>
                       ) : (
                         <span className="text-slate-400 font-normal">0.0</span>
@@ -484,34 +491,59 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                     <td className="py-3 px-3.5 font-sans text-slate-600 whitespace-nowrap">
                       {r.recordedBy}
                     </td>
-                    <td className="py-3 px-3.5 font-sans text-slate-500 max-w-[150px] truncate" title={r.notes || ''}>
+                    <td
+                      className="py-3 px-3.5 font-sans text-slate-500 max-w-[150px] truncate"
+                      title={r.notes || ''}
+                    >
                       {r.notes || '-'}
                     </td>
                     <td className="py-3 px-3.5 text-center">
-                      {onDeleteRecord && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (userMode === 'visitor' && onUnlockEditor) {
-                              onUnlockEditor();
-                              return;
-                            }
-                            if (window.confirm(`ยืนยันการลบรายการตัด SO ${r.soNumber} (คอล์ย ${r.coilNumber})?`)) {
-                              onDeleteRecord(r.id);
-                            }
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="ลบรายการนี้"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <div className="inline-flex items-center gap-1 justify-center">
+                        {onEditRecord && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (userMode === 'visitor' && onUnlockEditor) {
+                                onUnlockEditor();
+                                return;
+                              }
+                              onEditRecord(r);
+                            }}
+                            className="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200 cursor-pointer"
+                          >
+                            แก้ไข
+                          </button>
+                        )}
+                        {onDeleteRecord && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (userMode === 'visitor' && onUnlockEditor) {
+                                onUnlockEditor();
+                                return;
+                              }
+                              if (
+                                window.confirm(
+                                  `ยืนยันการลบรายการตัด SO ${r.soNumber} (คอล์ย ${r.coilNumber})?`
+                                )
+                              ) {
+                                onDeleteRecord(r.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            title="ลบ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        
         )}
       </div>
       {/* Monthly Summary Modal */}
@@ -711,12 +743,9 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                         <tr>
                           <th className="py-2.5 px-3">SO</th>
                           <th className="py-2.5 px-3">วันที่</th>
-                          <th className="py-2.5 px-3">สี / เบอร์</th>
-                          <th className="py-2.5 px-3">ชนิดเหล็ก</th>
-                          <th className="py-2.5 px-3 text-right">ใช้จริง (กก.)</th>
-                          <th className="py-2.5 px-3 text-right">งาน SO (ม.)</th>
-                          <th className="py-2.5 px-3 text-right text-rose-600">NG (กก.)</th>
+                          <th className="py-2.5 px-3 text-right text-teal-800">เมตรตาม SO</th>
                           <th className="py-2.5 px-3 text-right text-rose-600">NG (ม.)</th>
+                          <th className="py-2.5 px-3 text-right text-emerald-800">น้ำหนักใช้ (กก.)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-mono">
@@ -724,21 +753,17 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                           <tr key={r.id} className="hover:bg-slate-50">
                             <td className="py-2.5 px-3 font-bold text-slate-900">{r.soNumber}</td>
                             <td className="py-2.5 px-3 font-sans text-slate-600">{r.productionDate}</td>
-                            <td className="py-2.5 px-3 font-sans">
-                              {r.coilColor} #{r.coilNumber} ({r.thickness}มม.)
+                            <td className="py-2.5 px-3 text-right font-bold text-teal-800">
+                              {r.soLengthMeters ? `${r.soLengthMeters} ม.` : '—'}
                             </td>
-                            <td className="py-2.5 px-3 font-sans text-slate-700">{r.steelOrigin}</td>
+                            <td className="py-2.5 px-3 text-right text-rose-700">
+                              {(r.ngMeters || 0) > 0 ? `${r.ngMeters} ม.` : '—'}
+                            </td>
                             <td className="py-2.5 px-3 text-right font-bold text-emerald-800">
-                              {r.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-teal-800">
-                              {r.soLengthMeters ? `${r.soLengthMeters}ม.` : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-rose-700">
-                              {(r.ngKg || 0) > 0 ? r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-rose-700">
-                              {(r.ngMeters || 0) > 0 ? `${r.ngMeters}ม.` : '-'}
+                              {Number(r.weightUsed || 0).toLocaleString('th-TH', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
                             </td>
                           </tr>
                         ))}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BarChart3, Package, History, Settings, Workflow, Factory } from 'lucide-react';
+import { BarChart3, Package, History, Settings, CalendarDays, Factory } from 'lucide-react';
 
 interface MobileBottomNavProps {
   activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
@@ -16,7 +16,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-xl border-t border-slate-200/80 shadow-[0_-4px_20px_rgba(15,23,42,0.06)] px-1 pt-1 pb-[max(0.35rem,env(safe-area-inset-bottom))]">
       <div className="grid grid-cols-6 items-center max-w-lg mx-auto">
-        {/* Tab: Dashboard */}
         <button
           onClick={() => setActiveTab('dashboard')}
           className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -29,7 +28,19 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <span className="text-[9px] mt-0.5 leading-tight">แดชบอร์ด</span>
         </button>
 
-        {/* Tab: Rolls */}
+        {/* ผลิตรายวัน อยู่ระหว่างแดชบอร์ดกับม้วนฟอยล์ */}
+        <button
+          onClick={() => setActiveTab('flow')}
+          className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
+            activeTab === 'flow'
+              ? 'text-amber-600 font-bold bg-amber-50'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <CalendarDays className="w-5 h-5 stroke-[2.2]" />
+          <span className="text-[9px] mt-0.5 leading-tight">ผลิตรายวัน</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('rolls')}
           className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -42,7 +53,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <span className="text-[9px] mt-0.5 leading-tight">ม้วนฟอยล์</span>
         </button>
 
-        {/* Tab: PU Sandwich */}
         <button
           onClick={() => setActiveTab('sandwich')}
           className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -55,20 +65,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <span className="text-[9px] mt-0.5 leading-tight">แซนวิช</span>
         </button>
 
-        {/* Tab: Flow Chart */}
-        <button
-          onClick={() => setActiveTab('flow')}
-          className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
-            activeTab === 'flow'
-              ? 'text-amber-600 font-bold bg-amber-50'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Workflow className="w-5 h-5 stroke-[2.2]" />
-          <span className="text-[9px] mt-0.5 leading-tight">Flow ผลิต</span>
-        </button>
-
-        {/* Tab: History */}
         <button
           onClick={() => setActiveTab('history')}
           className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -81,7 +77,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <span className="text-[9px] mt-0.5 leading-tight">ประวัติตัด</span>
         </button>
 
-        {/* Tab: Settings & Backup */}
         <button
           onClick={() => setActiveTab('settings')}
           className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all relative cursor-pointer ${

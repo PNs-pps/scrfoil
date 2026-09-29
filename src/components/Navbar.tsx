@@ -233,6 +233,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
+              id="tab-flow"
+              onClick={() => setActiveTab('flow')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'flow'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Workflow className="w-4 h-4 text-amber-600" />
+              <span className="lg:hidden">ผลิตรายวัน</span>
+              <span className="hidden lg:inline">ผลิตรายวัน</span>
+            </button>
+
+            <button
               id="tab-rolls"
               onClick={() => setActiveTab('rolls')}
               className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
@@ -281,23 +295,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 activeTab === 'sandwich' ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-700'
               }`}>
                 {puSandwichCount}
-              </span>
-            </button>
-
-            <button
-              id="tab-flow"
-              onClick={() => setActiveTab('flow')}
-              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === 'flow'
-                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
-            >
-              <Workflow className="w-4 h-4 text-amber-600" />
-              <span className="lg:hidden">Flow ผลิต</span>
-              <span className="hidden lg:inline">Flow Chart ผลการผลิตรายวัน</span>
-              <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                Daily Flow
               </span>
             </button>
 

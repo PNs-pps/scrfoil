@@ -304,82 +304,109 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
     });
   };
 
+  // ปฏิทินเดือนของ selectedDate — ไฮไลท์วันที่มีผลิต
+  const calendarMonth = useMemo(() => {
+    const base = new Date(selectedDate + 'T12:00:00');
+    const y = base.getFullYear();
+    const m = base.getMonth();
+    const first = new Date(y, m, 1);
+    const startPad = (first.getDay() + 6) % 7; // จันทร์ = 0
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const prodSet = new Set(availableDates);
+    const cells: { day: number | null; iso: string | null; hasProd: boolean }[] = [];
+    for (let i = 0; i < startPad; i++) cells.push({ day: null, iso: null, hasProd: false });
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push({ day: d, iso, hasProd: prodSet.has(iso) });
+    }
+    return { y, m, cells, label: base.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }) };
+  }, [selectedDate, availableDates]);
+
+  const shiftCalendarMonth = (delta: number) => {
+    const base = new Date(selectedDate + 'T12:00:00');
+    base.setMonth(base.getMonth() + delta);
+    const iso = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
+    // ถ้ามีวันผลิตในเดือนนั้น เลือกวันผลิตล่าสุด ไม่งั้นวัน 1
+    const inMonth = availableDates.filter((d) => d.startsWith(iso.slice(0, 7)));
+    setSelectedDate(inMonth[0] || iso);
+  };
+
   return (
-    <div ref={flowContainerRef} className="space-y-6 animate-in fade-in duration-200">
-      {/* Top Header Card */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
-              <Workflow className="w-6 h-6 stroke-[2.2]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                  Flow Chart ผลการผลิตรายวัน
-                </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                  Production Flow
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
-                ขั้นตอนสายการผลิต & วิเคราะห์ยอดตัดสต๊อกฟอยล์ประจำวัน (เรียกดูย้อนหลังได้)
-              </p>
-            </div>
+    <div ref={flowContainerRef} className="space-y-3 animate-in fade-in duration-200">
+      {/* หัวข้อกระชับ + ปฏิทิน */}
+      <div className="bg-white rounded-2xl p-3 border border-slate-200 shadow-xs space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-slate-900 tracking-tight">ผลิตรายวัน</h2>
+            <p className="text-[11px] text-slate-500 truncate">{displaySelectedDate}</p>
           </div>
-
-          {/* Date Selector, Screenshot & Copy Button */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-              <Calendar className="w-4 h-4 text-amber-600" />
-              <label htmlFor="flow-chart-date-select" className="sr-only">
-                เลือกวันที่ผลิต
-              </label>
-              <select
-                id="flow-chart-date-select"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs font-mono font-bold text-slate-800 border-none outline-hidden cursor-pointer"
-              >
-                {availableDates.map((date) => (
-                  <option key={date} value={date}>
-                    {date === todayStr ? `วันนี้ (${date})` : date}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleCopyDailySummary}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
-                copiedDaily
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-900 hover:bg-slate-800 text-white'
-              }`}
-              title="คัดลอกสรุปผลผลิตของวันนี้เพื่อวางใน LINE"
-            >
-              {copiedDaily ? (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  <span>คัดลอกแล้ว!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5 text-amber-400" />
-                  <span>คัดลอกผลผลิตรายวัน</span>
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleCopyDailySummary}
+            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer shrink-0 ${
+              copiedDaily ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'
+            }`}
+          >
+            {copiedDaily ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
+            {copiedDaily ? 'คัดลอกแล้ว' : 'คัดลอก'}
+          </button>
         </div>
 
-        {/* Date Banner & Line Filter */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 py-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl gap-3">
-          <div className="flex items-center gap-2 text-xs font-mono">
-            <span className="font-bold text-amber-950">วันที่ตรวจสอบ:</span>
-            <span className="text-amber-900 font-semibold">{displaySelectedDate}</span>
+        {/* ปฏิทินเล็ก — วันที่มีผลิตไฮไลท์ */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2">
+          <div className="flex items-center justify-between mb-1.5 px-0.5">
+            <button
+              type="button"
+              onClick={() => shiftCalendarMonth(-1)}
+              className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer"
+            >
+              ‹
+            </button>
+            <span className="text-[11px] font-bold text-slate-800">{calendarMonth.label}</span>
+            <button
+              type="button"
+              onClick={() => shiftCalendarMonth(1)}
+              className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer"
+            >
+              ›
+            </button>
           </div>
+          <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-slate-400 font-medium mb-0.5">
+            {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => (
+              <div key={d}>{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {calendarMonth.cells.map((c, i) =>
+              c.day == null ? (
+                <div key={`e-${i}`} className="aspect-square" />
+              ) : (
+                <button
+                  key={c.iso!}
+                  type="button"
+                  onClick={() => setSelectedDate(c.iso!)}
+                  className={`aspect-square rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+                    c.iso === selectedDate
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : c.hasProd
+                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                        : 'text-slate-600 hover:bg-white'
+                  }`}
+                  title={c.hasProd ? 'มีผลิต' : undefined}
+                >
+                  {c.day}
+                </button>
+              )
+            )}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1 px-0.5">
+            <span className="inline-block w-2 h-2 rounded-sm bg-emerald-200 border border-emerald-400 mr-1 align-middle" />
+            วันที่มีผลิต
+          </p>
+        </div>
+
+        {/* กรองสาย */}
+        <div className="flex flex-wrap items-center gap-1.5">
 
           {/* Line Filter Tabs */}
           <div className="flex flex-wrap items-center gap-1.5">
@@ -420,13 +447,13 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
         </div>
       </div>
 
-      {/* แผนผังกระบวนการผลิต (Mind Map) */}
+      {/* ขั้นตอนผลิต (Mind Map) */}
       <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <Factory className="w-5 h-5 text-amber-600 shrink-0" />
             <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
-              แผนผังกระบวนการผลิต
+              ขั้นตอนผลิต
             </h3>
           </div>
           <span className="text-[10px] text-slate-500 font-mono shrink-0">ฟอยล์ + แซนวิช</span>
@@ -455,7 +482,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
                 <span className="text-[10px] font-mono text-slate-500">Intake</span>
               </div>
               <h4 className="font-bold text-slate-900 text-xs sm:text-sm">รับ SO</h4>
-              <p className="text-[10px] text-slate-600 leading-snug">ตรวจใบสั่งทั้งสายฟอยล์/แซนวิช</p>
+              <p className="text-[10px] text-slate-600 leading-snug">รับใบ SO</p>
               <p className="text-[11px] font-mono font-bold text-amber-800">
                 {distinctDailySo.length} คำสั่ง
               </p>
@@ -469,7 +496,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
                 <span className="text-[10px] font-mono text-blue-600">เบิก</span>
               </div>
               <h4 className="font-bold text-slate-900 text-xs sm:text-sm">เบิกม้วน / คอยล์</h4>
-              <p className="text-[10px] text-slate-600 leading-snug">เบิกฟอยล์ตามลาย หรือชั่งเหล็ก</p>
+              <p className="text-[10px] text-slate-600 leading-snug">เบิกม้วน/คอยล์</p>
               <p className="text-[11px] font-mono font-bold text-blue-800">
                 ฟอยล์ {stats.rollCount} · แซนวิช {puStats.count}
               </p>

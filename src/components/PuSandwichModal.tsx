@@ -38,6 +38,7 @@ interface PuSandwichModalProps {
   records?: PuSandwichCutRecord[];
   onDeleteRecord?: (recordId: string) => Promise<void> | void;
   initialMode?: 'create' | 'history';
+  editingRecord?: PuSandwichCutRecord | null;
 }
 
 const COMMON_COIL_COLORS = ['สีขาว', 'สีดำ', 'สีน้ำตาล', 'สีเขียว', 'สีฟ้า', 'สีเทา', 'อลูซิงค์ (ซิงค์)'];
@@ -49,7 +50,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   onSaveCut,
   records = [],
   onDeleteRecord,
-  initialMode = 'create'
+  initialMode = 'create',
+  editingRecord = null,
 }) => {
   const [activeTab, setActiveTab] = useState<'create' | 'history'>(initialMode);
   const recentOperators = getRecentOperators();
@@ -80,26 +82,62 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const [historySearch, setHistorySearch] = useState('');
   const [historySteelFilter, setHistorySteelFilter] = useState<string>('all');
 
-  // Initialize SO number template when opening
+  // เปิดฟอร์ม: สร้างใหม่ หรือโหลดรายการแก้ไข
   useEffect(() => {
-    if (isOpen) {
-      setActiveTab(initialMode);
-      const yy = getCurrentThaiYearBE2Digits();
-      const mm = getCurrentMonth2Digits();
-      setSoNumber(`so${yy}${mm}`);
-      setNgKg('0');
-      setNgMeters('0');
-      setSoLengthMeters('');
-      setThickness('0.35');
-      setIsNgManuallyEdited(false);
-      setCustomKgPerMeter('');
-      setShowCustomFactor(false);
-      setError(null);
-      if (!recordedBy && recentOperators.length > 0) {
-        setRecordedBy(recentOperators[0]);
-      }
+    if (!isOpen) return;
+    setError(null);
+    setCustomKgPerMeter('');
+    setShowCustomFactor(false);
+
+    if (editingRecord) {
+      setActiveTab('create');
+      setSoNumber(editingRecord.soNumber || '');
+      setProductionDate(editingRecord.productionDate || new Date().toISOString().slice(0, 10));
+      setSoLengthMeters(
+        editingRecord.soLengthMeters != null ? String(editingRecord.soLengthMeters) : ''
+      );
+      setCoilColor(editingRecord.coilColor || '');
+      setThickness(editingRecord.thickness || '0.35');
+      setCoilNumber(editingRecord.coilNumber || '');
+      setWeightBefore(
+        editingRecord.weightBefore != null ? String(editingRecord.weightBefore) : ''
+      );
+      setWeightAfter(
+        editingRecord.weightAfter != null ? String(editingRecord.weightAfter) : ''
+      );
+      setNgKg(editingRecord.ngKg != null ? String(editingRecord.ngKg) : '0');
+      setNgMeters(editingRecord.ngMeters != null ? String(editingRecord.ngMeters) : '0');
+      setSteelOrigin(editingRecord.steelOrigin || 'เหล็กนอก');
+      setCustomSteelOrigin(editingRecord.customSteelOrigin || '');
+      setLengthMeters(
+        editingRecord.lengthMeters != null ? String(editingRecord.lengthMeters) : ''
+      );
+      setRecordedBy(editingRecord.recordedBy || recentOperators[0] || '');
+      setNotes(editingRecord.notes || '');
+      setIsNgManuallyEdited(true);
+      return;
     }
-  }, [isOpen, initialMode]);
+
+    setActiveTab(initialMode);
+    const yy = getCurrentThaiYearBE2Digits();
+    const mm = getCurrentMonth2Digits();
+    setSoNumber(`so${yy}${mm}`);
+    setProductionDate(new Date().toISOString().slice(0, 10));
+    setNgKg('0');
+    setNgMeters('0');
+    setSoLengthMeters('');
+    setThickness('0.35');
+    setIsNgManuallyEdited(false);
+    setCoilColor('');
+    setCoilNumber('');
+    setWeightBefore('');
+    setWeightAfter('');
+    setNotes('');
+    setLengthMeters('');
+    if (!recordedBy && recentOperators.length > 0) {
+      setRecordedBy(recentOperators[0]);
+    }
+  }, [isOpen, initialMode, editingRecord]);
 
   // Weight per meter from thickness according to factory standards:
   // 0.30 -> 2.1 kg/m, 0.35 -> 2.3 kg/m, 0.40 -> 2.7 kg/m, 0.47 -> 3.1 kg/m, 0.51 -> 3.2 kg/m
@@ -219,7 +257,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         ngMeters: numNgMeters,
         steelOrigin,
         recordedBy: recordedBy.trim() || 'ช่างคุมเครื่อง PU',
-        createdAt: new Date().toISOString(),
+        createdAt: editingRecord?.createdAt || new Date().toISOString(),
       };
 
       if (numSoLength > 0) cleanPayload.soLengthMeters = numSoLength;
@@ -227,31 +265,33 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       if (lengthMeters && parseFloat(lengthMeters) > 0) cleanPayload.lengthMeters = parseFloat(lengthMeters);
       if (notes.trim()) cleanPayload.notes = notes.trim();
 
-      if (onSaveRecord) {
+      if (onSaveRecord && !editingRecord) {
         await onSaveRecord(cleanPayload);
       } else if (onSaveCut) {
         await onSaveCut({
+          id: editingRecord?.id || `pusw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           ...cleanPayload,
-          id: `pusw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        });
+        } as PuSandwichCutRecord);
       }
 
-      // Reset for next entry
-      const yy = getCurrentThaiYearBE2Digits();
-      const mm = getCurrentMonth2Digits();
-      setSoNumber(`so${yy}${mm}`);
-      setWeightBefore('');
-      setWeightAfter('');
-      setSoLengthMeters('');
-      setNgKg('0');
-      setNgMeters('0');
-      setIsNgManuallyEdited(false);
-      setCustomKgPerMeter('');
-      setShowCustomFactor(false);
-      setNotes('');
-      setLengthMeters('');
-      // Switch to history
-      setActiveTab('history');
+      if (editingRecord) {
+        onClose();
+      } else {
+        const yy = getCurrentThaiYearBE2Digits();
+        const mm = getCurrentMonth2Digits();
+        setSoNumber(`so${yy}${mm}`);
+        setWeightBefore('');
+        setWeightAfter('');
+        setSoLengthMeters('');
+        setNgKg('0');
+        setNgMeters('0');
+        setIsNgManuallyEdited(false);
+        setCustomKgPerMeter('');
+        setShowCustomFactor(false);
+        setNotes('');
+        setLengthMeters('');
+        setActiveTab('history');
+      }
     } catch (err: any) {
       setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
     } finally {
@@ -293,7 +333,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold">ตัด SO ไม่ใช้ฟอยล์ (ผลิต PU Sandwich)</h2>
+                <h2 className="text-lg font-bold">
+                  {editingRecord ? 'แก้ไข SO แซนวิช' : 'ตัด SO ไม่ใช้ฟอยล์ (ผลิต PU Sandwich)'}
+                </h2>
                 <span className="text-[10px] bg-emerald-500/30 text-emerald-200 px-2 py-0.5 rounded-full border border-emerald-400/30 font-medium">
                   ฉีด PU แซนวิช
                 </span>
@@ -968,7 +1010,11 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   className="px-6 py-2.5 rounded-xl bg-linear-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกตัด SO แซนวิช (ไม่ใช้ฟอยล์)'}
+                  {isSubmitting
+                    ? 'กำลังบันทึก...'
+                    : editingRecord
+                      ? 'บันทึกการแก้ไข'
+                      : 'บันทึกตัด SO แซนวิช'}
                 </button>
               </div>
             </form>
