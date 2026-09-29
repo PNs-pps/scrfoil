@@ -12,6 +12,7 @@ import {
   exportCutRecordsToCSV,
   exportPuSandwichRecordsToCSV
 } from './utils/storage';
+import { notifySuccess, notifyError } from './utils/feedback';
 import { 
   subscribeToFoilRolls, 
   subscribeToStockCutRecords, 
@@ -207,14 +208,25 @@ export default function App() {
     detail: '',
   });
 
-  // Feedback Toast
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
+  // Feedback Toast (+ เสียง/สั่น)
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    type: 'success' | 'info' | 'error';
+  } | null>(null);
 
-  const showToast = (text: string, type: 'success' | 'info' = 'success') => {
+  const showToast = (
+    text: string,
+    type: 'success' | 'info' | 'error' = 'success',
+    withFeedback = true
+  ) => {
     setToastMessage({ text, type });
+    if (withFeedback) {
+      if (type === 'success') notifySuccess();
+      else if (type === 'error') notifyError();
+    }
     setTimeout(() => {
       setToastMessage(null);
-    }, 4000);
+    }, type === 'error' ? 6000 : 4500);
   };
 
   // Realtime load & Firestore subscription (Optimized with Persistent Cache & Read limits)
@@ -499,7 +511,7 @@ export default function App() {
         showToast('ยังไม่ได้เปิดสิทธิ์ Rules ใน Firebase Console กรุณาตั้งค่า Rules', 'info');
       } else {
         setSyncStatus('error');
-        showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลขึ้น Firebase', 'info');
+        showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลขึ้น Firebase', 'error');
       }
     } finally {
       setIsSavingToCloud(false);
@@ -776,9 +788,17 @@ export default function App() {
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
 
       if (createdRecords.length === 1) {
-        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
+        showToast(
+          `ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.)`,
+          'success',
+          false
+        );
       } else {
-        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
+        showToast(
+          `ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการ · รวม ${formatMeters(totalDeductedAll)} ม.`,
+          'success',
+          false
+        );
       }
     } catch (err: any) {
       console.error('Firebase transaction error during stock cut:', err);
@@ -1227,14 +1247,35 @@ export default function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
-          <div className={`px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2.5 ${
-            toastMessage.type === 'success'
-              ? 'bg-slate-900 text-white border-slate-800'
-              : 'bg-white text-slate-800 border-slate-200 shadow-xl'
-          }`}>
-            <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
-            <span>{toastMessage.text}</span>
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[min(94vw,28rem)] animate-in fade-in slide-in-from-bottom-4 duration-200">
+          <div
+            className={`px-4 py-3.5 rounded-2xl shadow-2xl border-2 text-sm font-semibold flex items-start gap-3 ${
+              toastMessage.type === 'success'
+                ? 'bg-emerald-600 text-white border-emerald-400'
+                : toastMessage.type === 'error'
+                  ? 'bg-rose-600 text-white border-rose-400'
+                  : 'bg-white text-slate-800 border-slate-200'
+            }`}
+          >
+            {toastMessage.type === 'success' ? (
+              <CheckCircle2 className="w-6 h-6 text-white shrink-0 mt-0.5" />
+            ) : toastMessage.type === 'error' ? (
+              <AlertTriangle className="w-6 h-6 text-white shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            )}
+            <span className="leading-snug flex-1">{toastMessage.text}</span>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg cursor-pointer ${
+                toastMessage.type === 'info'
+                  ? 'bg-slate-100 text-slate-600'
+                  : 'bg-white/20 text-white'
+              }`}
+            >
+              ปิด
+            </button>
           </div>
         </div>
       )}
