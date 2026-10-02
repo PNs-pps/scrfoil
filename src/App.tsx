@@ -17,8 +17,6 @@ import {
   subscribeToStockCutRecords, 
   subscribeToPuSandwichCuts,
   isRecentLocalWrite,
-  markLocalWrite,
-  saveStockCutRecordToFirestore,
   savePuSandwichCutToFirestore,
   deletePuSandwichCutFromFirestore,
   saveFoilRollToFirestore, 
@@ -39,44 +37,9 @@ import {
   activeTarget,
   setActiveTarget,
   auth,
-  signOutUser,
-  subscribeToChemicalStock,
-  saveChemicalStockToFirestore,
-  subscribeToChemicalCuts,
-  saveChemicalCutToFirestore,
-  deleteChemicalCutFromFirestore,
-  subscribeToChemicalRestock,
-  saveChemicalRestockToFirestore,
-  deleteChemicalRestockFromFirestore,
-  subscribeToChemicalFormulas,
-  saveChemicalFormulaToFirestore,
-  deleteChemicalFormulaFromFirestore
+  signOutUser
 } from './lib/firebase';
-import { 
-  CycleCountSession,
-  ChemicalStock,
-  ChemicalCutRecord,
-  ChemicalRestockRecord,
-  ChemicalFormula
-} from './types';
-import {
-  getStoredChemicalStock,
-  saveStoredChemicalStock,
-  getStoredFormulas,
-  saveStoredFormulas,
-  getStoredChemicalCutRecords,
-  saveStoredChemicalCutRecords,
-  getStoredChemicalRestockRecords,
-  saveStoredChemicalRestockRecords,
-  revertChemicalCut,
-  deleteRestockRecord,
-  updateRestockRecord,
-  updateDrumInRecords,
-  updateFolderDensitiesInRecords,
-  deleteDrumWithStock,
-  normalizeFormulaList,
-  normalizeInchSize
-} from './utils/chemicalStock';
+import { CycleCountSession } from './types';
 import { Navbar } from './components/Navbar';
 import { FirebaseSyncBar } from './components/FirebaseSyncBar';
 import { FirebaseRulesModal } from './components/FirebaseRulesModal';
@@ -93,10 +56,6 @@ import { SOBatchImportModal } from './components/SOBatchImportModal';
 import { SettingsBackupView } from './components/SettingsBackupView';
 import { PuSandwichModal } from './components/PuSandwichModal';
 import { PuSandwichView } from './components/PuSandwichView';
-import { ChemicalStockView } from './components/ChemicalStockView';
-import { ChemicalDeductModal } from './components/ChemicalDeductModal';
-import { ChemicalRestockModal } from './components/ChemicalRestockModal';
-import { ChemicalFormulaModal } from './components/ChemicalFormulaModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { IntegrityCheckModal } from './components/IntegrityCheckModal';
@@ -111,7 +70,7 @@ import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
 import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X } from 'lucide-react';
 
-type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'chemical' | 'settings';
+type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
@@ -121,27 +80,15 @@ export default function App() {
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
   
-  // Chemical Stock & Formula State (ตัดสต๊อกน้ำยา PU แยกจากฟอยล์)
-  const [chemicalStock, setChemicalStock] = useState<ChemicalStock>(() => getStoredChemicalStock());
-  const [chemicalCutRecords, setChemicalCutRecords] = useState<ChemicalCutRecord[]>(() => getStoredChemicalCutRecords());
-  const [chemicalRestockRecords, setChemicalRestockRecords] = useState<ChemicalRestockRecord[]>(() => getStoredChemicalRestockRecords());
-  const [chemicalFormulas, setChemicalFormulas] = useState<ChemicalFormula[]>(() => getStoredFormulas());
-
-  // Chemical Modals
-  const [isChemicalDeductOpen, setIsChemicalDeductOpen] = useState(false);
-  const [isChemicalRestockOpen, setIsChemicalRestockOpen] = useState(false);
-  const [isChemicalFormulaOpen, setIsChemicalFormulaOpen] = useState(false);
-  const [editingRestockRecord, setEditingRestockRecord] = useState<ChemicalRestockRecord | null>(null);
-
   // Persistent activeTab so that reloading keeps the user on the exact page being viewed
   const [activeTab, setActiveTabRaw] = useState<AppTab>(() => {
     try {
       const hash = window.location.hash.replace('#', '') as AppTab;
-      if (['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'chemical', 'settings'].includes(hash)) {
+      if (['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'settings'].includes(hash)) {
         return hash;
       }
       const saved = sessionStorage.getItem('scrfoil_active_tab') as AppTab;
-      if (saved && ['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'chemical', 'settings'].includes(saved)) {
+      if (saved && ['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'settings'].includes(saved)) {
         return saved;
       }
     } catch {}
@@ -282,54 +229,54 @@ export default function App() {
 
     // 2. Realtime listener for Foil Rolls
     let isInitialRollsFetch = true;
-
-    const applyFoilRollsSnapshot = (firestoreRolls: FoilRoll[]) => {
-      setRolls((prev) => {
-        const prevMap = new Map(prev.map((r) => [r.id, r]));
-        // เพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
-        const mergedServer = firestoreRolls.map((r) => {
-          if (r.id && isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
-            const local = prevMap.get(r.id)!;
-            return {
-              ...r,
-              remainingMeters: local.remainingMeters,
-              usedMeters: local.usedMeters,
-              ngMeters: local.ngMeters,
-              recentCuts: local.recentCuts ?? r.recentCuts,
-              isZeroedOut: local.isZeroedOut,
-              status: local.status,
-            };
-          }
-          return r;
-        });
-
-        // Don't wipe local rolls if server returns empty snapshot
-        let next: FoilRoll[];
-        if (mergedServer.length > 0) {
-          next = mergedServer;
-        } else if (prev.length > 0) {
-          next = prev;
-        } else {
-          next = loadedRolls;
-        }
-
-        saveStoredRolls(next);
-
-        if (isInitialRollsFetch && loadedRolls.length > 0 && firestoreRolls.length === 0) {
-          uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
-            console.warn('Initial cloud seed notice:', err);
-          });
-        }
-        isInitialRollsFetch = false;
-        return next;
-      });
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    };
-
     const unsubRolls = subscribeToFoilRolls(
       (firestoreRolls) => {
-        applyFoilRollsSnapshot(firestoreRolls);
+        // activeOnly query already filters status==='active'; also drop any legacy
+        // depleted/zeroed that slipped through so the main list stays lean.
+        setRolls((prev) => {
+          const prevMap = new Map(prev.map((r) => [r.id, r]));
+          // ถเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่เด้งกลับ
+          const mergedServer = firestoreRolls.map((r) => {
+            if (isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
+              const local = prevMap.get(r.id)!;
+              return {
+                ...r,
+                remainingMeters: local.remainingMeters,
+                usedMeters: local.usedMeters,
+                ngMeters: local.ngMeters,
+                recentCuts: local.recentCuts ?? r.recentCuts,
+                isZeroedOut: local.isZeroedOut,
+                status: local.status,
+              };
+            }
+            return r;
+          });
+          // พร้อมใช้เท่านั้น — เหลือ 0 / depleted / zeroed ไม่นับในลิสต์หลัก
+          const activeRolls = mergedServer.filter(
+            (r) =>
+              r.status !== 'depleted' &&
+              !r.isZeroedOut &&
+              Number(r.remainingMeters) > 0
+          );
+          const next =
+            activeRolls.length > 0 || firestoreRolls.length === 0
+              ? activeRolls.length > 0
+                ? activeRolls
+                : mergedServer
+              : prev;
+
+          if (activeRolls.length > 0 || firestoreRolls.length === 0) {
+            saveStoredRolls(next);
+          } else if (isInitialRollsFetch && loadedRolls.length > 0) {
+            uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
+              console.warn('Initial cloud seed notice:', err);
+            });
+          }
+          isInitialRollsFetch = false;
+          return next;
+        });
+        setSyncStatus('connected');
+        setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       },
       (err: any) => {
         console.warn('Foil rolls sync note:', err?.message || err);
@@ -340,7 +287,7 @@ export default function App() {
         }
       },
       {
-        activeOnly: false,
+        activeOnly: true,
         onFromCache: (fromCache) => {
           setIsCached(fromCache);
         },
@@ -416,103 +363,28 @@ export default function App() {
       }
     );
 
-    // 5. Realtime listener for Chemical Stock (สต๊อกน้ำยา PU)
-    const unsubChemicalStock = subscribeToChemicalStock(
-      (remoteStock) => {
-        if (remoteStock) {
-          setChemicalStock(remoteStock);
-          saveStoredChemicalStock(remoteStock);
-        }
-      },
-      (err: any) => {
-        console.warn('Chemical stock sync note:', err?.message || err);
-      }
-    );
-
-    // 6. Realtime listener for Chemical Cuts (ประวัติตัดสต๊อกน้ำยา)
-    const unsubChemicalCuts = subscribeToChemicalCuts(
-      (remoteCuts) => {
-        setChemicalCutRecords(remoteCuts);
-        saveStoredChemicalCutRecords(remoteCuts);
-      },
-      (err: any) => {
-        console.warn('Chemical cuts sync note:', err?.message || err);
-      }
-    );
-
-    // 7. Realtime listener for Chemical Restock (ประวัติรับเข้าน้ำยา)
-    const unsubChemicalRestock = subscribeToChemicalRestock(
-      (remoteRestocks) => {
-        setChemicalRestockRecords(remoteRestocks);
-        saveStoredChemicalRestockRecords(remoteRestocks);
-      },
-      (err: any) => {
-        console.warn('Chemical restock sync note:', err?.message || err);
-      }
-    );
-
-    // 8. Realtime listener for Chemical Formulas (สูตรคำนวณน้ำยา)
-    const unsubChemicalFormulas = subscribeToChemicalFormulas(
-      (remoteFormulas) => {
-        if (remoteFormulas && remoteFormulas.length > 0) {
-          // ผ่านตัวทำความสะอาดเดียวกับ localStorage (รูปแบบ Density "Nk", นิ้ว 1/2 เท่านั้น)
-          const normalized = normalizeFormulaList(remoteFormulas);
-          // สูตรตั้งต้น 1.5 นิ้วเดิมที่ค้างบน Cloud → ลบทิ้ง ไม่ให้กลับมาอีก
-          remoteFormulas
-            .filter(f => f.id === 'formula-1.5inch' && !normalizeInchSize(f.inchSize))
-            .forEach(f => { deleteChemicalFormulaFromFirestore(f.id).catch(() => {}); });
-          setChemicalFormulas(normalized);
-          saveStoredFormulas(normalized);
-        }
-      },
-      (err: any) => {
-        console.warn('Chemical formulas sync note:', err?.message || err);
-      }
-    );
-
-    // ถ้า snapshot ไม่มาภายใน 15 วินาที (ค้างที่ "กำลังเชื่อมต่อ") → เปลี่ยนเป็น offline
-    // เพื่อให้ UI ไม่ค้าง และผู้ใช้รู้ว่ามีปัญหาเครือข่าย/สิทธิ์
-    const connectTimeout = window.setTimeout(() => {
-      setSyncStatus((prev) => (prev === 'syncing' ? 'offline' : prev));
-    }, 15000);
-
     return () => {
-      window.clearTimeout(connectTimeout);
       unsubRolls();
       unsubRecords();
       unsubSandwich();
-      unsubChemicalStock();
-      unsubChemicalCuts();
-      unsubChemicalRestock();
-      unsubChemicalFormulas();
     };
   }, []);
 
-  // เก็บข้อมูลล่าสุดไว้ใน ref — ให้ timer อ่านค่าล่าสุดได้โดยไม่ต้องรีเซ็ต interval
-  // ทุกครั้งที่ realtime อัปเดต (เดิม interval ถูกสร้างใหม่ทุกครั้งที่ rolls/records
-  // เปลี่ยน ทำให้ถ้าข้อมูลอัปเดตถี่กว่ารอบ backup สำรองอัตโนมัติจะไม่ทำงานเลย)
-  const latestDataRef = useRef({ rolls, records, puSandwichRecords, syncStatus });
-  latestDataRef.current = { rolls, records, puSandwichRecords, syncStatus };
-  const hasRolls = rolls.length > 0;
-  const d1UploadInFlightRef = useRef(false);
-
   // Automatic Background Backup (Local Snapshots & Cloud Sync)
   useEffect(() => {
-    if (!hasRolls) return;
+    if (rolls.length === 0) return;
 
     const runAutoBackup = () => {
       const config = getAutoBackupConfig();
       if (!config.enabled) return;
-      const { rolls: curRolls, records: curRecords, syncStatus: curSync } = latestDataRef.current;
-      if (curRolls.length === 0) return;
 
       if (config.saveLocalSnapshots) {
-        createBackupSnapshot(curRolls, curRecords, 'scheduled');
+        createBackupSnapshot(rolls, records, 'scheduled');
       }
 
       // Also sync to cloud if enabled and online
-      if (config.autoSyncCloud && curSync === 'connected') {
-        uploadAllToFirestore(curRolls, curRecords).catch((err) => {
+      if (config.autoSyncCloud && syncStatus === 'connected') {
+        uploadAllToFirestore(rolls, records).catch((err) => {
           console.warn('Background auto cloud backup notice:', err);
         });
       }
@@ -523,7 +395,7 @@ export default function App() {
     const intervalId = setInterval(runAutoBackup, intervalMs);
 
     return () => clearInterval(intervalId);
-  }, [hasRolls]);
+  }, [rolls, records, syncStatus]);
 
   // Cloudflare D1 scheduled backup — fixed times daily (12:30 / 17:30), using
   // the Worker URL + secret already saved in Settings > Backup. Independent
@@ -534,14 +406,11 @@ export default function App() {
   // in one upload) rather than waiting for the next scheduled time. The
   // person can also always press "สำรองขึ้น D1" in Settings on demand.
   useEffect(() => {
-    if (!hasRolls) return;
+    if (rolls.length === 0) return;
 
     const checkD1Schedule = () => {
-      if (d1UploadInFlightRef.current) return;
       const config = getAutoBackupConfig();
       if (!config.autoSyncD1) return;
-      const { rolls: curRolls, records: curRecords, puSandwichRecords: curSandwich } = latestDataRef.current;
-      if (curRolls.length === 0) return;
 
       const dueSlots = getAllDueD1ScheduleSlots();
       if (dueSlots.length === 0) return;
@@ -549,32 +418,26 @@ export default function App() {
       const d1Config = getD1BackupConfig();
       if (!d1Config.workerUrl || !d1Config.secret) return;
 
-      d1UploadInFlightRef.current = true;
+      dueSlots.forEach(markD1ScheduleSlotRun);
       uploadBackupToD1({
-        rolls: curRolls,
-        records: curRecords,
-        sandwichRecords: curSandwich,
+        rolls,
+        records,
+        sandwichRecords: puSandwichRecords,
         label: 'สำรองอัตโนมัติ (ตามเวลาที่ตั้งไว้)',
         reason: 'scheduled',
       })
         .then(() => {
-          // ทำเครื่องหมายว่า slot เสร็จ "หลังอัปโหลดสำเร็จ" เท่านั้น
-          // (เดิมทำเครื่องหมายก่อน ถ้าอัปโหลดล้มเหลว รอบนั้นจะถูกข้ามทั้งวัน)
-          dueSlots.forEach(markD1ScheduleSlotRun);
           saveAutoBackupConfig({ ...getAutoBackupConfig(), lastD1AutoBackupTime: new Date().toISOString() });
         })
         .catch((err) => {
           console.warn('Scheduled D1 backup notice:', err);
-        })
-        .finally(() => {
-          d1UploadInFlightRef.current = false;
         });
     };
 
     checkD1Schedule();
     const intervalId = setInterval(checkD1Schedule, 60 * 1000);
     return () => clearInterval(intervalId);
-  }, [hasRolls]);
+  }, [rolls, records, puSandwichRecords]);
 
   // Automatic daily stock-integrity check (runs by itself, up to 2x/day, the
   // first couple of times someone opens the app each day — see
@@ -891,77 +754,17 @@ export default function App() {
     // when another device is cutting the same roll at the same time.
     try {
       let finalRollsById = new Map<string, FoilRoll>();
-      let cloudSynced = false;
 
-      try {
-        if (rollIdsInvolved.length === 1) {
-          const fallbackRoll = rolls.find((r) => r.id === rollIdsInvolved[0]);
-          const finalRoll = await executeCutBatchInFirestore(createdRecords, rollIdsInvolved[0], fallbackRoll);
-          finalRollsById.set(finalRoll.id, finalRoll);
-          cloudSynced = true;
-        } else if (rollIdsInvolved.length > 1) {
-          const fallbackMap = new Map(rolls.map((r) => [r.id, r]));
-          const finalRolls = await executeMultiRollCutBatchInFirestore(createdRecords, fallbackMap);
-          finalRolls.forEach((r) => finalRollsById.set(r.id, r));
-          cloudSynced = true;
-        }
-      } catch (txErr: any) {
-        console.warn('Notice: Cloud transaction fallback to local deduction:', txErr?.message || txErr);
-        // คำนวณตัดสต๊อกในเครื่องทันที เพื่อไม่ให้การทำงานที่หน้างานสะดุด
-        const fallbackMap = new Map(rolls.map((r) => [r.id, r]));
-        rollIdsInvolved.forEach((rId) => {
-          const r = rolls.find((roll) => roll.id === rId) || fallbackMap.get(rId);
-          if (!r) return;
-          const rollRecords = createdRecords.filter((rec) => rec.foilId === rId);
-          const cutTotal = round2(rollRecords.reduce((s, rec) => s + (rec.totalDeducted || (rec.usedMeters + rec.ngMeters)), 0));
-          const usedTotal = round2(rollRecords.reduce((s, rec) => s + rec.usedMeters, 0));
-          const ngTotal = round2(rollRecords.reduce((s, rec) => s + rec.ngMeters, 0));
-          const rem = round2(Math.max(0, r.remainingMeters - cutTotal));
-
-          const localUpdated: FoilRoll = {
-            ...r,
-            remainingMeters: rem,
-            usedMeters: round2(r.usedMeters + usedTotal),
-            ngMeters: round2(r.ngMeters + ngTotal),
-            status: rem <= 0 ? ('depleted' as const) : ('active' as const),
-            isUnused: false,
-            recentCuts: [
-              ...rollRecords.map((rec) => ({
-                id: rec.id,
-                soNumber: rec.soNumber || '',
-                cutType: rec.cutType || 'so',
-                usedMeters: rec.usedMeters,
-                ngMeters: rec.ngMeters,
-                totalDeducted: rec.totalDeducted,
-                remainingAfter: rec.remainingAfter,
-                usageDate: rec.usageDate,
-                recordedDate: rec.recordedDate,
-                recordedBy: rec.recordedBy,
-                notes: rec.notes,
-              })),
-              ...(r.recentCuts || []),
-            ].slice(0, 50),
-          };
-          finalRollsById.set(rId, localUpdated);
-        });
-
-        // บันทึก local write IDs กัน snapshot จาก Firestore เขียนทับการตัดสต๊อก
-        markLocalWrite([...rollIdsInvolved, ...createdRecords.map((rec) => rec.id)]);
-
-        // ส่งบันทึกลง Firestore (ทั้งม้วนฟอยล์ และใบตัดสต๊อก) แบบ background
-        setTimeout(async () => {
-          try {
-            await Promise.all([
-              ...Array.from(finalRollsById.values()).map((r) => saveFoilRollToFirestore(r)),
-              ...createdRecords.map((rec) => saveStockCutRecordToFirestore(rec)),
-            ]);
-          } catch (bgErr) {
-            console.warn('Background save after cut fallback note:', bgErr);
-          }
-        }, 100);
+      if (rollIdsInvolved.length === 1) {
+        const finalRoll = await executeCutBatchInFirestore(createdRecords, rollIdsInvolved[0]);
+        finalRollsById.set(finalRoll.id, finalRoll);
+      } else if (rollIdsInvolved.length > 1) {
+        const finalRolls = await executeMultiRollCutBatchInFirestore(createdRecords);
+        finalRolls.forEach((r) => finalRollsById.set(r.id, r));
       }
 
-      // บันทึกสถานะทั้งใน state และ LocalStorage ทันที
+      // ✅ Transaction committed successfully — now sync local state to the
+      // server's authoritative roll data (not our own pre-cut calculation).
       const updatedRolls = rolls.map((r) => finalRollsById.get(r.id) || r);
       const updatedRecords = [...records, ...createdRecords];
 
@@ -969,25 +772,27 @@ export default function App() {
       updateRecordsState(updatedRecords);
       createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
 
-      if (cloudSynced) {
-        setSyncStatus('connected');
-        setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-        if (createdRecords.length === 1) {
-          showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
-        } else {
-          showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
-        }
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+
+      if (createdRecords.length === 1) {
+        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
       } else {
-        showToast(`ตัดสต๊อกสำเร็จเรียบร้อย! ${cutDesc} [บันทึกในเครื่อง + รอซิงค์ Cloud]`, 'info');
+        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
       }
     } catch (err: any) {
-      console.error('Error during stock cut:', err);
+      console.error('Firebase transaction error during stock cut:', err);
+      const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
+      setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
+
       setErrorAlert({
         isOpen: true,
         title: 'ตัดสต๊อกไม่สำเร็จ',
-        message: err?.message || 'บันทึกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
-        detail: 'ข้อมูลคงเหลือเดิมยังไม่ถูกเปลี่ยนแปลง กรุณาตรวจสอบข้อมูลแล้วลองใหม่',
+        message: err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ',
+        detail: 'ข้อมูลคงเหลือเดิมยังไม่ถูกเปลี่ยนแปลง กรุณารีเฟรชหน้าจอเพื่อดูยอดล่าสุดแล้วลองใหม่อีกครั้ง',
       });
+
+      // Reject so the modal knows the cut did not actually go through
       throw err;
     }
   };
@@ -1031,232 +836,6 @@ export default function App() {
       showToast('ลบรายการตัด SO แซนวิชเรียบร้อย');
     } catch (err: any) {
       console.warn('Notice: PU Sandwich deletion pending in cloud:', err?.message || err);
-    }
-  };
-
-  // PU Chemical Stock Handlers (ระบบตัดสต๊อกน้ำยา PU แยกจากฟอยล์)
-  const handleConfirmChemicalCut = async (cutRecord: ChemicalCutRecord, updatedStock: ChemicalStock) => {
-    // 1. ปรับยอดคงเหลือน้ำยาใน state & LocalStorage
-    setChemicalStock(updatedStock);
-    saveStoredChemicalStock(updatedStock);
-
-    // 2. เพิ่มใบตัดน้ำยาในประวัติ
-    const updatedCuts = [cutRecord, ...chemicalCutRecords];
-    setChemicalCutRecords(updatedCuts);
-    saveStoredChemicalCutRecords(updatedCuts);
-
-    showToast(`ตัดสต๊อกน้ำยา SO ${cutRecord.soNumber} สำเร็จ (-${cutRecord.totalChemicalKg} กก.) [A: -${cutRecord.partAKg} / B: -${cutRecord.partBKg}]`);
-
-    // 3. บันทึกและซิงค์ Realtime เข้า Firestore
-    try {
-      await Promise.all([
-        saveChemicalStockToFirestore(updatedStock),
-        saveChemicalCutToFirestore(cutRecord),
-      ]);
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Chemical cut cloud sync pending/offline:', err?.message || err);
-    }
-  };
-
-  const handleRevertChemicalCut = async (recordId: string) => {
-    const { updatedStock, remainingRecords, revertedRecord } = revertChemicalCut(
-      recordId,
-      chemicalCutRecords,
-      chemicalStock
-    );
-
-    if (!revertedRecord) return;
-
-    setChemicalStock(updatedStock);
-    saveStoredChemicalStock(updatedStock);
-
-    setChemicalCutRecords(remainingRecords);
-    saveStoredChemicalCutRecords(remainingRecords);
-
-    showToast(`ยกเลิกตัดสต๊อกน้ำยา SO ${revertedRecord.soNumber} และคืนยอด +${revertedRecord.totalChemicalKg} กก. เข้าคลังเรียบร้อย`);
-
-    try {
-      await Promise.all([
-        saveChemicalStockToFirestore(updatedStock),
-        deleteChemicalCutFromFirestore(recordId),
-      ]);
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Chemical cut revert cloud sync pending/offline:', err?.message || err);
-    }
-  };
-
-  const handleConfirmChemicalRestock = async (record: ChemicalRestockRecord, updatedStock: ChemicalStock) => {
-    setChemicalStock(updatedStock);
-    saveStoredChemicalStock(updatedStock);
-
-    const exists = chemicalRestockRecords.some(r => r.id === record.id);
-    const updatedRestocks = exists 
-      ? chemicalRestockRecords.map(r => r.id === record.id ? record : r)
-      : [record, ...chemicalRestockRecords];
-
-    setChemicalRestockRecords(updatedRestocks);
-    saveStoredChemicalRestockRecords(updatedRestocks);
-
-    try {
-      await Promise.all([
-        saveChemicalStockToFirestore(updatedStock),
-        saveChemicalRestockToFirestore(record),
-      ]);
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Chemical restock cloud sync pending/offline:', err?.message || err);
-    }
-  };
-
-  const handleDeleteChemicalRestock = async (recordId: string) => {
-    const { updatedStock, remainingRestocks, deletedRecord } = deleteRestockRecord(
-      recordId,
-      chemicalRestockRecords,
-      chemicalStock
-    );
-
-    if (!deletedRecord) return;
-
-    setChemicalStock(updatedStock);
-    saveStoredChemicalStock(updatedStock);
-
-    setChemicalRestockRecords(remainingRestocks);
-    saveStoredChemicalRestockRecords(remainingRestocks);
-
-    showToast(`ลบรายการรับเข้าน้ำยา "${deletedRecord.chemicalName}" (${deletedRecord.date}) และปรับลดยอดสต๊อกคงเหลือเรียบร้อย`);
-
-    try {
-      await Promise.all([
-        saveChemicalStockToFirestore(updatedStock),
-        deleteChemicalRestockFromFirestore(recordId),
-      ]);
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Chemical restock deletion cloud sync pending/offline:', err?.message || err);
-    }
-  };
-
-  const handleSaveDrum = async (
-    oldDrumNumber: string,
-    newDrumNumber: string,
-    oldChemicalName: string,
-    newChemicalName: string,
-    supplier?: string,
-    initialKg?: number,
-    receivedDate?: string
-  ) => {
-    const { updatedRestocks, updatedCuts, updatedStock } = updateDrumInRecords(
-      oldDrumNumber,
-      newDrumNumber,
-      oldChemicalName,
-      newChemicalName,
-      chemicalRestockRecords,
-      chemicalCutRecords,
-      { supplier, initialKg, receivedDate },
-      chemicalStock
-    );
-
-    // บันทึกเฉพาะรายการที่เปลี่ยนจริง (เดิมเขียนทับทุกรายการทุกครั้ง)
-    const oldRestockById = new Map(chemicalRestockRecords.map(r => [r.id, JSON.stringify(r)]));
-    const changedRestocks = updatedRestocks.filter(r => oldRestockById.get(r.id) !== JSON.stringify(r));
-    const oldCutById = new Map(chemicalCutRecords.map(c => [c.id, JSON.stringify(c)]));
-    const changedCuts = updatedCuts.filter(c => oldCutById.get(c.id) !== JSON.stringify(c));
-
-    setChemicalRestockRecords(updatedRestocks);
-    saveStoredChemicalRestockRecords(updatedRestocks);
-
-    setChemicalCutRecords(updatedCuts);
-    saveStoredChemicalCutRecords(updatedCuts);
-
-    if (updatedStock) {
-      setChemicalStock(updatedStock);
-      saveStoredChemicalStock(updatedStock);
-    }
-
-    try {
-      await Promise.all([
-        ...changedRestocks.map(r => saveChemicalRestockToFirestore(r)),
-        ...changedCuts.map(c => saveChemicalCutToFirestore(c)),
-        ...(updatedStock ? [saveChemicalStockToFirestore(updatedStock)] : []),
-      ]);
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Drum update cloud sync pending/offline:', err?.message || err);
-    }
-  };
-
-  const handleDeleteDrum = async (drumNumber: string, chemicalName: string) => {
-    const { updatedRestocks, changedRecordIds, removedRecordIds, updatedStock } = deleteDrumWithStock(
-      drumNumber,
-      chemicalName,
-      chemicalRestockRecords,
-      chemicalCutRecords,
-      chemicalStock
-    );
-    setChemicalRestockRecords(updatedRestocks);
-    saveStoredChemicalRestockRecords(updatedRestocks);
-    // หักยอดคงเหลือของถังที่ลบออกจากสต๊อกรวม
-    setChemicalStock(updatedStock);
-    saveStoredChemicalStock(updatedStock);
-
-    try {
-      await Promise.all([
-        saveChemicalStockToFirestore(updatedStock),
-        ...updatedRestocks.filter(r => changedRecordIds.includes(r.id)).map(r => saveChemicalRestockToFirestore(r)),
-        ...removedRecordIds.map(id => deleteChemicalRestockFromFirestore(id)),
-      ]);
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Drum deletion cloud sync pending/offline:', err?.message || err);
-    }
-  };
-
-  const handleUpdateFolderDensities = async (chemicalName: string, densities: string[]) => {
-    const updatedRestocks = updateFolderDensitiesInRecords(chemicalName, densities, chemicalRestockRecords);
-    setChemicalRestockRecords(updatedRestocks);
-    saveStoredChemicalRestockRecords(updatedRestocks);
-    showToast(`กำหนดค่า K สำหรับน้ำยา "${chemicalName}" เรียบร้อย (${densities.join(', ')})`);
-
-    try {
-      await Promise.all(
-        updatedRestocks
-          .filter(r => r.chemicalName === chemicalName)
-          .map(r => saveChemicalRestockToFirestore(r))
-      );
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Folder densities sync pending/offline:', err?.message || err);
-    }
-  };
-
-  const handleSaveChemicalFormulas = async (newFormulas: ChemicalFormula[]) => {
-    // สูตรที่ถูกลบออกจากรายการต้องลบบน Cloud ด้วย (เดิมไม่ลบ ทำให้สูตรที่ลบแล้วกลับมาเองหลังซิงค์)
-    const keepIds = new Set(newFormulas.map(f => f.id));
-    const removedFormulas = chemicalFormulas.filter(f => !keepIds.has(f.id));
-
-    setChemicalFormulas(newFormulas);
-    saveStoredFormulas(newFormulas);
-
-    showToast(`บันทึกสูตรคำนวณน้ำยาเรียบร้อย (${newFormulas.length} สูตร)`);
-
-    try {
-      await Promise.all([
-        ...newFormulas.map(f => saveChemicalFormulaToFirestore(f)),
-        ...removedFormulas.map(f => deleteChemicalFormulaFromFirestore(f.id)),
-      ]);
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-    } catch (err: any) {
-      console.warn('Notice: Chemical formulas cloud sync pending/offline:', err?.message || err);
     }
   };
 
@@ -1692,7 +1271,6 @@ export default function App() {
         }}
         onOpenPuSandwichModal={() => requireEditorPermission(() => setIsPuSandwichModalOpen(true))}
         puSandwichCount={puSandwichRecords.length}
-        chemicalCutsCount={chemicalCutRecords.length}
         totalRemainingMeters={totalRemainingMeters}
         activeRollsCount={activeRollsCount}
         onResetData={() => requireEditorPermission(handleResetData)}
@@ -1826,47 +1404,6 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'chemical' && (
-          <ChemicalStockView
-            stock={chemicalStock}
-            cutRecords={chemicalCutRecords}
-            restockRecords={chemicalRestockRecords}
-            formulas={chemicalFormulas}
-            foilRecords={records}
-            puRecords={puSandwichRecords}
-            onOpenDeductModal={() => requireEditorPermission(() => setIsChemicalDeductOpen(true))}
-            onOpenRestockModal={() => requireEditorPermission(() => {
-              setEditingRestockRecord(null);
-              setIsChemicalRestockOpen(true);
-            })}
-            onOpenFormulaModal={() => requireEditorPermission(() => setIsChemicalFormulaOpen(true))}
-            onRevertCut={(recordId) => requireEditorPermission(() => handleRevertChemicalCut(recordId))}
-            onEditRestock={(record) => requireEditorPermission(() => {
-              setEditingRestockRecord(record);
-              setIsChemicalRestockOpen(true);
-            })}
-            onDeleteRestock={(recordId) => requireEditorPermission(() => handleDeleteChemicalRestock(recordId))}
-            onSaveDrum={(oldNum, newNum, oldChem, newChem, supp, initKg, recDate) => {
-              requireEditorPermission(() => {
-                handleSaveDrum(oldNum, newNum, oldChem, newChem, supp, initKg, recDate);
-              });
-            }}
-            onDeleteDrum={(drumNum, chemName) => {
-              requireEditorPermission(() => {
-                handleDeleteDrum(drumNum, chemName);
-              });
-            }}
-            onUpdateFolderDensities={(chemName, densities) => {
-              requireEditorPermission(() => {
-                handleUpdateFolderDensities(chemName, densities);
-              });
-            }}
-            showToast={showToast}
-            userMode={userMode}
-            onRequestUnlock={() => requireEditorPermission(() => {})}
-          />
-        )}
-
         {activeTab === 'flow' && (
           <DailyProductionFlow
             records={records}
@@ -1918,8 +1455,6 @@ export default function App() {
             onOpenSOAudit={() => handleOpenSOAudit()}
             onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
             onOpenCycleCountHistory={() => setIsCycleCountHistoryOpen(true)}
-            isSaving={isSavingToCloud}
-            isFetching={isFetchingFromCloud}
           />
         )}
       </main>
@@ -1956,62 +1491,6 @@ export default function App() {
         records={puSandwichRecords}
         onSaveCut={handleSavePuSandwichCut}
         onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
-      />
-
-      {/* PU Chemical Stock Deduction Modal (ตัดสต๊อกน้ำยา PU ผูกสูตร & SO) */}
-      <ChemicalDeductModal
-        isOpen={isChemicalDeductOpen}
-        onClose={() => setIsChemicalDeductOpen(false)}
-        currentStock={chemicalStock}
-        formulas={chemicalFormulas}
-        foilRecords={records}
-        puRecords={puSandwichRecords}
-        chemicalCutRecords={chemicalCutRecords}
-        restockRecords={chemicalRestockRecords}
-        onConfirmCut={(cutRecord, updatedStock) => {
-          requireEditorPermission(() => {
-            handleConfirmChemicalCut(cutRecord, updatedStock);
-            setIsChemicalDeductOpen(false);
-          });
-        }}
-        onOpenManageFormulas={() => {
-          setIsChemicalDeductOpen(false);
-          setIsChemicalFormulaOpen(true);
-        }}
-        showToast={showToast}
-      />
-
-      {/* PU Chemical Restock Modal (รับเข้าน้ำยาเข้าสต๊อก) */}
-      <ChemicalRestockModal
-        isOpen={isChemicalRestockOpen}
-        onClose={() => {
-          setIsChemicalRestockOpen(false);
-          setEditingRestockRecord(null);
-        }}
-        currentStock={chemicalStock}
-        existingRestockRecords={chemicalRestockRecords}
-        editingRecord={editingRestockRecord}
-        onConfirmRestock={(restockRecord, updatedStock) => {
-          requireEditorPermission(() => {
-            handleConfirmChemicalRestock(restockRecord, updatedStock);
-            setIsChemicalRestockOpen(false);
-            setEditingRestockRecord(null);
-          });
-        }}
-        showToast={showToast}
-      />
-
-      {/* PU Chemical Formulas Manager Modal (จัดการและผูกสูตรคำนวณ) */}
-      <ChemicalFormulaModal
-        isOpen={isChemicalFormulaOpen}
-        onClose={() => setIsChemicalFormulaOpen(false)}
-        formulas={chemicalFormulas}
-        onSaveFormulas={(newFormulas) => {
-          requireEditorPermission(() => {
-            handleSaveChemicalFormulas(newFormulas);
-          });
-        }}
-        showToast={showToast}
       />
 
       <CutStockModal
@@ -2074,7 +1553,6 @@ export default function App() {
         isOpen={isBatchImportOpen}
         onClose={() => setIsBatchImportOpen(false)}
         rolls={rolls}
-        existingRecords={records}
         onConfirmBatchCut={handleConfirmCutBatch}
       />
 

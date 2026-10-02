@@ -41,13 +41,13 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060d1a]/70 backdrop-blur-xs animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
       <div 
         id="modal-password-prompt"
         className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between">
+        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
               <Lock className="w-5 h-5" />
@@ -56,7 +56,7 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
               <h3 className="text-base font-bold text-white leading-tight">
                 ยืนยันรหัสผ่านโหมดคีย์ข้อมูล
               </h3>
-              <p className="text-xs text-blue-200/80">
+              <p className="text-xs text-slate-400">
                 {actionTitle}
               </p>
             </div>
@@ -64,7 +64,7 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
           <button
             type="button"
             onClick={handleClose}
-            className="text-blue-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>

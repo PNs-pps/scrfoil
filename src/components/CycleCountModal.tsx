@@ -339,7 +339,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] flex flex-col overflow-hidden border border-slate-200">
         {/* Header — โทนเดียวกับแอป */}
-        <div className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
               <ClipboardList className="w-5 h-5 text-amber-400" />
@@ -348,7 +348,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
               <h2 className="text-sm sm:text-base font-bold leading-tight truncate">
                 ตรวจนับสต๊อกประจำเดือน (Cycle Count)
               </h2>
-              <p className="text-[11px] text-blue-200/80 truncate">
+              <p className="text-[11px] text-slate-400 truncate">
                 เปรียบเทียบยอดระบบ vs ของจริง · บันทึก Variance และเหตุผล
               </p>
             </div>
@@ -357,7 +357,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="text-blue-300 hover:text-white p-2 rounded-xl hover:bg-white/10 disabled:opacity-40 cursor-pointer shrink-0"
+            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-white/10 disabled:opacity-40 cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -528,7 +528,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/40 text-white text-xs font-bold cursor-pointer transition-colors"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   ล้างค้นหา
@@ -546,7 +546,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
                     onClick={() =>
                       setCollapsedWidth((prev) => ({ ...prev, [width]: widthOpen }))
                     }
-                    className="w-full flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-[#0b1b36] to-[#122548] border-b border-blue-900/40 text-white text-left cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-slate-900 text-white text-left cursor-pointer"
                   >
                     {widthOpen ? (
                       <ChevronDown className="w-4 h-4 text-amber-400" />

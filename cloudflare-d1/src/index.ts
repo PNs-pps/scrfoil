@@ -63,13 +63,7 @@ function checkSecret(request: Request, env: Env): boolean {
   const secret = env.BACKUP_SECRET || '';
   if (!secret) return false;
   const header = request.headers.get('X-Backup-Secret') || '';
-  // เทียบแบบ constant-time เพื่อลดความเสี่ยง timing attack
-  if (header.length !== secret.length) return false;
-  let diff = 0;
-  for (let i = 0; i < secret.length; i++) {
-    diff |= header.charCodeAt(i) ^ secret.charCodeAt(i);
-  }
-  return diff === 0;
+  return header === secret;
 }
 
 export default {

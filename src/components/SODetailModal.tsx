@@ -92,7 +92,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#060d1a]/70 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
@@ -100,7 +100,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header: ปุ้มย้อนกลับเหลือไว้แค่ซ้ายบนของหน้าต่าง */}
-        <div className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between gap-2.5">
+        <div className="px-4 sm:px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-2.5">
           <div className="flex items-center gap-2 min-w-0">
             {/* ปุ้มย้อนกลับซ้ายบน */}
             {currentView === 'roll' ? (
@@ -117,7 +117,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-blue-100 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
                 title="ย้อนกลับ / ปิดหน้าต่าง"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
@@ -132,7 +132,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                   <span>รายละเอียดม้วนฟอยล์ที่ใช้</span>
                 )}
               </h2>
-              <p className="text-[11px] text-blue-200/80 truncate">
+              <p className="text-[11px] text-slate-400 truncate">
                 {currentView === 'so'
                   ? `วันที่: ${record.usageDate || '-'} • บันทึก: ${record.recordedDate || '-'}`
                   : `ล็อต ${record.lotNumber} เบอร์ #${record.rollNumber}`}
@@ -146,7 +146,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 type="button"
                 onClick={handleCopyLine}
                 title="คัดลอกเพื่อส่ง LINE"
-                className="p-1.5 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
               </button>
@@ -154,7 +154,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-blue-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="ปิด"
             >
               <X className="w-5 h-5" />

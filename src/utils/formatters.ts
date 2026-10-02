@@ -31,23 +31,3 @@ export const compareLotAndRoll = (
   return aRoll.localeCompare(bRoll, undefined, { numeric: true, sensitivity: 'base' });
 };
 
-
-/**
- * วันที่ตามเวลาท้องถิ่นของเครื่อง (YYYY-MM-DD)
- * ห้ามใช้ new Date().toISOString().slice(0, 10) เพราะเป็นเวลา UTC —
- * ในไทย (UTC+7) ช่วง 00:00–06:59 จะได้ "เมื่อวาน"
- */
-export const toLocalYMD = (d: Date = new Date()): string => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-};
-
-export const todayLocalYMD = (): string => toLocalYMD(new Date());
-
-/** escape ค่าสำหรับ CSV (ครอบด้วย "" และ escape เครื่องหมาย " ภายใน) */
-export const csvCell = (val: unknown): string => {
-  const str = val === undefined || val === null ? '' : String(val);
-  return `"${str.replace(/"/g, '""')}"`;
-};

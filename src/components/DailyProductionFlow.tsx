@@ -1,4 +1,3 @@
-import { todayLocalYMD } from '../utils/formatters';
 import React, { useState, useMemo, useRef } from 'react';
 import { 
   StockCutRecord, 
@@ -56,7 +55,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   puRecords = [],
   showToast,
 }) => {
-  const todayStr = todayLocalYMD();
+  const todayStr = new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterLine, setFilterLine] = useState<'all' | 'foil' | 'sandwich'>('all');
   const [copiedDaily, setCopiedDaily] = useState<boolean>(false);
@@ -345,8 +344,8 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
           <button
             type="button"
             onClick={handleCopyDailySummary}
-            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer shrink-0 transition-colors ${
-              copiedDaily ? 'bg-emerald-600 text-white' : 'bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/60 text-white shadow-2xs'
+            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer shrink-0 ${
+              copiedDaily ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'
             }`}
           >
             {copiedDaily ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
@@ -400,7 +399,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
                     >
                       <span className="leading-none">{c.day}</span>
                       {c.hasProd && (
-                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full ${c.iso === selectedDate ? 'bg-[#0B1B36]' : 'bg-emerald-500'}`} />
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full ${c.iso === selectedDate ? 'bg-slate-900' : 'bg-emerald-500'}`} />
                       )}
                     </button>
                   )
@@ -424,7 +423,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               onClick={() => setFilterLine('all')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 filterLine === 'all'
-                  ? 'bg-[#0b1b36] border border-blue-900/60 text-white shadow-xs'
+                  ? 'bg-slate-900 text-white shadow-xs'
                   : 'bg-white/80 hover:bg-white text-slate-700 border border-amber-200'
               }`}
             >
@@ -470,9 +469,9 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
 
         {/* ศูนย์กลาง */}
         <div className="flex flex-col items-center gap-3">
-          <div className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border border-blue-900/40 text-amber-300 text-sm font-bold shadow-md text-center">
+          <div className="px-4 py-2.5 rounded-2xl bg-slate-900 text-amber-300 text-sm font-bold shadow-md text-center">
             ผลิตวันนี้
-            <div className="text-[11px] font-mono text-blue-200/80 font-normal mt-0.5">
+            <div className="text-[11px] font-mono text-slate-300 font-normal mt-0.5">
               {distinctDailySo.length} SO · ฟอยล์ {stats.totalUsed.toLocaleString()} ม. · แซนวิช{' '}
               {puStats.totalKg.toLocaleString()} กก.
             </div>
@@ -485,7 +484,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
           <div className="w-full grid grid-cols-2 gap-2.5 sm:gap-3">
             <div className="relative p-3 rounded-2xl bg-gradient-to-br from-slate-50 to-amber-50 border border-amber-200 space-y-1">
               <div className="flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-full bg-[#0b1b36] border border-blue-900/50 text-amber-400 font-mono font-bold text-[10px] flex items-center justify-center">
+                <span className="w-5 h-5 rounded-full bg-slate-900 text-amber-400 font-mono font-bold text-[10px] flex items-center justify-center">
                   1
                 </span>
                 <span className="text-[10px] font-mono text-slate-500">Intake</span>

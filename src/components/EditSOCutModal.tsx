@@ -13,8 +13,7 @@ import {
   Clock,
   RotateCcw
 } from 'lucide-react';
-import { formatMeters, todayLocalYMD } from '../utils/formatters';
-import { signedTotalDeducted } from '../utils/cutDeduction';
+import { formatMeters } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 
 interface EditSOCutModalProps {
@@ -67,7 +66,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
 
   const oldUsed = Math.abs(Number(record.usedMeters || 0));
   const oldNg = Math.abs(Number(record.ngMeters || 0));
-  const oldTotal = signedTotalDeducted(record);
+  const oldTotal = Math.abs(Number(record.totalDeducted ?? (oldUsed + oldNg)));
 
   const numUsed = Math.abs(parseFloat(usedMeters) || 0);
   const numNg = Math.abs(parseFloat(ngMeters) || 0);
@@ -119,7 +118,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
       usedMeters: numUsed,
       ngMeters: numNg,
       totalDeducted: newTotal,
-      usageDate: usageDate || record.usageDate || todayLocalYMD(),
+      usageDate: usageDate || record.usageDate || new Date().toISOString().slice(0, 10),
       recordedBy: recordedBy.trim() || record.recordedBy || 'ช่างคุมเครื่อง',
       notes: notes.trim(),
       isSilverSide,
@@ -352,18 +351,18 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
           </div>
 
           {/* Delta and Impact Preview Card */}
-          <div className="p-3.5 bg-[#0B1B36] border border-blue-900/50 text-white rounded-xl space-y-2">
-            <div className="flex items-center justify-between text-xs border-b border-blue-900/60 pb-2">
-              <span className="text-blue-200/70">เปรียบเทียบยอดตัด:</span>
+          <div className="p-3.5 bg-slate-900 text-white rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs border-b border-slate-700 pb-2">
+              <span className="text-slate-400">เปรียบเทียบยอดตัด:</span>
               <div className="font-mono">
-                <span className="text-blue-200/70">เดิมตัด {formatMeters(oldTotal)} ม.</span>
+                <span className="text-slate-400">เดิมตัด {formatMeters(oldTotal)} ม.</span>
                 <span className="text-amber-400 mx-2">&rarr;</span>
                 <span className="text-white font-bold">แก้ไขเป็น {formatMeters(newTotal)} ม.</span>
               </div>
             </div>
 
             <div className="flex items-center justify-between text-xs">
-              <span className="text-blue-200/80">ผลกระทบต่อสต๊อกม้วนฟอยล์:</span>
+              <span className="text-slate-300">ผลกระทบต่อสต๊อกม้วนฟอยล์:</span>
               <span className={`font-mono font-bold ${
                 delta > 0 ? 'text-rose-400' : delta < 0 ? 'text-emerald-400' : 'text-slate-300'
               }`}>
@@ -372,7 +371,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
             </div>
 
             {roll && (
-              <div className="flex items-center justify-between text-xs pt-1 border-t border-blue-900/60">
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800">
                 <span className="text-slate-400">คงเหลือในม้วนคาดการณ์:</span>
                 <span className="font-mono font-bold text-amber-300 text-sm">
                   {formatMeters(predictedRollRemaining)} ม.

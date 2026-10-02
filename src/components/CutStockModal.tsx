@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
-import { formatMeters, round2, todayLocalYMD } from '../utils/formatters';
+import { formatMeters, round2 } from '../utils/formatters';
 import { 
   X, 
   Scissors, 
@@ -63,7 +63,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   onConfirmCut,
   onConfirmCutBatch,
 }) => {
-  const today = todayLocalYMD();
+  const today = new Date().toISOString().slice(0, 10);
   const defaultSoPrefix = `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`;
 
   const [selectedFoilId, setSelectedFoilId] = useState<string>('');
@@ -124,9 +124,15 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         }
       } else {
         const firstActive = availableRolls.find(r => r.remainingMeters > 0);
-        setSelectedFoilId(firstActive ? firstActive.id : (availableRolls[0]?.id || ''));
-        setFilterWidth('all');
-        setFilterPattern('all');
+        if (firstActive) {
+          setSelectedFoilId(firstActive.id);
+          setFilterWidth(String(firstActive.width));
+          setFilterPattern(normalizePattern(firstActive.pattern));
+        } else if (availableRolls.length > 0) {
+          setSelectedFoilId(availableRolls[0].id);
+          setFilterWidth(String(availableRolls[0].width));
+          setFilterPattern(normalizePattern(availableRolls[0].pattern));
+        }
       }
 
       if (!recordedBy && recentOperators.length > 0) {
@@ -199,6 +205,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const handleSelectRoll = (rollId: string) => {
     setSelectedFoilId(rollId);
+    const r = availableRolls.find(roll => roll.id === rollId);
+    if (r) {
+      setFilterWidth(String(r.width));
+      setFilterPattern(normalizePattern(r.pattern));
+    }
   };
 
   // Handlers for step-by-step selection
@@ -435,7 +446,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#060d1a]/70 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
       <div 
         id="modal-cut-stock"
         className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150"
@@ -941,24 +952,24 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           </div>
 
           {/* 3. กล่องสรุปยอดคงเหลือสุทธิ + ปุ่มบันทึกด้านล่าง */}
-          <div className="p-4 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border border-blue-900/40 text-white rounded-xl space-y-3">
+          <div className="p-4 bg-slate-900 text-white rounded-xl space-y-3">
             <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="p-2 bg-[#08152b] border border-blue-900/30 rounded-lg">
-                <span className="text-blue-200/70 block text-[11px]">ยอดคงเหลือเดิม</span>
+              <div className="p-2 bg-slate-800 rounded-lg">
+                <span className="text-slate-400 block text-[11px]">ยอดคงเหลือเดิม</span>
                 <span className="font-mono font-bold text-white text-sm">
                   {formatMeters(remainingBefore)} <span className="text-[10px] font-normal text-slate-400">ม.</span>
                 </span>
               </div>
 
-              <div className="p-2 bg-[#08152b] border border-blue-900/30 rounded-lg">
-                <span className="text-blue-200/70 block text-[11px]">รวมตัดออก (ใช้+NG)</span>
+              <div className="p-2 bg-slate-800 rounded-lg">
+                <span className="text-slate-400 block text-[11px]">รวมตัดออก (ใช้+NG)</span>
                 <span className="font-mono font-bold text-amber-400 text-sm">
                   -{formatMeters(totalDeductedAll)} <span className="text-[10px] font-normal text-slate-400">ม.</span>
                 </span>
               </div>
 
-              <div className={`p-2 rounded-lg ${isOverCut ? 'bg-rose-950 border border-rose-600' : 'bg-[#08152b] border border-blue-900/30'}`}>
-                <span className="text-blue-200/70 block text-[11px]">คงเหลือสุทธิ</span>
+              <div className={`p-2 rounded-lg ${isOverCut ? 'bg-rose-950 border border-rose-600' : 'bg-slate-800'}`}>
+                <span className="text-slate-400 block text-[11px]">คงเหลือสุทธิ</span>
                 <span className={`font-mono font-bold text-sm ${isOverCut ? 'text-rose-400' : 'text-emerald-400'}`}>
                   {formatMeters(remainingAfter)} <span className="text-[10px] font-normal text-slate-400">ม.</span>
                 </span>

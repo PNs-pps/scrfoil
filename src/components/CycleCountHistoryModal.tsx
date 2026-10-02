@@ -216,7 +216,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[94vh] flex flex-col overflow-hidden border border-slate-200">
         {/* Header */}
-        <div className="px-4 sm:px-5 py-3.5 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-violet-500/20 border border-violet-400/40 flex items-center justify-center shrink-0">
               <History className="w-5 h-5 text-violet-300" />
@@ -225,7 +225,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
               <h2 className="text-sm sm:text-base font-bold leading-tight truncate">
                 ประวัติตรวจนับสต๊อก (Cycle Count)
               </h2>
-              <p className="text-[11px] text-blue-200/80 truncate">
+              <p className="text-[11px] text-slate-400 truncate">
                 ดูย้อนหลังรายเดือน · เปรียบเทียบงวดเพื่อจับข้อมูลผิดพลาด
               </p>
             </div>
@@ -235,7 +235,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
               type="button"
               onClick={load}
               disabled={loading}
-              className="p-2 rounded-xl text-blue-200 hover:text-white hover:bg-white/10 cursor-pointer disabled:opacity-40"
+              className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer disabled:opacity-40"
               title="รีเฟรช"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -243,7 +243,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-xl text-blue-200 hover:text-white hover:bg-white/10 cursor-pointer"
+              className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -260,7 +260,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
             }}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
               viewMode === 'list'
-                ? 'bg-[#0b1b36] text-amber-400 border-blue-900 shadow-2xs'
+                ? 'bg-slate-900 text-amber-400 border-slate-900'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
             }`}
           >

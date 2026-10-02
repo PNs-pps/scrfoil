@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
-import { round2, formatMeters, todayLocalYMD } from '../utils/formatters';
+import { round2, formatMeters } from '../utils/formatters';
 import { X, Edit2, Save, Layers, Calendar, Hash, FileText, CheckCircle2 } from 'lucide-react';
 
 interface EditFoilModalProps {
@@ -65,7 +65,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
 
       setTotalMeters(roll.totalMeters);
       setRemainingMeters(roll.remainingMeters);
-      setDateReceived(roll.dateReceived || todayLocalYMD());
+      setDateReceived(roll.dateReceived || new Date().toISOString().slice(0, 10));
       setNotes(roll.notes || '');
       setIsZeroedOut(Boolean(roll.isZeroedOut));
       setError(null);
@@ -136,13 +136,13 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
   if (!isOpen || !roll) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#060d1a]/75 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs animate-in fade-in duration-150">
       <div
         id="modal-edit-foil"
         className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between">
+        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center font-bold shadow-xs">
               <Edit2 className="w-5 h-5" />
@@ -152,7 +152,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
                 <span className="text-[11px] px-2 py-0.5 rounded bg-blue-400 text-slate-950 font-bold font-mono">
                   EDIT FOIL ROLL
                 </span>
-                <span className="text-xs text-blue-200/80 font-mono">
+                <span className="text-xs text-slate-300 font-mono">
                   {roll.lotNumber} #{roll.rollNumber}
                 </span>
               </div>
@@ -163,7 +163,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-blue-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>

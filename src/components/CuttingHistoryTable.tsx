@@ -25,7 +25,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { exportCutRecordsToCSV } from '../utils/storage';
-import { formatMeters, compareLotAndRoll, toLocalYMD } from '../utils/formatters';
+import { formatMeters, compareLotAndRoll } from '../utils/formatters';
 import { UserMode } from '../utils/auth';
 import { groupCutsByDate, exportCutsDateCSV } from '../utils/dateGrouping';
 import { getPatternStyle } from '../utils/patternStyles';
@@ -118,7 +118,7 @@ const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 shadow-2xs select-none">
       {/* Background slide actions revealed upon sliding left (2 actions: รายละเอียด + ลบ) */}
-      <div className="absolute inset-y-0 right-0 w-[144px] flex items-stretch bg-[#0b1b36] text-white z-0">
+      <div className="absolute inset-y-0 right-0 w-[144px] flex items-stretch bg-slate-900 text-white z-0">
         {/* 1. รายละเอียด (Pop-up) */}
         <button
           type="button"
@@ -409,7 +409,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   // Date range preset handler
   const handleDatePreset = (preset: 'today' | '7days' | '30days' | 'this_month' | 'clear') => {
     const today = new Date();
-    const toYMD = (d: Date) => toLocalYMD(d);
+    const toYMD = (d: Date) => d.toISOString().split('T')[0];
 
     if (preset === 'clear') {
       setStartDate('');
