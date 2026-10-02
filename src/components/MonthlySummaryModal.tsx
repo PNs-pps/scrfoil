@@ -87,7 +87,20 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
     const prefix = `${selectedYear}-${selectedMonth}`;
     return records.filter((r) => {
       const d = r.usageDate || r.recordedDate;
-      return d && d.startsWith(prefix);
+      if (!d || !d.startsWith(prefix)) return false;
+      // ไม่นับใบปรับยอดจากนับสต๊อกในสถิติการใช้รายเดือน
+      const so = String(r.soNumber || '').trim();
+      if (so.startsWith('นับสต๊อก') || String(r.id || '').startsWith('cc_')) return false;
+      const td = Number(r.totalDeducted);
+      if (
+        Number.isFinite(td) &&
+        td < 0 &&
+        Math.abs(Number(r.usedMeters || 0)) < 0.001 &&
+        Math.abs(Number(r.ngMeters || 0)) < 0.001
+      ) {
+        return false;
+      }
+      return true;
     });
   }, [records, selectedYear, selectedMonth]);
 

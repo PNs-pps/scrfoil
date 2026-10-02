@@ -98,6 +98,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     id: `order-item-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
     cutType: mode,
     soNumber: mode === 'so' ? defaultSoPrefix : '',
+    productionRound: '',
+    roundNumber: undefined,
     isSilverSide: false,
     isWhiteSide: false,
     nonSoReasonType: 'สาขายืม',
@@ -367,6 +369,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       const remAfterThis = Math.max(0, round2(remBeforeThis - calc.total));
       currentBalance = remAfterThis;
 
+      const roundText = (ord.productionRound || '').trim();
+      let parsedRound: number | undefined;
+      const roundMatch = roundText.match(/\d+/);
+      if (roundMatch) parsedRound = parseInt(roundMatch[0], 10);
+
       batchRecords.push({
         foilId: currentRoll.id,
         lotNumber: currentRoll.lotNumber,
@@ -378,6 +385,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         soNumber: calc.identifier,
         cutType: ord.cutType,
         nonSoReason: ord.cutType === 'non_so' ? (ord.notes.trim() || calc.identifier) : '',
+        productionRound: ord.cutType === 'so' && roundText ? roundText : undefined,
+        roundNumber: ord.cutType === 'so' ? parsedRound : undefined,
         usedMeters: Math.abs(calc.numUsed),
         ngMeters: Math.abs(calc.numNg),
         totalDeducted: Math.abs(calc.total),
@@ -731,6 +740,40 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           placeholder={`เช่น ${defaultSoPrefix}500`}
                           className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal"
                         />
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-semibold text-slate-500 mr-0.5">รอบผลิต:</span>
+                          {['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4'].map((r) => (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() =>
+                                handleUpdateOrder(order.id, {
+                                  productionRound: order.productionRound === r ? '' : r,
+                                })
+                              }
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                order.productionRound === r
+                                  ? 'bg-amber-500 text-slate-950 border-amber-600'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
+                              }`}
+                            >
+                              {r}
+                            </button>
+                          ))}
+                          <input
+                            type="text"
+                            value={
+                              ['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4'].includes(order.productionRound || '')
+                                ? ''
+                                : order.productionRound || ''
+                            }
+                            onChange={(e) =>
+                              handleUpdateOrder(order.id, { productionRound: e.target.value })
+                            }
+                            placeholder="อื่นๆ"
+                            className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded-md font-mono"
+                          />
+                        </div>
                       </div>
 
                       {/* Checkboxes: ตัวเลือกใช้เป็นท้องเงิน หรือ ท้องขาว */}

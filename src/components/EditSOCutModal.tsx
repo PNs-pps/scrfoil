@@ -64,9 +64,20 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
 
   if (!isOpen || !record) return null;
 
+  const signedTotal = Number(record.totalDeducted);
+  const isCycleCountAdj =
+    String(record.id || '').startsWith('cc_') ||
+    String(record.soNumber || '').trim().startsWith('นับสต๊อก') ||
+    (Number.isFinite(signedTotal) &&
+      signedTotal < 0 &&
+      Math.abs(Number(record.usedMeters || 0)) < 0.001 &&
+      Math.abs(Number(record.ngMeters || 0)) < 0.001);
+
   const oldUsed = Math.abs(Number(record.usedMeters || 0));
   const oldNg = Math.abs(Number(record.ngMeters || 0));
-  const oldTotal = Math.abs(Number(record.totalDeducted ?? (oldUsed + oldNg)));
+  const oldTotal = Math.abs(
+    Number.isFinite(signedTotal) ? signedTotal : oldUsed + oldNg
+  );
 
   const numUsed = Math.abs(parseFloat(usedMeters) || 0);
   const numNg = Math.abs(parseFloat(ngMeters) || 0);
@@ -81,9 +92,42 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
 
   const QUICK_ROUNDS = ['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4', 'รอบพิเศษ'];
 
+  if (isCycleCountAdj) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full border border-amber-200 p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-amber-700" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900">ไม่สามารถแก้ไขใบนี้ได้</h3>
+              <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+                รายการนี้เป็นใบปรับยอดจาก<strong>นับสต๊อก</strong> หากต้องการแก้
+                กรุณาลบประวัตินับสต๊อกแล้วสร้างใหม่จากเมนู Cycle Count
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl cursor-pointer"
+          >
+            ปิด
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (isCycleCountAdj) {
+      setError('ไม่สามารถแก้ไขใบปรับยอดจากนับสต๊อกได้');
+      return;
+    }
 
     const trimmedSo = soNumber.trim();
     if (cutType === 'so' && !trimmedSo) {

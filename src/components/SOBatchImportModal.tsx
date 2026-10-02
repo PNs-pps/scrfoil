@@ -14,6 +14,7 @@ import {
   Scissors
 } from 'lucide-react';
 import { formatMeters, round2 } from '../utils/formatters';
+import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
 
 interface ParsedCutRow {
   index: number;
@@ -252,10 +253,12 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
     try {
       await onConfirmBatchCut(cutsToExecute);
+      playSuccessFeedback();
       setIsProcessing(false);
       onClose();
     } catch (err: any) {
       console.error('Batch SO cut failed:', err);
+      playErrorFeedback();
       setImportError(err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ');
       setIsProcessing(false);
     }
