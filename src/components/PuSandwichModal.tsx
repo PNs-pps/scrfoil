@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { todayLocalISO } from '../utils/formatters';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator, exportPuSandwichRecordsToCSV } from '../utils/storage';
@@ -58,7 +59,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
   // Form State
   const [soNumber, setSoNumber] = useState('');
-  const [productionDate, setProductionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [productionDate, setProductionDate] = useState(() => todayLocalISO());
   const [soLengthMeters, setSoLengthMeters] = useState<string>('');
   const [coilColor, setCoilColor] = useState('');
   const [thickness, setThickness] = useState('0.35');
@@ -96,7 +97,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     if (editingRecord) {
       setActiveTab('create');
       setSoNumber(editingRecord.soNumber || '');
-      setProductionDate(editingRecord.productionDate || new Date().toISOString().slice(0, 10));
+      setProductionDate(editingRecord.productionDate || todayLocalISO());
       setSoLengthMeters(
         editingRecord.soLengthMeters != null ? String(editingRecord.soLengthMeters) : ''
       );
@@ -126,7 +127,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     const yy = getCurrentThaiYearBE2Digits();
     const mm = getCurrentMonth2Digits();
     setSoNumber(`so${yy}${mm}`);
-    setProductionDate(new Date().toISOString().slice(0, 10));
+    setProductionDate(todayLocalISO());
     setNgKg('0');
     setNgMeters('0');
     setSoLengthMeters('');
@@ -244,6 +245,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const executeSandwichSave = async () => {
     const numNgKg = parseFloat(ngKg) || 0;
     const numNgMeters = parseFloat(ngMeters) || 0;
+
+    // ป้องกันกรณีไม่มีฟังก์ชันบันทึก: แจ้งเตือนแทนการปิดหน้าต่างเงียบๆ โดยไม่บันทึก
+    const canSave = editingRecord ? !!onSaveCut : !!(onSaveRecord || onSaveCut);
+    if (!canSave) {
+      setShowConfirmSummary(false);
+      setError('ไม่สามารถบันทึกได้: ระบบยังไม่ได้เชื่อมต่อฟังก์ชันบันทึก กรุณาแจ้งผู้ดูแล');
+      return;
+    }
 
     try {
       setIsSubmitting(true);

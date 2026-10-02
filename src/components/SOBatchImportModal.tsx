@@ -13,7 +13,7 @@ import {
   HelpCircle,
   Scissors
 } from 'lucide-react';
-import { formatMeters, round2 } from '../utils/formatters';
+import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
 
 interface ParsedCutRow {
@@ -89,7 +89,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
     const hasHeader = firstLine.includes('so') || firstLine.includes('ล็อต') || firstLine.includes('lot') || firstLine.includes('รหัส');
     const dataLines = hasHeader ? lines.slice(1) : lines;
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayLocalISO();
     const rows: ParsedCutRow[] = [];
 
     // Track cumulative deductions per roll so we don't allow over-cutting in the same batch
@@ -205,7 +205,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
     setIsProcessing(true);
     setImportError(null);
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayLocalISO();
 
     // Group valid rows by rollId to process cuts sequentially per roll
     const cutsToExecute: Omit<StockCutRecord, 'id' | 'createdAt'>[] = [];

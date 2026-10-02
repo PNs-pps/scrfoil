@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
-import { round2, formatMeters } from '../utils/formatters';
+import { round2, formatMeters, todayLocalISO } from '../utils/formatters';
 import { 
   X, 
   PlusCircle, 
@@ -36,7 +36,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   onAddFoil,
   onAddMultipleFoils,
 }) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalISO();
 
   // Tab mode: 'single' (1 ลูก) vs 'batch' (หลายลูกในล็อตเดียว)
   const [entryMode, setEntryMode] = useState<'single' | 'batch'>('batch');

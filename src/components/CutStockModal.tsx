@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
-import { formatMeters, round2 } from '../utils/formatters';
+import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
 import { fetchFoilRollFromServer } from '../lib/firebase';
 import { 
@@ -69,7 +69,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   onConfirmCutBatch,
   onRollRefreshed,
 }) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalISO();
   const defaultSoPrefix = `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`;
 
   const [selectedFoilId, setSelectedFoilId] = useState<string>('');

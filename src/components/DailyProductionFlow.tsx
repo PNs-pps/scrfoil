@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import { todayLocalISO } from '../utils/formatters';
 import { 
   StockCutRecord, 
   FoilRoll,
@@ -55,7 +56,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   puRecords = [],
   showToast,
 }) => {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayLocalISO();
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterLine, setFilterLine] = useState<'all' | 'foil' | 'sandwich'>('all');
   const [copiedDaily, setCopiedDaily] = useState<boolean>(false);

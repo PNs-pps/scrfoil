@@ -13,7 +13,7 @@ import {
   Clock,
   RotateCcw
 } from 'lucide-react';
-import { formatMeters } from '../utils/formatters';
+import { formatMeters, todayLocalISO } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 
 interface EditSOCutModalProps {
@@ -162,7 +162,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
       usedMeters: numUsed,
       ngMeters: numNg,
       totalDeducted: newTotal,
-      usageDate: usageDate || record.usageDate || new Date().toISOString().slice(0, 10),
+      usageDate: usageDate || record.usageDate || todayLocalISO(),
       recordedBy: recordedBy.trim() || record.recordedBy || 'ช่างคุมเครื่อง',
       notes: notes.trim(),
       isSilverSide,

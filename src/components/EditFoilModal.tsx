@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
-import { round2, formatMeters } from '../utils/formatters';
+import { round2, formatMeters, todayLocalISO } from '../utils/formatters';
 import { X, Edit2, Save, Layers, Calendar, Hash, FileText, CheckCircle2 } from 'lucide-react';
 
 interface EditFoilModalProps {
@@ -65,7 +65,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
 
       setTotalMeters(roll.totalMeters);
       setRemainingMeters(roll.remainingMeters);
-      setDateReceived(roll.dateReceived || new Date().toISOString().slice(0, 10));
+      setDateReceived(roll.dateReceived || todayLocalISO());
       setNotes(roll.notes || '');
       setIsZeroedOut(Boolean(roll.isZeroedOut));
       setError(null);
