@@ -428,8 +428,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
   const [selectedWidth, setSelectedWidth] = useState<string>('all');
   const [selectedPattern, setSelectedPattern] = useState<string>('all');
-  // เปิดแท็บ "ใช้งาน" เป็นค่าเริ่มต้น — แสดงเฉพาะม้วนที่มีการตัดแล้ว ลดงานเรนเดอร์
-  const [statusFilter, setStatusFilter] = useState<'all' | 'in_use' | 'unused' | 'depleted'>('in_use');
+  // เปิดแท็บ "ทั้งหมด" เป็นค่าเริ่มต้น — แสดงม้วนพร้อมใช้ทั้งหมด (ทั้งที่ใช้งานแล้วและยังไม่เคยตัด)
+  // เดิม default เป็น 'in_use' ทำให้ม้วนเต็มที่ยังไม่มีการตัด (unused) ไม่แสดง → ดูเหมือนข้อมูลฟอยล์หาย
+  const [statusFilter, setStatusFilter] = useState<'all' | 'in_use' | 'unused' | 'depleted'>('all');
   const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedSubGroups, setCollapsedSubGroups] = useState<Record<string, boolean>>({});
