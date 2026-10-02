@@ -10,7 +10,8 @@ export type SOBugType =
   | 'NEGATIVE_VALUE'          // พบค่าติดลบหรือตัวเลขผิดรูป (NaN)
   | 'ZERO_METER_CUT'          // บันทึกรายการตัดเป็น 0 เมตร
   | 'MASTER_ROLL_MISMATCH'    // ยอดคงเหลือหน้าม้วนไม่ตรงกับผลรวมที่ตัดจริงในประวัติ SO
-  | 'ACCUMULATED_MISMATCH';   // ยอดใช้สะสม (usedMeters/ngMeters) ในม้วนไม่ตรงกับผลรวม
+  | 'ACCUMULATED_MISMATCH'
+  | 'DUPLICATE_EXACT_CUT';   // ยอดใช้สะสม (usedMeters/ngMeters) ในม้วนไม่ตรงกับผลรวม
 
 export interface SOBugIssue {
   id: string;
