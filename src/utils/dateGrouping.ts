@@ -1,4 +1,5 @@
 import { FoilRoll, StockCutRecord } from '../types';
+import { todayLocalISO } from './formatters';
 
 export interface DateGroupedIncoming {
   date: string; // YYYY-MM-DD
@@ -169,7 +170,7 @@ export function exportDateOrganizedArchiveJSON(rolls: FoilRoll[], records: Stock
   const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const d = new Date().toISOString().slice(0, 10);
+  const d = todayLocalISO();
   link.setAttribute('href', url);
   link.setAttribute('download', `สำรองข้อมูลแยกโฟลเดอร์วันที่_รับเข้าและตัดSO_${d}.json`);
   document.body.appendChild(link);

@@ -1,4 +1,5 @@
 import { FoilRoll, StockCutRecord } from '../types';
+import { todayLocalISO } from './formatters';
 import { saveStoredRolls, saveStoredCutRecords } from './storage';
 
 export interface AutoBackupConfig {
@@ -155,7 +156,7 @@ interface D1ScheduleState {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return todayLocalISO();
 }
 
 function readD1ScheduleState(): D1ScheduleState {

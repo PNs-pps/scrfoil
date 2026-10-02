@@ -14,7 +14,7 @@
  */
 
 import { FoilRoll, StockCutRecord } from '../types';
-import { round2 } from './formatters';
+import { round2, todayLocalISO } from './formatters';
 
 export interface IntegrityMismatch {
   rollId: string;
@@ -129,7 +129,7 @@ interface CheckState {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return todayLocalISO();
 }
 
 function readState(): CheckState {

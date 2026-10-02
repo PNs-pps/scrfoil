@@ -1,4 +1,5 @@
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
+import { todayLocalISO } from './formatters';
 import { INITIAL_FOIL_ROLLS, INITIAL_CUT_RECORDS } from '../data/initialData';
 import { normalizePattern } from './soFormatter';
 
@@ -160,7 +161,7 @@ export function exportCutRecordsToCSV(records: StockCutRecord[]): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `foil_stock_cut_history_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('download', `foil_stock_cut_history_${todayLocalISO()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -200,7 +201,7 @@ export function exportRollsToCSV(rolls: FoilRoll[]): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `foil_inventory_summary_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('download', `foil_inventory_summary_${todayLocalISO()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -272,7 +273,7 @@ export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): vo
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `pu_sandwich_cuts_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('download', `pu_sandwich_cuts_${todayLocalISO()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
