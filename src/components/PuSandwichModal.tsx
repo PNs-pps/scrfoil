@@ -317,7 +317,6 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     // แสดงสรุปยืนยันก่อนบันทึกจริง
     setShowConfirmSummary(true);
   };
-  };
 
   // Safe records array
   const safeRecords = Array.isArray(records) ? records : [];
