@@ -293,7 +293,7 @@ export interface SubscriptionOptions {
  * Realtime listener for Foil Rolls with gentle non-fatal error handling
  */
 export function subscribeToFoilRolls(
-  onUpdate: (rolls: FoilRoll[]) => void,
+  onUpdate: (rolls: FoilRoll[], meta?: { fromCache: boolean }) => void,
   onError?: (err: Error) => void,
   options?: {
     onFromCache?: (isFromCache: boolean) => void;
@@ -312,7 +312,8 @@ export function subscribeToFoilRolls(
     return onSnapshot(
       q,
       (snapshot) => {
-        options?.onFromCache?.(snapshot.metadata.fromCache);
+        const fromCache = snapshot.metadata.fromCache;
+        options?.onFromCache?.(fromCache);
 
         // Detect changes that came from another device (see comment above the
         // recentLocalWriteIds tracker). Skip the very first snapshot (initial
@@ -330,14 +331,20 @@ export function subscribeToFoilRolls(
         const rolls: FoilRoll[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as FoilRoll;
-          // Normalize legacy pattern spellings (e.g. old "ท้องขาว" rolls) so they
-          // group under today's canonical pattern name instead of appearing as a
-          // separate duplicate pattern in the dashboard breakdown.
-          rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
+          // Always prefer the document ID from Firestore so missing/mismatched
+          // `id` fields in legacy docs don't drop the roll from the UI.
+          // Default missing status → 'active' so old docs without the field
+          // still appear when loaded via the full (non-activeOnly) query.
+          rolls.push({
+            ...data,
+            id: data.id || docSnap.id,
+            status: (data.status as FoilRoll['status']) || 'active',
+            pattern: normalizePattern(data.pattern),
+          });
         });
         // Sort newest first
         rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        onUpdate(rolls);
+        onUpdate(rolls, { fromCache });
       },
       (err) => {
         // Use console.warn instead of console.error to avoid failing the applet test runner
@@ -363,7 +370,12 @@ export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
     const rolls: FoilRoll[] = [];
     snapshot.forEach((docSnap) => {
       const data = docSnap.data() as FoilRoll;
-      rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
+      rolls.push({
+        ...data,
+        id: data.id || docSnap.id,
+        status: (data.status as FoilRoll['status']) || 'depleted',
+        pattern: normalizePattern(data.pattern),
+      });
     });
     rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     return rolls;
