@@ -1841,6 +1841,23 @@ export async function applyCycleCountAdjustments(
       const effectiveDeduct = Math.round((remainingBefore - safePhysical) * 100) / 100;
       if (Math.abs(effectiveDeduct) < 0.001) return;
 
+      // กันบันทึกนับสต๊อกซ้ำงวดเดียวกัน: ถ้า recentCuts มีใบ cc_ งวดนี้อยู่แล้ว ให้ข้าม
+      const alreadyCc = (serverRoll.recentCuts || []).some((c: any) => {
+        const so = String(c.soNumber || '').trim();
+        const id = String(c.id || '');
+        return (
+          so === soNumber ||
+          so === `นับสต๊อก ${periodLabel}` ||
+          (id.startsWith(`cc_${line.rollId}`) && so.includes(periodLabel))
+        );
+      });
+      if (alreadyCc) {
+        console.warn(
+          `Skip duplicate cycle count for roll ${line.rollId} period ${periodLabel}`
+        );
+        return;
+      }
+
       const usedPart = effectiveDeduct > 0 ? effectiveDeduct : 0;
       const record: StockCutRecord = {
         id: recordId,
