@@ -80,15 +80,26 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   }, [records, safePuRecords, todayStr]);
 
   // Filter foil records for selected date
-  // ไม่รวมใบปรับยอดนับสต๊อก / ไม่รวมยอดหลายใบเป็นก้อน — แสดงทีละใบตัดจริง
+  // ไม่รวมใบปรับยอดนับสต๊อกทุกแบบ — ไม่โชว์ในกราฟ/สถิติผลิตรายวัน
   const dayRecords = useMemo(() => {
     return records
       .filter((r) => {
         const d = (r.usageDate || r.recordedDate || r.createdAt || '').slice(0, 10);
         if (d !== selectedDate) return false;
+
         const so = String(r.soNumber || '').trim();
-        if (so.startsWith('นับสต๊อก') || String(r.id || '').startsWith('cc_')) return false;
+        const id = String(r.id || '');
+        const notes = String(r.notes || '').toLowerCase();
+        const reason = String(r.nonSoReason || '').toLowerCase();
+
+        // ใบนับสต๊อก / Cycle Count — ตัดออกจากผลิตรายวันทั้งหมด
+        if (id.startsWith('cc_')) return false;
+        if (so.includes('นับสต๊อก') || so.toLowerCase().includes('cycle count')) return false;
+        if (notes.includes('cycle count') || reason.includes('cycle count')) return false;
+        if (notes.includes('นับสต๊อก') || reason.includes('นับสต๊อก')) return false;
+
         const td = Number(r.totalDeducted);
+        // คืนสต๊อก (totalDeducted ติดลบ โดยไม่มี used/ng ตัดจริง)
         if (
           Number.isFinite(td) &&
           td < 0 &&
@@ -102,7 +113,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
       .sort((a, b) => {
         const timeA = a.createdAt || '';
         const timeB = b.createdAt || '';
-        return timeA.localeCompare(timeB); // chronological flow for the day
+        return timeA.localeCompare(timeB);
       });
   }, [records, selectedDate]);
 
