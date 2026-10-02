@@ -3,6 +3,7 @@ import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../ty
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
 import { formatMeters, round2 } from '../utils/formatters';
+import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
 import { 
   X, 
   Scissors, 
@@ -15,7 +16,8 @@ import {
   Trash2, 
   CheckCircle2,
   Building2,
-  Wrench
+  Wrench,
+  ArrowRight
 } from 'lucide-react';
 
 interface CutOrderItem {
@@ -76,6 +78,16 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [duplicatePromptModal, setDuplicatePromptModal] = useState<DuplicateAlertInfo[] | null>(null);
+  /** ขั้นตอนยืนยันก่อนบันทึกจริง */
+  const [showConfirmSummary, setShowConfirmSummary] = useState(false);
+  /** ผลลัพธ์หลัง Firebase ตอบกลับ — ต้องกดปิดเอง */
+  const [cutResult, setCutResult] = useState<{
+    ok: boolean;
+    title: string;
+    message: string;
+    remainingAfter?: number;
+    totalDeducted?: number;
+  } | null>(null);
 
   // References to input elements for focus navigation
   const usedMetersInputRefs = useRef<{ [orderId: string]: HTMLInputElement | null }>({});
@@ -114,6 +126,10 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       const initialOrder = createEmptyOrder(1, initMode);
       setOrders([initialOrder]);
       setError(null);
+      setShowConfirmSummary(false);
+      setCutResult(null);
+      setIsSubmitting(false);
+      setDuplicatePromptModal(null);
 
       if (preselectedRollId && availableRolls.some(r => r.id === preselectedRollId)) {
         const found = availableRolls.find(r => r.id === preselectedRollId);
@@ -375,6 +391,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
 
     setIsSubmitting(true);
+    setShowConfirmSummary(false);
     try {
       if (onConfirmCutBatch) {
         await onConfirmCutBatch(batchRecords);
@@ -383,9 +400,31 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           await onConfirmCut(r);
         }
       }
-      onClose();
+      playSuccessFeedback();
+      setCutResult({
+        ok: true,
+        title: 'ตัดสต๊อกสำเร็จ',
+        message:
+          batchRecords.length === 1
+            ? `บันทึก SO ${batchRecords[0].soNumber} เรียบร้อย (ใช้ ${formatMeters(batchRecords[0].usedMeters)} ม.` +
+              (batchRecords[0].ngMeters > 0
+                ? ` + NG ${formatMeters(batchRecords[0].ngMeters)} ม.`
+                : '') +
+              `)`
+            : `บันทึก ${batchRecords.length} รายการใบงาน ยอดตัดรวม ${formatMeters(
+                batchRecords.reduce((s, r) => s + r.totalDeducted, 0)
+              )} ม.`,
+        remainingAfter: batchRecords[batchRecords.length - 1]?.remainingAfter,
+        totalDeducted: batchRecords.reduce((s, r) => s + r.totalDeducted, 0),
+      });
     } catch (err: any) {
       console.error('Cut stock batch submission failed:', err);
+      playErrorFeedback();
+      setCutResult({
+        ok: false,
+        title: 'ตัดสต๊อกไม่สำเร็จ',
+        message: err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ หรือสิทธิ์ Firebase',
+      });
       setError(err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ');
     } finally {
       setIsSubmitting(false);
@@ -440,7 +479,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       return;
     }
 
-    await executeCutSubmission();
+    // แสดงหน้าต่างสรุปก่อนบันทึกจริง
+    setShowConfirmSummary(true);
   };
 
   if (!isOpen) return null;
@@ -1015,13 +1055,214 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               ) : (
                 <>
                   <Scissors className="w-4 h-4 stroke-[2.5]" />
-                  <span>ยืนยันตัดสต๊อก ({formatMeters(totalDeductedAll)} ม.)</span>
+                  <span>ตรวจสอบก่อนตัด ({formatMeters(totalDeductedAll)} ม.)</span>
                 </>
               )}
             </button>
           </div>
         </form>
       </div>
+
+      {/* ========== ยืนยันก่อนตัด (สรุป) ========== */}
+      {showConfirmSummary && currentRoll && !cutResult && (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-amber-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0">
+                <Scissors className="w-5 h-5 text-amber-800" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">ยืนยันก่อนตัดสต๊อก</h3>
+                <p className="text-xs text-slate-500 mt-0.5">ตรวจสอบสรุปด้านล่างก่อนบันทึกลง Firebase</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2 text-sm">
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 text-xs">ม้วน / ล็อต</span>
+                <span className="font-bold text-slate-900 font-mono text-xs text-right">
+                  {currentRoll.lotNumber} #{currentRoll.rollNumber}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 text-xs">ลาย / กว้าง</span>
+                <span className="font-semibold text-slate-800 text-xs text-right">
+                  {currentRoll.pattern} · {currentRoll.width} มม.
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200">
+                <div className="text-center flex-1">
+                  <div className="text-[10px] text-slate-400 uppercase">ก่อนตัด</div>
+                  <div className="font-mono font-bold text-slate-800">{formatMeters(remainingBefore)} ม.</div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-amber-500 shrink-0" />
+                <div className="text-center flex-1">
+                  <div className="text-[10px] text-rose-500 uppercase">ตัดออก</div>
+                  <div className="font-mono font-bold text-rose-600">-{formatMeters(totalDeductedAll)} ม.</div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-emerald-500 shrink-0" />
+                <div className="text-center flex-1">
+                  <div className="text-[10px] text-emerald-600 uppercase">หลังตัด</div>
+                  <div className="font-mono font-bold text-emerald-700">{formatMeters(remainingAfter)} ม.</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                รายการใบงาน ({orders.length})
+              </div>
+              {orders.map((ord, i) => {
+                const calc = orderCalculations[i];
+                return (
+                  <div
+                    key={ord.id}
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 font-mono truncate">
+                        {calc.identifier || `รายการ ${i + 1}`}
+                      </div>
+                      {ord.cutType === 'non_so' && (
+                        <div className="text-[10px] text-slate-400">ไม่ใช้ SO</div>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0 font-mono">
+                      <span className="text-slate-800 font-semibold">ใช้ {formatMeters(calc.numUsed)}</span>
+                      {calc.numNg > 0 && (
+                        <span className="text-rose-600 ml-1">+NG {formatMeters(calc.numNg)}</span>
+                      )}
+                      <span className="text-slate-400"> ม.</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => setShowConfirmSummary(false)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                กลับไปแก้
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => executeCutSubmission()}
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                    กำลังบันทึก...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    ยืนยันตัด
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========== ผลลัพธ์สำเร็จ / ผิดพลาด (ต้องกดปิดเอง) ========== */}
+      {cutResult && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-in fade-in">
+          <div
+            className={`bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border space-y-4 animate-in zoom-in-95 duration-150 ${
+              cutResult.ok ? 'border-emerald-300' : 'border-rose-300'
+            }`}
+          >
+            <div className="flex flex-col items-center text-center gap-3">
+              <div
+                className={`w-14 h-14 rounded-full flex items-center justify-center ${
+                  cutResult.ok
+                    ? 'bg-emerald-100 border-2 border-emerald-400'
+                    : 'bg-rose-100 border-2 border-rose-400'
+                }`}
+              >
+                {cutResult.ok ? (
+                  <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="w-8 h-8 text-rose-600" />
+                )}
+              </div>
+              <div>
+                <h3
+                  className={`text-lg font-bold leading-tight ${
+                    cutResult.ok ? 'text-emerald-800' : 'text-rose-800'
+                  }`}
+                >
+                  {cutResult.title}
+                </h3>
+                <p className="text-sm text-slate-600 mt-2 leading-relaxed">{cutResult.message}</p>
+              </div>
+              {cutResult.ok && cutResult.remainingAfter !== undefined && (
+                <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm space-y-1">
+                  {cutResult.totalDeducted !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">ยอดตัดรวม</span>
+                      <span className="font-mono font-bold text-rose-600">
+                        -{formatMeters(cutResult.totalDeducted)} ม.
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">คงเหลือม้วน</span>
+                    <span className="font-mono font-bold text-emerald-700">
+                      {formatMeters(cutResult.remainingAfter)} ม.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2 pt-1">
+              {cutResult.ok ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCutResult(null);
+                    onClose();
+                  }}
+                  className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl transition-colors cursor-pointer"
+                >
+                  ปิดหน้าต่าง
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCutResult(null);
+                      setShowConfirmSummary(true);
+                    }}
+                    className="w-full px-4 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition-colors cursor-pointer"
+                  >
+                    ลองใหม่
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCutResult(null);
+                      setShowConfirmSummary(false);
+                    }}
+                    className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
+                  >
+                    กลับไปแก้ข้อมูล
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Warning Modal when Duplicate SO with same meters is detected */}
       {duplicatePromptModal && (
@@ -1072,7 +1313,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 type="button"
                 onClick={() => {
                   setDuplicatePromptModal(null);
-                  executeCutSubmission();
+                  setShowConfirmSummary(true);
                 }}
                 className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
               >
