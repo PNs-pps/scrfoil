@@ -453,6 +453,22 @@ export async function saveFoilRollToFirestore(roll: FoilRoll): Promise<void> {
 }
 
 /**
+ * อ่านยอดม้วนจาก server โดยตรง (ข้าม local cache)
+ * ใช้ก่อนยืนยันตัด เพื่อกันยอดค้างจากเครื่องอื่นที่ตัดม้วนเดียวกันไปแล้ว
+ */
+export async function fetchFoilRollFromServer(rollId: string): Promise<FoilRoll | null> {
+  if (!rollId) return null;
+  try {
+    const snap = await getDocFromServer(doc(db, ROLLS_COLLECTION, rollId));
+    if (!snap.exists()) return null;
+    return { ...(snap.data() as FoilRoll), id: snap.id };
+  } catch (err: any) {
+    console.warn('fetchFoilRollFromServer failed:', err?.message || err);
+    return null;
+  }
+}
+
+/**
  * Delete a Foil Roll from Firestore
  */
 export async function deleteFoilRollFromFirestore(rollId: string): Promise<void> {
@@ -1368,36 +1384,124 @@ export function subscribeToRollCutHistory(
 /**
  * Push all local rolls and records to Firestore
  */
+/**
+ * ซิงค์ขึ้น Cloud แบบกันทับข้อมูลใหม่กว่าบนเซิร์ฟเวอร์
+ * - ม้วน: ถ้า server มี used+ng หรือ recentCuts มากกว่า → คงฟิลด์สต๊อกของ server
+ * - ใบตัด: ไม่ทับใบที่มีอยู่แล้วบน server (เขียนเฉพาะใบที่ยังไม่มี)
+ */
 export async function uploadAllToFirestore(
   rolls: FoilRoll[],
   records: StockCutRecord[]
-): Promise<{ rollsUploaded: number; recordsUploaded: number }> {
-  const CHUNK_SIZE = 400;
+): Promise<{
+  rollsUploaded: number;
+  recordsUploaded: number;
+  rollsStockProtected: number;
+  recordsSkippedExisting: number;
+}> {
+  const CHUNK_SIZE = 200;
+  let rollsUploaded = 0;
+  let rollsStockProtected = 0;
+  let recordsUploaded = 0;
+  let recordsSkippedExisting = 0;
 
   try {
-    // Upload rolls
+    // ---- Rolls: เปรียบเทียบกับ server ทีละก้อน ----
     for (let i = 0; i < rolls.length; i += CHUNK_SIZE) {
       const chunk = rolls.slice(i, i + CHUNK_SIZE);
+      const serverSnaps = await Promise.all(
+        chunk.map((r) =>
+          getDocFromServer(doc(db, ROLLS_COLLECTION, r.id)).catch(() => null)
+        )
+      );
+
       const batch = writeBatch(db);
-      chunk.forEach((r) => {
-        const ref = doc(db, ROLLS_COLLECTION, r.id);
-        batch.set(ref, r, { merge: true });
+      let batchCount = 0;
+
+      chunk.forEach((local, idx) => {
+        const snap = serverSnaps[idx];
+        const ref = doc(db, ROLLS_COLLECTION, local.id);
+
+        if (!snap || !snap.exists()) {
+          batch.set(ref, sanitizeForFirestore(local), { merge: true });
+          rollsUploaded += 1;
+          batchCount += 1;
+          return;
+        }
+
+        const server = snap.data() as FoilRoll;
+        const serverActivity =
+          Math.abs(Number(server.usedMeters || 0)) +
+          Math.abs(Number(server.ngMeters || 0)) +
+          (Array.isArray(server.recentCuts) ? server.recentCuts.length : 0);
+        const localActivity =
+          Math.abs(Number(local.usedMeters || 0)) +
+          Math.abs(Number(local.ngMeters || 0)) +
+          (Array.isArray(local.recentCuts) ? local.recentCuts.length : 0);
+
+        // server นำหน้าด้านสต๊อก → ไม่ทับยอดคงเหลือ / used / ng / status
+        if (serverActivity > localActivity + 0.05) {
+          const { remainingMeters, usedMeters, ngMeters, status, isZeroedOut, recentCuts, isUnused, manualZeroedOriginalMeters, ...safeLocal } =
+            local as FoilRoll & Record<string, unknown>;
+          batch.set(
+            ref,
+            sanitizeForFirestore({
+              ...safeLocal,
+              // คงสต๊อกจาก server
+              remainingMeters: server.remainingMeters,
+              usedMeters: server.usedMeters,
+              ngMeters: server.ngMeters,
+              status: server.status,
+              isZeroedOut: server.isZeroedOut,
+              recentCuts: server.recentCuts,
+              isUnused: server.isUnused,
+              manualZeroedOriginalMeters: server.manualZeroedOriginalMeters,
+            }),
+            { merge: true }
+          );
+          rollsStockProtected += 1;
+        } else {
+          batch.set(ref, sanitizeForFirestore(local), { merge: true });
+        }
+        rollsUploaded += 1;
+        batchCount += 1;
       });
-      await batch.commit();
+
+      if (batchCount > 0) await batch.commit();
     }
 
-    // Upload records
+    // ---- Records: เขียนเฉพาะใบที่ยังไม่มีบน server ----
     for (let i = 0; i < records.length; i += CHUNK_SIZE) {
       const chunk = records.slice(i, i + CHUNK_SIZE);
+      const serverSnaps = await Promise.all(
+        chunk.map((rec) =>
+          getDocFromServer(doc(db, RECORDS_COLLECTION, rec.id)).catch(() => null)
+        )
+      );
+
       const batch = writeBatch(db);
-      chunk.forEach((rec) => {
+      let batchCount = 0;
+
+      chunk.forEach((rec, idx) => {
+        const snap = serverSnaps[idx];
+        if (snap && snap.exists()) {
+          recordsSkippedExisting += 1;
+          return;
+        }
         const ref = doc(db, RECORDS_COLLECTION, rec.id);
-        batch.set(ref, rec, { merge: true });
+        batch.set(ref, sanitizeForFirestore(rec), { merge: true });
+        recordsUploaded += 1;
+        batchCount += 1;
       });
-      await batch.commit();
+
+      if (batchCount > 0) await batch.commit();
     }
 
-    return { rollsUploaded: rolls.length, recordsUploaded: records.length };
+    return {
+      rollsUploaded,
+      recordsUploaded,
+      rollsStockProtected,
+      recordsSkippedExisting,
+    };
   } catch (err: any) {
     console.warn('Notice: Upload all to Firestore incomplete:', err?.message || err);
     throw err;
