@@ -12,7 +12,6 @@ import {
   exportCutRecordsToCSV,
   exportPuSandwichRecordsToCSV
 } from './utils/storage';
-import { notifySuccess, notifyError } from './utils/feedback';
 import { 
   subscribeToFoilRolls, 
   subscribeToStockCutRecords, 
@@ -38,9 +37,44 @@ import {
   activeTarget,
   setActiveTarget,
   auth,
-  signOutUser
+  signOutUser,
+  subscribeToChemicalStock,
+  saveChemicalStockToFirestore,
+  subscribeToChemicalCuts,
+  saveChemicalCutToFirestore,
+  deleteChemicalCutFromFirestore,
+  subscribeToChemicalRestock,
+  saveChemicalRestockToFirestore,
+  deleteChemicalRestockFromFirestore,
+  subscribeToChemicalFormulas,
+  saveChemicalFormulaToFirestore,
+  deleteChemicalFormulaFromFirestore
 } from './lib/firebase';
-import { CycleCountSession } from './types';
+import { 
+  CycleCountSession,
+  ChemicalStock,
+  ChemicalCutRecord,
+  ChemicalRestockRecord,
+  ChemicalFormula
+} from './types';
+import {
+  getStoredChemicalStock,
+  saveStoredChemicalStock,
+  getStoredFormulas,
+  saveStoredFormulas,
+  getStoredChemicalCutRecords,
+  saveStoredChemicalCutRecords,
+  getStoredChemicalRestockRecords,
+  saveStoredChemicalRestockRecords,
+  revertChemicalCut,
+  deleteRestockRecord,
+  updateRestockRecord,
+  updateDrumInRecords,
+  updateFolderDensitiesInRecords,
+  deleteDrumWithStock,
+  normalizeFormulaList,
+  normalizeInchSize
+} from './utils/chemicalStock';
 import { Navbar } from './components/Navbar';
 import { FirebaseSyncBar } from './components/FirebaseSyncBar';
 import { FirebaseRulesModal } from './components/FirebaseRulesModal';
@@ -57,6 +91,10 @@ import { SOBatchImportModal } from './components/SOBatchImportModal';
 import { SettingsBackupView } from './components/SettingsBackupView';
 import { PuSandwichModal } from './components/PuSandwichModal';
 import { PuSandwichView } from './components/PuSandwichView';
+import { ChemicalStockView } from './components/ChemicalStockView';
+import { ChemicalDeductModal } from './components/ChemicalDeductModal';
+import { ChemicalRestockModal } from './components/ChemicalRestockModal';
+import { ChemicalFormulaModal } from './components/ChemicalFormulaModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { IntegrityCheckModal } from './components/IntegrityCheckModal';
@@ -71,7 +109,7 @@ import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
 import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X } from 'lucide-react';
 
-type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
+type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'chemical' | 'settings';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
@@ -81,15 +119,27 @@ export default function App() {
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
   
+  // Chemical Stock & Formula State (ตัดสต๊อกน้ำยา PU แยกจากฟอยล์)
+  const [chemicalStock, setChemicalStock] = useState<ChemicalStock>(() => getStoredChemicalStock());
+  const [chemicalCutRecords, setChemicalCutRecords] = useState<ChemicalCutRecord[]>(() => getStoredChemicalCutRecords());
+  const [chemicalRestockRecords, setChemicalRestockRecords] = useState<ChemicalRestockRecord[]>(() => getStoredChemicalRestockRecords());
+  const [chemicalFormulas, setChemicalFormulas] = useState<ChemicalFormula[]>(() => getStoredFormulas());
+
+  // Chemical Modals
+  const [isChemicalDeductOpen, setIsChemicalDeductOpen] = useState(false);
+  const [isChemicalRestockOpen, setIsChemicalRestockOpen] = useState(false);
+  const [isChemicalFormulaOpen, setIsChemicalFormulaOpen] = useState(false);
+  const [editingRestockRecord, setEditingRestockRecord] = useState<ChemicalRestockRecord | null>(null);
+
   // Persistent activeTab so that reloading keeps the user on the exact page being viewed
   const [activeTab, setActiveTabRaw] = useState<AppTab>(() => {
     try {
       const hash = window.location.hash.replace('#', '') as AppTab;
-      if (['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'settings'].includes(hash)) {
+      if (['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'chemical', 'settings'].includes(hash)) {
         return hash;
       }
       const saved = sessionStorage.getItem('scrfoil_active_tab') as AppTab;
-      if (saved && ['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'settings'].includes(saved)) {
+      if (saved && ['dashboard', 'rolls', 'history', 'flow', 'sandwich', 'chemical', 'settings'].includes(saved)) {
         return saved;
       }
     } catch {}
@@ -208,25 +258,14 @@ export default function App() {
     detail: '',
   });
 
-  // Feedback Toast (+ เสียง/สั่น)
-  const [toastMessage, setToastMessage] = useState<{
-    text: string;
-    type: 'success' | 'info' | 'error';
-  } | null>(null);
+  // Feedback Toast
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
 
-  const showToast = (
-    text: string,
-    type: 'success' | 'info' | 'error' = 'success',
-    withFeedback = true
-  ) => {
+  const showToast = (text: string, type: 'success' | 'info' = 'success') => {
     setToastMessage({ text, type });
-    if (withFeedback) {
-      if (type === 'success') notifySuccess();
-      else if (type === 'error') notifyError();
-    }
     setTimeout(() => {
       setToastMessage(null);
-    }, type === 'error' ? 6000 : 4500);
+    }, 4000);
   };
 
   // Realtime load & Firestore subscription (Optimized with Persistent Cache & Read limits)
@@ -375,28 +414,96 @@ export default function App() {
       }
     );
 
+    // 5. Realtime listener for Chemical Stock (สต๊อกน้ำยา PU)
+    const unsubChemicalStock = subscribeToChemicalStock(
+      (remoteStock) => {
+        if (remoteStock) {
+          setChemicalStock(remoteStock);
+          saveStoredChemicalStock(remoteStock);
+        }
+      },
+      (err: any) => {
+        console.warn('Chemical stock sync note:', err?.message || err);
+      }
+    );
+
+    // 6. Realtime listener for Chemical Cuts (ประวัติตัดสต๊อกน้ำยา)
+    const unsubChemicalCuts = subscribeToChemicalCuts(
+      (remoteCuts) => {
+        setChemicalCutRecords(remoteCuts);
+        saveStoredChemicalCutRecords(remoteCuts);
+      },
+      (err: any) => {
+        console.warn('Chemical cuts sync note:', err?.message || err);
+      }
+    );
+
+    // 7. Realtime listener for Chemical Restock (ประวัติรับเข้าน้ำยา)
+    const unsubChemicalRestock = subscribeToChemicalRestock(
+      (remoteRestocks) => {
+        setChemicalRestockRecords(remoteRestocks);
+        saveStoredChemicalRestockRecords(remoteRestocks);
+      },
+      (err: any) => {
+        console.warn('Chemical restock sync note:', err?.message || err);
+      }
+    );
+
+    // 8. Realtime listener for Chemical Formulas (สูตรคำนวณน้ำยา)
+    const unsubChemicalFormulas = subscribeToChemicalFormulas(
+      (remoteFormulas) => {
+        if (remoteFormulas && remoteFormulas.length > 0) {
+          // ผ่านตัวทำความสะอาดเดียวกับ localStorage (รูปแบบ Density "Nk", นิ้ว 1/2 เท่านั้น)
+          const normalized = normalizeFormulaList(remoteFormulas);
+          // สูตรตั้งต้น 1.5 นิ้วเดิมที่ค้างบน Cloud → ลบทิ้ง ไม่ให้กลับมาอีก
+          remoteFormulas
+            .filter(f => f.id === 'formula-1.5inch' && !normalizeInchSize(f.inchSize))
+            .forEach(f => { deleteChemicalFormulaFromFirestore(f.id).catch(() => {}); });
+          setChemicalFormulas(normalized);
+          saveStoredFormulas(normalized);
+        }
+      },
+      (err: any) => {
+        console.warn('Chemical formulas sync note:', err?.message || err);
+      }
+    );
+
     return () => {
       unsubRolls();
       unsubRecords();
       unsubSandwich();
+      unsubChemicalStock();
+      unsubChemicalCuts();
+      unsubChemicalRestock();
+      unsubChemicalFormulas();
     };
   }, []);
 
+  // เก็บข้อมูลล่าสุดไว้ใน ref — ให้ timer อ่านค่าล่าสุดได้โดยไม่ต้องรีเซ็ต interval
+  // ทุกครั้งที่ realtime อัปเดต (เดิม interval ถูกสร้างใหม่ทุกครั้งที่ rolls/records
+  // เปลี่ยน ทำให้ถ้าข้อมูลอัปเดตถี่กว่ารอบ backup สำรองอัตโนมัติจะไม่ทำงานเลย)
+  const latestDataRef = useRef({ rolls, records, puSandwichRecords, syncStatus });
+  latestDataRef.current = { rolls, records, puSandwichRecords, syncStatus };
+  const hasRolls = rolls.length > 0;
+  const d1UploadInFlightRef = useRef(false);
+
   // Automatic Background Backup (Local Snapshots & Cloud Sync)
   useEffect(() => {
-    if (rolls.length === 0) return;
+    if (!hasRolls) return;
 
     const runAutoBackup = () => {
       const config = getAutoBackupConfig();
       if (!config.enabled) return;
+      const { rolls: curRolls, records: curRecords, syncStatus: curSync } = latestDataRef.current;
+      if (curRolls.length === 0) return;
 
       if (config.saveLocalSnapshots) {
-        createBackupSnapshot(rolls, records, 'scheduled');
+        createBackupSnapshot(curRolls, curRecords, 'scheduled');
       }
 
       // Also sync to cloud if enabled and online
-      if (config.autoSyncCloud && syncStatus === 'connected') {
-        uploadAllToFirestore(rolls, records).catch((err) => {
+      if (config.autoSyncCloud && curSync === 'connected') {
+        uploadAllToFirestore(curRolls, curRecords).catch((err) => {
           console.warn('Background auto cloud backup notice:', err);
         });
       }
@@ -407,7 +514,7 @@ export default function App() {
     const intervalId = setInterval(runAutoBackup, intervalMs);
 
     return () => clearInterval(intervalId);
-  }, [rolls, records, syncStatus]);
+  }, [hasRolls]);
 
   // Cloudflare D1 scheduled backup — fixed times daily (12:30 / 17:30), using
   // the Worker URL + secret already saved in Settings > Backup. Independent
@@ -418,11 +525,14 @@ export default function App() {
   // in one upload) rather than waiting for the next scheduled time. The
   // person can also always press "สำรองขึ้น D1" in Settings on demand.
   useEffect(() => {
-    if (rolls.length === 0) return;
+    if (!hasRolls) return;
 
     const checkD1Schedule = () => {
+      if (d1UploadInFlightRef.current) return;
       const config = getAutoBackupConfig();
       if (!config.autoSyncD1) return;
+      const { rolls: curRolls, records: curRecords, puSandwichRecords: curSandwich } = latestDataRef.current;
+      if (curRolls.length === 0) return;
 
       const dueSlots = getAllDueD1ScheduleSlots();
       if (dueSlots.length === 0) return;
@@ -430,26 +540,32 @@ export default function App() {
       const d1Config = getD1BackupConfig();
       if (!d1Config.workerUrl || !d1Config.secret) return;
 
-      dueSlots.forEach(markD1ScheduleSlotRun);
+      d1UploadInFlightRef.current = true;
       uploadBackupToD1({
-        rolls,
-        records,
-        sandwichRecords: puSandwichRecords,
+        rolls: curRolls,
+        records: curRecords,
+        sandwichRecords: curSandwich,
         label: 'สำรองอัตโนมัติ (ตามเวลาที่ตั้งไว้)',
         reason: 'scheduled',
       })
         .then(() => {
+          // ทำเครื่องหมายว่า slot เสร็จ "หลังอัปโหลดสำเร็จ" เท่านั้น
+          // (เดิมทำเครื่องหมายก่อน ถ้าอัปโหลดล้มเหลว รอบนั้นจะถูกข้ามทั้งวัน)
+          dueSlots.forEach(markD1ScheduleSlotRun);
           saveAutoBackupConfig({ ...getAutoBackupConfig(), lastD1AutoBackupTime: new Date().toISOString() });
         })
         .catch((err) => {
           console.warn('Scheduled D1 backup notice:', err);
+        })
+        .finally(() => {
+          d1UploadInFlightRef.current = false;
         });
     };
 
     checkD1Schedule();
     const intervalId = setInterval(checkD1Schedule, 60 * 1000);
     return () => clearInterval(intervalId);
-  }, [rolls, records, puSandwichRecords]);
+  }, [hasRolls]);
 
   // Automatic daily stock-integrity check (runs by itself, up to 2x/day, the
   // first couple of times someone opens the app each day — see
@@ -511,7 +627,7 @@ export default function App() {
         showToast('ยังไม่ได้เปิดสิทธิ์ Rules ใน Firebase Console กรุณาตั้งค่า Rules', 'info');
       } else {
         setSyncStatus('error');
-        showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลขึ้น Firebase', 'error');
+        showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลขึ้น Firebase', 'info');
       }
     } finally {
       setIsSavingToCloud(false);
@@ -788,17 +904,9 @@ export default function App() {
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
 
       if (createdRecords.length === 1) {
-        showToast(
-          `ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.)`,
-          'success',
-          false
-        );
+        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
       } else {
-        showToast(
-          `ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการ · รวม ${formatMeters(totalDeductedAll)} ม.`,
-          'success',
-          false
-        );
+        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
       }
     } catch (err: any) {
       console.error('Firebase transaction error during stock cut:', err);
@@ -856,6 +964,232 @@ export default function App() {
       showToast('ลบรายการตัด SO แซนวิชเรียบร้อย');
     } catch (err: any) {
       console.warn('Notice: PU Sandwich deletion pending in cloud:', err?.message || err);
+    }
+  };
+
+  // PU Chemical Stock Handlers (ระบบตัดสต๊อกน้ำยา PU แยกจากฟอยล์)
+  const handleConfirmChemicalCut = async (cutRecord: ChemicalCutRecord, updatedStock: ChemicalStock) => {
+    // 1. ปรับยอดคงเหลือน้ำยาใน state & LocalStorage
+    setChemicalStock(updatedStock);
+    saveStoredChemicalStock(updatedStock);
+
+    // 2. เพิ่มใบตัดน้ำยาในประวัติ
+    const updatedCuts = [cutRecord, ...chemicalCutRecords];
+    setChemicalCutRecords(updatedCuts);
+    saveStoredChemicalCutRecords(updatedCuts);
+
+    showToast(`ตัดสต๊อกน้ำยา SO ${cutRecord.soNumber} สำเร็จ (-${cutRecord.totalChemicalKg} กก.) [A: -${cutRecord.partAKg} / B: -${cutRecord.partBKg}]`);
+
+    // 3. บันทึกและซิงค์ Realtime เข้า Firestore
+    try {
+      await Promise.all([
+        saveChemicalStockToFirestore(updatedStock),
+        saveChemicalCutToFirestore(cutRecord),
+      ]);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Chemical cut cloud sync pending/offline:', err?.message || err);
+    }
+  };
+
+  const handleRevertChemicalCut = async (recordId: string) => {
+    const { updatedStock, remainingRecords, revertedRecord } = revertChemicalCut(
+      recordId,
+      chemicalCutRecords,
+      chemicalStock
+    );
+
+    if (!revertedRecord) return;
+
+    setChemicalStock(updatedStock);
+    saveStoredChemicalStock(updatedStock);
+
+    setChemicalCutRecords(remainingRecords);
+    saveStoredChemicalCutRecords(remainingRecords);
+
+    showToast(`ยกเลิกตัดสต๊อกน้ำยา SO ${revertedRecord.soNumber} และคืนยอด +${revertedRecord.totalChemicalKg} กก. เข้าคลังเรียบร้อย`);
+
+    try {
+      await Promise.all([
+        saveChemicalStockToFirestore(updatedStock),
+        deleteChemicalCutFromFirestore(recordId),
+      ]);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Chemical cut revert cloud sync pending/offline:', err?.message || err);
+    }
+  };
+
+  const handleConfirmChemicalRestock = async (record: ChemicalRestockRecord, updatedStock: ChemicalStock) => {
+    setChemicalStock(updatedStock);
+    saveStoredChemicalStock(updatedStock);
+
+    const exists = chemicalRestockRecords.some(r => r.id === record.id);
+    const updatedRestocks = exists 
+      ? chemicalRestockRecords.map(r => r.id === record.id ? record : r)
+      : [record, ...chemicalRestockRecords];
+
+    setChemicalRestockRecords(updatedRestocks);
+    saveStoredChemicalRestockRecords(updatedRestocks);
+
+    try {
+      await Promise.all([
+        saveChemicalStockToFirestore(updatedStock),
+        saveChemicalRestockToFirestore(record),
+      ]);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Chemical restock cloud sync pending/offline:', err?.message || err);
+    }
+  };
+
+  const handleDeleteChemicalRestock = async (recordId: string) => {
+    const { updatedStock, remainingRestocks, deletedRecord } = deleteRestockRecord(
+      recordId,
+      chemicalRestockRecords,
+      chemicalStock
+    );
+
+    if (!deletedRecord) return;
+
+    setChemicalStock(updatedStock);
+    saveStoredChemicalStock(updatedStock);
+
+    setChemicalRestockRecords(remainingRestocks);
+    saveStoredChemicalRestockRecords(remainingRestocks);
+
+    showToast(`ลบรายการรับเข้าน้ำยา "${deletedRecord.chemicalName}" (${deletedRecord.date}) และปรับลดยอดสต๊อกคงเหลือเรียบร้อย`);
+
+    try {
+      await Promise.all([
+        saveChemicalStockToFirestore(updatedStock),
+        deleteChemicalRestockFromFirestore(recordId),
+      ]);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Chemical restock deletion cloud sync pending/offline:', err?.message || err);
+    }
+  };
+
+  const handleSaveDrum = async (
+    oldDrumNumber: string,
+    newDrumNumber: string,
+    oldChemicalName: string,
+    newChemicalName: string,
+    supplier?: string,
+    initialKg?: number,
+    receivedDate?: string
+  ) => {
+    const { updatedRestocks, updatedCuts, updatedStock } = updateDrumInRecords(
+      oldDrumNumber,
+      newDrumNumber,
+      oldChemicalName,
+      newChemicalName,
+      chemicalRestockRecords,
+      chemicalCutRecords,
+      { supplier, initialKg, receivedDate },
+      chemicalStock
+    );
+
+    // บันทึกเฉพาะรายการที่เปลี่ยนจริง (เดิมเขียนทับทุกรายการทุกครั้ง)
+    const oldRestockById = new Map(chemicalRestockRecords.map(r => [r.id, JSON.stringify(r)]));
+    const changedRestocks = updatedRestocks.filter(r => oldRestockById.get(r.id) !== JSON.stringify(r));
+    const oldCutById = new Map(chemicalCutRecords.map(c => [c.id, JSON.stringify(c)]));
+    const changedCuts = updatedCuts.filter(c => oldCutById.get(c.id) !== JSON.stringify(c));
+
+    setChemicalRestockRecords(updatedRestocks);
+    saveStoredChemicalRestockRecords(updatedRestocks);
+
+    setChemicalCutRecords(updatedCuts);
+    saveStoredChemicalCutRecords(updatedCuts);
+
+    if (updatedStock) {
+      setChemicalStock(updatedStock);
+      saveStoredChemicalStock(updatedStock);
+    }
+
+    try {
+      await Promise.all([
+        ...changedRestocks.map(r => saveChemicalRestockToFirestore(r)),
+        ...changedCuts.map(c => saveChemicalCutToFirestore(c)),
+        ...(updatedStock ? [saveChemicalStockToFirestore(updatedStock)] : []),
+      ]);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Drum update cloud sync pending/offline:', err?.message || err);
+    }
+  };
+
+  const handleDeleteDrum = async (drumNumber: string, chemicalName: string) => {
+    const { updatedRestocks, changedRecordIds, removedRecordIds, updatedStock } = deleteDrumWithStock(
+      drumNumber,
+      chemicalName,
+      chemicalRestockRecords,
+      chemicalCutRecords,
+      chemicalStock
+    );
+    setChemicalRestockRecords(updatedRestocks);
+    saveStoredChemicalRestockRecords(updatedRestocks);
+    // หักยอดคงเหลือของถังที่ลบออกจากสต๊อกรวม
+    setChemicalStock(updatedStock);
+    saveStoredChemicalStock(updatedStock);
+
+    try {
+      await Promise.all([
+        saveChemicalStockToFirestore(updatedStock),
+        ...updatedRestocks.filter(r => changedRecordIds.includes(r.id)).map(r => saveChemicalRestockToFirestore(r)),
+        ...removedRecordIds.map(id => deleteChemicalRestockFromFirestore(id)),
+      ]);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Drum deletion cloud sync pending/offline:', err?.message || err);
+    }
+  };
+
+  const handleUpdateFolderDensities = async (chemicalName: string, densities: string[]) => {
+    const updatedRestocks = updateFolderDensitiesInRecords(chemicalName, densities, chemicalRestockRecords);
+    setChemicalRestockRecords(updatedRestocks);
+    saveStoredChemicalRestockRecords(updatedRestocks);
+    showToast(`กำหนดค่า K สำหรับน้ำยา "${chemicalName}" เรียบร้อย (${densities.join(', ')})`);
+
+    try {
+      await Promise.all(
+        updatedRestocks
+          .filter(r => r.chemicalName === chemicalName)
+          .map(r => saveChemicalRestockToFirestore(r))
+      );
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Folder densities sync pending/offline:', err?.message || err);
+    }
+  };
+
+  const handleSaveChemicalFormulas = async (newFormulas: ChemicalFormula[]) => {
+    // สูตรที่ถูกลบออกจากรายการต้องลบบน Cloud ด้วย (เดิมไม่ลบ ทำให้สูตรที่ลบแล้วกลับมาเองหลังซิงค์)
+    const keepIds = new Set(newFormulas.map(f => f.id));
+    const removedFormulas = chemicalFormulas.filter(f => !keepIds.has(f.id));
+
+    setChemicalFormulas(newFormulas);
+    saveStoredFormulas(newFormulas);
+
+    showToast(`บันทึกสูตรคำนวณน้ำยาเรียบร้อย (${newFormulas.length} สูตร)`);
+
+    try {
+      await Promise.all([
+        ...newFormulas.map(f => saveChemicalFormulaToFirestore(f)),
+        ...removedFormulas.map(f => deleteChemicalFormulaFromFirestore(f.id)),
+      ]);
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    } catch (err: any) {
+      console.warn('Notice: Chemical formulas cloud sync pending/offline:', err?.message || err);
     }
   };
 
@@ -1247,35 +1581,14 @@ export default function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[100] w-[min(94vw,28rem)] animate-in fade-in slide-in-from-bottom-4 duration-200">
-          <div
-            className={`px-4 py-3.5 rounded-2xl shadow-2xl border-2 text-sm font-semibold flex items-start gap-3 ${
-              toastMessage.type === 'success'
-                ? 'bg-emerald-600 text-white border-emerald-400'
-                : toastMessage.type === 'error'
-                  ? 'bg-rose-600 text-white border-rose-400'
-                  : 'bg-white text-slate-800 border-slate-200'
-            }`}
-          >
-            {toastMessage.type === 'success' ? (
-              <CheckCircle2 className="w-6 h-6 text-white shrink-0 mt-0.5" />
-            ) : toastMessage.type === 'error' ? (
-              <AlertTriangle className="w-6 h-6 text-white shrink-0 mt-0.5" />
-            ) : (
-              <CheckCircle2 className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-            )}
-            <span className="leading-snug flex-1">{toastMessage.text}</span>
-            <button
-              type="button"
-              onClick={() => setToastMessage(null)}
-              className={`shrink-0 text-xs font-bold px-2 py-1 rounded-lg cursor-pointer ${
-                toastMessage.type === 'info'
-                  ? 'bg-slate-100 text-slate-600'
-                  : 'bg-white/20 text-white'
-              }`}
-            >
-              ปิด
-            </button>
+        <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
+          <div className={`px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2.5 ${
+            toastMessage.type === 'success'
+              ? 'bg-slate-900 text-white border-slate-800'
+              : 'bg-white text-slate-800 border-slate-200 shadow-xl'
+          }`}>
+            <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+            <span>{toastMessage.text}</span>
           </div>
         </div>
       )}
@@ -1312,6 +1625,7 @@ export default function App() {
         }}
         onOpenPuSandwichModal={() => requireEditorPermission(() => setIsPuSandwichModalOpen(true))}
         puSandwichCount={puSandwichRecords.length}
+        chemicalCutsCount={chemicalCutRecords.length}
         totalRemainingMeters={totalRemainingMeters}
         activeRollsCount={activeRollsCount}
         onResetData={() => requireEditorPermission(handleResetData)}
@@ -1445,6 +1759,47 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'chemical' && (
+          <ChemicalStockView
+            stock={chemicalStock}
+            cutRecords={chemicalCutRecords}
+            restockRecords={chemicalRestockRecords}
+            formulas={chemicalFormulas}
+            foilRecords={records}
+            puRecords={puSandwichRecords}
+            onOpenDeductModal={() => requireEditorPermission(() => setIsChemicalDeductOpen(true))}
+            onOpenRestockModal={() => requireEditorPermission(() => {
+              setEditingRestockRecord(null);
+              setIsChemicalRestockOpen(true);
+            })}
+            onOpenFormulaModal={() => requireEditorPermission(() => setIsChemicalFormulaOpen(true))}
+            onRevertCut={(recordId) => requireEditorPermission(() => handleRevertChemicalCut(recordId))}
+            onEditRestock={(record) => requireEditorPermission(() => {
+              setEditingRestockRecord(record);
+              setIsChemicalRestockOpen(true);
+            })}
+            onDeleteRestock={(recordId) => requireEditorPermission(() => handleDeleteChemicalRestock(recordId))}
+            onSaveDrum={(oldNum, newNum, oldChem, newChem, supp, initKg, recDate) => {
+              requireEditorPermission(() => {
+                handleSaveDrum(oldNum, newNum, oldChem, newChem, supp, initKg, recDate);
+              });
+            }}
+            onDeleteDrum={(drumNum, chemName) => {
+              requireEditorPermission(() => {
+                handleDeleteDrum(drumNum, chemName);
+              });
+            }}
+            onUpdateFolderDensities={(chemName, densities) => {
+              requireEditorPermission(() => {
+                handleUpdateFolderDensities(chemName, densities);
+              });
+            }}
+            showToast={showToast}
+            userMode={userMode}
+            onRequestUnlock={() => requireEditorPermission(() => {})}
+          />
+        )}
+
         {activeTab === 'flow' && (
           <DailyProductionFlow
             records={records}
@@ -1496,6 +1851,8 @@ export default function App() {
             onOpenSOAudit={() => handleOpenSOAudit()}
             onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
             onOpenCycleCountHistory={() => setIsCycleCountHistoryOpen(true)}
+            isSaving={isSavingToCloud}
+            isFetching={isFetchingFromCloud}
           />
         )}
       </main>
@@ -1532,6 +1889,62 @@ export default function App() {
         records={puSandwichRecords}
         onSaveCut={handleSavePuSandwichCut}
         onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
+      />
+
+      {/* PU Chemical Stock Deduction Modal (ตัดสต๊อกน้ำยา PU ผูกสูตร & SO) */}
+      <ChemicalDeductModal
+        isOpen={isChemicalDeductOpen}
+        onClose={() => setIsChemicalDeductOpen(false)}
+        currentStock={chemicalStock}
+        formulas={chemicalFormulas}
+        foilRecords={records}
+        puRecords={puSandwichRecords}
+        chemicalCutRecords={chemicalCutRecords}
+        restockRecords={chemicalRestockRecords}
+        onConfirmCut={(cutRecord, updatedStock) => {
+          requireEditorPermission(() => {
+            handleConfirmChemicalCut(cutRecord, updatedStock);
+            setIsChemicalDeductOpen(false);
+          });
+        }}
+        onOpenManageFormulas={() => {
+          setIsChemicalDeductOpen(false);
+          setIsChemicalFormulaOpen(true);
+        }}
+        showToast={showToast}
+      />
+
+      {/* PU Chemical Restock Modal (รับเข้าน้ำยาเข้าสต๊อก) */}
+      <ChemicalRestockModal
+        isOpen={isChemicalRestockOpen}
+        onClose={() => {
+          setIsChemicalRestockOpen(false);
+          setEditingRestockRecord(null);
+        }}
+        currentStock={chemicalStock}
+        existingRestockRecords={chemicalRestockRecords}
+        editingRecord={editingRestockRecord}
+        onConfirmRestock={(restockRecord, updatedStock) => {
+          requireEditorPermission(() => {
+            handleConfirmChemicalRestock(restockRecord, updatedStock);
+            setIsChemicalRestockOpen(false);
+            setEditingRestockRecord(null);
+          });
+        }}
+        showToast={showToast}
+      />
+
+      {/* PU Chemical Formulas Manager Modal (จัดการและผูกสูตรคำนวณ) */}
+      <ChemicalFormulaModal
+        isOpen={isChemicalFormulaOpen}
+        onClose={() => setIsChemicalFormulaOpen(false)}
+        formulas={chemicalFormulas}
+        onSaveFormulas={(newFormulas) => {
+          requireEditorPermission(() => {
+            handleSaveChemicalFormulas(newFormulas);
+          });
+        }}
+        showToast={showToast}
       />
 
       <CutStockModal
@@ -1594,6 +2007,7 @@ export default function App() {
         isOpen={isBatchImportOpen}
         onClose={() => setIsBatchImportOpen(false)}
         rolls={rolls}
+        existingRecords={records}
         onConfirmBatchCut={handleConfirmCutBatch}
       />
 
