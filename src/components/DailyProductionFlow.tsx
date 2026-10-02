@@ -80,11 +80,24 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   }, [records, safePuRecords, todayStr]);
 
   // Filter foil records for selected date
+  // ไม่รวมใบปรับยอดนับสต๊อก / ไม่รวมยอดหลายใบเป็นก้อน — แสดงทีละใบตัดจริง
   const dayRecords = useMemo(() => {
     return records
       .filter((r) => {
         const d = (r.usageDate || r.recordedDate || r.createdAt || '').slice(0, 10);
-        return d === selectedDate;
+        if (d !== selectedDate) return false;
+        const so = String(r.soNumber || '').trim();
+        if (so.startsWith('นับสต๊อก') || String(r.id || '').startsWith('cc_')) return false;
+        const td = Number(r.totalDeducted);
+        if (
+          Number.isFinite(td) &&
+          td < 0 &&
+          Math.abs(Number(r.usedMeters || 0)) < 0.001 &&
+          Math.abs(Number(r.ngMeters || 0)) < 0.001
+        ) {
+          return false;
+        }
+        return true;
       })
       .sort((a, b) => {
         const timeA = a.createdAt || '';
@@ -211,22 +224,23 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
     }
   }, [selectedDate]);
 
-  // Chart data per SO for this day (Foil)
+  // Chart data: แยกทีละใบตัด ไม่รวมยอด SO เดียวกัน
   const chartData = useMemo(() => {
-    // Group by SO for the day
-    const soMap = new Map<string, { so: string; used: number; ng: number; pattern: string }>();
-    dayRecords.forEach((r) => {
-      const existing = soMap.get(r.soNumber) || {
-        so: r.soNumber || 'ไม่ระบุ SO',
-        used: 0,
-        ng: 0,
+    return dayRecords.map((r, idx) => {
+      const so = r.soNumber || 'ไม่ระบุ SO';
+      const round = (r.productionRound || '').trim();
+      const label =
+        dayRecords.filter((x) => x.soNumber === r.soNumber).length > 1
+          ? `${so}${round ? ` (${round})` : ` #${idx + 1}`}`
+          : so;
+      return {
+        so: label,
+        used: Number(r.usedMeters) || 0,
+        ng: Number(r.ngMeters) || 0,
         pattern: r.pattern,
+        recordId: r.id,
       };
-      existing.used += r.usedMeters;
-      existing.ng += r.ngMeters;
-      soMap.set(r.soNumber, existing);
     });
-    return Array.from(soMap.values());
   }, [dayRecords]);
 
   // Copy daily summary for LINE
@@ -638,10 +652,10 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-                กราฟเปรียบเทียบยอดผลิตและ NG แยกตามคำสั่งซื้อ SO (ฟอยล์)
+                กราฟยอดผลิตและ NG แยกตามใบตัด (ฟอยล์)
               </h3>
               <p className="text-xs text-slate-500">
-                แสดงสัดส่วนเมตรที่ผลิตได้จริง (เขียว) เทียบกับ NG เสีย (แดง)
+                แสดงทีละใบตัด — ไม่รวมยอด SO เดียวกัน · เขียว = ใช้จริง · แดง = NG
               </p>
             </div>
             <span className="text-xs font-mono font-bold text-slate-600">

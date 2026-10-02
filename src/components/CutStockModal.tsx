@@ -4,6 +4,7 @@ import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern }
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
 import { formatMeters, round2 } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
+import { fetchFoilRollFromServer } from '../lib/firebase';
 import { 
   X, 
   Scissors, 
@@ -45,6 +46,8 @@ interface CutStockModalProps {
   initialCutMode?: 'so' | 'non_so';
   onConfirmCut?: (record: Omit<StockCutRecord, 'id' | 'createdAt'>) => Promise<void> | void;
   onConfirmCutBatch: (records: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => Promise<void> | void;
+  /** อัปเดตม้วนใน state หลักหลังดึงยอดจาก server ก่อนยืนยันตัด */
+  onRollRefreshed?: (roll: FoilRoll) => void;
 }
 
 export interface DuplicateAlertInfo {
@@ -64,6 +67,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   initialCutMode = 'so',
   onConfirmCut,
   onConfirmCutBatch,
+  onRollRefreshed,
 }) => {
   const today = new Date().toISOString().slice(0, 10);
   const defaultSoPrefix = `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`;
@@ -88,6 +92,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     remainingAfter?: number;
     totalDeducted?: number;
   } | null>(null);
+  const [isRefreshingStock, setIsRefreshingStock] = useState(false);
+  /** แจ้งเมื่อยอด server ต่างจากที่หน้าจอแสดง */
+  const [stockSyncNote, setStockSyncNote] = useState<string | null>(null);
 
   // References to input elements for focus navigation
   const usedMetersInputRefs = useRef<{ [orderId: string]: HTMLInputElement | null }>({});
@@ -132,6 +139,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       setCutResult(null);
       setIsSubmitting(false);
       setDuplicatePromptModal(null);
+      setStockSyncNote(null);
+      setIsRefreshingStock(false);
 
       if (preselectedRollId && availableRolls.some(r => r.id === preselectedRollId)) {
         const found = availableRolls.find(r => r.id === preselectedRollId);
@@ -402,6 +411,23 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     setIsSubmitting(true);
     setShowConfirmSummary(false);
     try {
+      // เช็คยอด server อีกครั้งก่อน commit (race ระหว่างเปิดยืนยันกับกดยืนยัน)
+      if (currentRoll) {
+        const fresh = await fetchFoilRollFromServer(currentRoll.id);
+        if (fresh) {
+          const serverRem = round2(Number(fresh.remainingMeters || 0));
+          const need = round2(
+            batchRecords.reduce((s, r) => s + Math.abs(Number(r.totalDeducted) || 0), 0)
+          );
+          if (need > serverRem + 0.05) {
+            throw new Error(
+              `สต๊อกไม่พอ! ยอดล่าสุดบนเซิร์ฟเวอร์เหลือ ${formatMeters(serverRem)} ม. แต่จะตัด ${formatMeters(need)} ม. (อาจมีเครื่องอื่นตัดไปแล้ว)`
+            );
+          }
+          if (onRollRefreshed) onRollRefreshed(fresh);
+        }
+      }
+
       if (onConfirmCutBatch) {
         await onConfirmCutBatch(batchRecords);
       } else if (onConfirmCut && batchRecords.length > 0) {
@@ -488,7 +514,33 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       return;
     }
 
-    // แสดงหน้าต่างสรุปก่อนบันทึกจริง
+    // ดึงยอดคงเหลือจาก server ก่อนเปิดหน้าต่างยืนยัน (กันเครื่องอื่นตัดม้วนนี้ไปแล้ว)
+    setIsRefreshingStock(true);
+    setStockSyncNote(null);
+    try {
+      const fresh = await fetchFoilRollFromServer(currentRoll.id);
+      if (fresh) {
+        const localRem = round2(Number(currentRoll.remainingMeters || 0));
+        const serverRem = round2(Number(fresh.remainingMeters || 0));
+        if (Math.abs(localRem - serverRem) > 0.05) {
+          setStockSyncNote(
+            `ยอดคงเหลือบนเซิร์ฟเวอร์อัปเดตเป็น ${formatMeters(serverRem)} ม. (หน้าจอเคยแสดง ${formatMeters(localRem)} ม. — อาจมีเครื่องอื่นตัดม้วนนี้ไปแล้ว)`
+          );
+        }
+        if (onRollRefreshed) onRollRefreshed(fresh);
+        // ถ้าตัดเกินยอด server แล้ว ห้ามเปิดยืนยัน
+        if (totalDeductedAll > serverRem + 0.05) {
+          setError(
+            `สต๊อกไม่พอตามยอดล่าสุดบนเซิร์ฟเวอร์ (เหลือ ${formatMeters(serverRem)} ม. แต่ระบุตัด ${formatMeters(totalDeductedAll)} ม.) กรุณาลดจำนวนแล้วลองใหม่`
+          );
+          setIsRefreshingStock(false);
+          return;
+        }
+      }
+    } catch {
+      // offline — ใช้ยอดหน้าจอต่อ transaction ฝั่ง server จะกันอีกชั้น
+    }
+    setIsRefreshingStock(false);
     setShowConfirmSummary(true);
   };
 
@@ -1083,17 +1135,19 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
             <button
               type="submit"
-              disabled={isSubmitting || isOverCut || totalDeductedAll <= 0}
+              disabled={isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0}
               className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
-                isSubmitting || isOverCut || totalDeductedAll <= 0
+                isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
                   : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
               }`}
             >
-              {isSubmitting ? (
+              {isSubmitting || isRefreshingStock ? (
                 <>
                   <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
-                  <span>กำลังบันทึกลง Firebase...</span>
+                  <span>
+                    {isRefreshingStock ? 'กำลังดึงยอดล่าสุดจากเซิร์ฟเวอร์...' : 'กำลังบันทึกลง Firebase...'}
+                  </span>
                 </>
               ) : (
                 <>
@@ -1119,6 +1173,13 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 <p className="text-xs text-slate-500 mt-0.5">ตรวจสอบสรุปด้านล่างก่อนบันทึกลง Firebase</p>
               </div>
             </div>
+
+            {stockSyncNote && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                <span className="leading-relaxed font-medium">{stockSyncNote}</span>
+              </div>
+            )}
 
             <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2 text-sm">
               <div className="flex justify-between gap-2">

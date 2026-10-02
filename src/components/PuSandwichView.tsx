@@ -18,7 +18,10 @@ import {
   Copy,
   Check,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { UserMode } from '../utils/auth';
@@ -33,6 +36,18 @@ interface PuSandwichViewProps {
   onUnlockEditor?: () => void;
 }
 
+type SandwichSortField =
+  | 'date'
+  | 'so'
+  | 'coil'
+  | 'weight'
+  | 'soLength'
+  | 'ngKg'
+  | 'ngMeters'
+  | 'thickness'
+  | 'recorder';
+type SortDirection = 'asc' | 'desc';
+
 export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   records = [],
   onEditRecord,
@@ -41,12 +56,15 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   onUnlockEditor,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchScope, setSearchScope] = useState<'all' | 'so'>('all');
   const [steelFilter, setSteelFilter] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [onlyWithNg, setOnlyWithNg] = useState<boolean>(false);
   const [isMonthlyModalOpen, setIsMonthlyModalOpen] = useState<boolean>(false);
   const [modalMonth, setModalMonth] = useState<string>('all');
   const [copiedMonthly, setCopiedMonthly] = useState<boolean>(false);
+  const [sortField, setSortField] = useState<SandwichSortField>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   const safeRecords = Array.isArray(records) ? records : [];
 
@@ -186,27 +204,134 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
     });
   };
 
-  // Filtered records
+  const handleToggleSort = (field: SandwichSortField) => {
+    if (sortField === field) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      // ตัวเลขเริ่มจากมาก→น้อย, ข้อความ/วันที่เริ่มจากล่าสุด
+      setSortDirection(
+        field === 'so' || field === 'coil' || field === 'recorder' ? 'asc' : 'desc'
+      );
+    }
+  };
+
+  // Filtered + sorted records
   const filteredRecords = useMemo(() => {
-    return safeRecords.filter((r) => {
-      const matchesSearch =
-        !searchTerm ||
-        r.soNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.coilNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.coilColor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (r.recordedBy || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (r.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const q = searchTerm.toLowerCase().trim();
+    const list = safeRecords.filter((r) => {
+      let matchesSearch = true;
+      if (q) {
+        if (searchScope === 'so') {
+          matchesSearch = (r.soNumber || '').toLowerCase().includes(q);
+        } else {
+          matchesSearch =
+            (r.soNumber || '').toLowerCase().includes(q) ||
+            (r.coilNumber || '').toLowerCase().includes(q) ||
+            (r.coilColor || '').toLowerCase().includes(q) ||
+            (r.recordedBy || '').toLowerCase().includes(q) ||
+            (r.notes || '').toLowerCase().includes(q) ||
+            (r.thickness || '').toLowerCase().includes(q);
+        }
+      }
 
       const matchesSteel = steelFilter === 'all' || r.steelOrigin === steelFilter;
 
       const dateStr = r.productionDate || (r.createdAt ? r.createdAt.slice(0, 10) : '');
       const matchesMonth = selectedMonth === 'all' || dateStr.startsWith(selectedMonth);
 
-      const matchesNg = !onlyWithNg || (Number(r.ngKg) > 0 || Number(r.ngMeters) > 0);
+      const matchesNg = !onlyWithNg || Number(r.ngKg) > 0 || Number(r.ngMeters) > 0;
 
       return matchesSearch && matchesSteel && matchesMonth && matchesNg;
     });
-  }, [safeRecords, searchTerm, steelFilter, selectedMonth, onlyWithNg]);
+
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case 'so':
+          cmp = (a.soNumber || '').localeCompare(b.soNumber || '', undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+          break;
+        case 'coil':
+          cmp = (a.coilNumber || '').localeCompare(b.coilNumber || '', undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+          break;
+        case 'weight':
+          cmp = (Number(a.weightUsed) || 0) - (Number(b.weightUsed) || 0);
+          break;
+        case 'soLength':
+          cmp = (Number(a.soLengthMeters) || 0) - (Number(b.soLengthMeters) || 0);
+          break;
+        case 'ngKg':
+          cmp = (Number(a.ngKg) || 0) - (Number(b.ngKg) || 0);
+          break;
+        case 'ngMeters':
+          cmp = (Number(a.ngMeters) || 0) - (Number(b.ngMeters) || 0);
+          break;
+        case 'thickness':
+          cmp = (parseFloat(String(a.thickness)) || 0) - (parseFloat(String(b.thickness)) || 0);
+          break;
+        case 'recorder':
+          cmp = (a.recordedBy || '').localeCompare(b.recordedBy || '', 'th');
+          break;
+        case 'date':
+        default: {
+          const da = a.productionDate || a.createdAt || '';
+          const db = b.productionDate || b.createdAt || '';
+          cmp = da.localeCompare(db);
+          if (cmp === 0) cmp = (a.createdAt || '').localeCompare(b.createdAt || '');
+          break;
+        }
+      }
+      return cmp * dir;
+    });
+
+    return list;
+  }, [
+    safeRecords,
+    searchTerm,
+    searchScope,
+    steelFilter,
+    selectedMonth,
+    onlyWithNg,
+    sortField,
+    sortDirection,
+  ]);
+
+  const renderSortHeader = (
+    field: SandwichSortField,
+    label: string,
+    align: 'left' | 'right' | 'center' = 'left'
+  ) => {
+    const isActive = sortField === field;
+    return (
+      <th
+        className={`py-3 px-3.5 cursor-pointer select-none hover:bg-slate-100/80 transition-colors ${
+          align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
+        } ${isActive ? 'text-emerald-800' : ''}`}
+        onClick={() => handleToggleSort(field)}
+        title={`เรียงตาม${label} (กดสลับมาก↔น้อย)`}
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {isActive ? (
+            sortDirection === 'asc' ? (
+              <ArrowUp className="w-3.5 h-3.5 text-emerald-600" />
+            ) : (
+              <ArrowDown className="w-3.5 h-3.5 text-emerald-600" />
+            )
+          ) : (
+            <ArrowUpDown className="w-3 h-3 text-slate-300" />
+          )}
+        </span>
+      </th>
+    );
+  };
 
   return (
     <div className="space-y-3 animate-in fade-in duration-200">
@@ -312,17 +437,53 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       {/* Search & Filter Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
-          {/* Search Box */}
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ค้นหารหัส SO, เบอร์คอล์ย, สีคอล์ย, ผู้บันทึก..."
-              className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-emerald-500 outline-none"
-            />
+          {/* Search Box + scope (ทั้งหมด / เฉพาะ SO) */}
+          <div className="relative flex-1 min-w-[200px] flex items-center gap-1.5">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder={
+                  searchScope === 'so'
+                    ? 'ค้นหาเฉพาะรหัส SO เช่น SO-6909-500...'
+                    : 'ค้นหารหัส SO, เบอร์คอล์ย, สีคอล์ย, ผู้บันทึก...'
+                }
+                className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-emerald-500 outline-none"
+              />
+            </div>
+            <select
+              value={searchScope}
+              onChange={(e) => setSearchScope(e.target.value as 'all' | 'so')}
+              className="shrink-0 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 outline-none cursor-pointer text-slate-800"
+              title="ขอบเขตการค้นหา"
+            >
+              <option value="all">ทั้งหมด</option>
+              <option value="so">เฉพาะ SO</option>
+            </select>
           </div>
+
+          {/* Quick sort SO */}
+          <button
+            type="button"
+            onClick={() => handleToggleSort('so')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-colors ${
+              sortField === 'so'
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+            title="เรียงตามรหัส SO (กดสลับน้อย→มาก / มาก→น้อย)"
+          >
+            {sortField === 'so' && sortDirection === 'asc' ? (
+              <ArrowUp className="w-3.5 h-3.5" />
+            ) : sortField === 'so' && sortDirection === 'desc' ? (
+              <ArrowDown className="w-3.5 h-3.5" />
+            ) : (
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            )}
+            เรียง SO
+          </button>
 
           {/* Steel Origin Filter */}
           <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs">
@@ -376,8 +537,33 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
           </button>
         </div>
 
-        <div className="text-xs text-slate-500 font-mono">
-          แสดง <strong className="text-slate-900">{filteredRecords.length}</strong> จาก {records.length} รายการ
+        <div className="text-xs text-slate-500 font-mono flex flex-wrap items-center gap-2">
+          <span>
+            แสดง <strong className="text-slate-900">{filteredRecords.length}</strong> จาก{' '}
+            {records.length} รายการ
+          </span>
+          <span className="text-slate-400">·</span>
+          <span className="text-emerald-700 font-semibold">
+            เรียง:{' '}
+            {sortField === 'so'
+              ? 'รหัส SO'
+              : sortField === 'date'
+                ? 'วันที่'
+                : sortField === 'weight'
+                  ? 'น้ำหนักใช้'
+                  : sortField === 'soLength'
+                    ? 'เมตร SO'
+                    : sortField === 'ngKg'
+                      ? 'NG (กก.)'
+                      : sortField === 'ngMeters'
+                        ? 'NG (ม.)'
+                        : sortField === 'coil'
+                          ? 'เบอร์คอล์ย'
+                          : sortField === 'thickness'
+                            ? 'ความหนา'
+                            : 'ผู้บันทึก'}{' '}
+            {sortDirection === 'asc' ? 'น้อย→มาก' : 'มาก→น้อย'}
+          </span>
         </div>
       </div>
 
@@ -402,19 +588,19 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-700 font-semibold">
                 <tr>
-                  <th className="py-3 px-3.5">รหัส SO</th>
-                  <th className="py-3 px-3.5">วันที่ตัด</th>
+                  {renderSortHeader('so', 'รหัส SO')}
+                  {renderSortHeader('date', 'วันที่ตัด')}
                   <th className="py-3 px-3.5">สีคอล์ย</th>
-                  <th className="py-3 px-3.5">ความหนา</th>
-                  <th className="py-3 px-3.5">เบอร์คอล์ย</th>
+                  {renderSortHeader('thickness', 'ความหนา')}
+                  {renderSortHeader('coil', 'เบอร์คอล์ย')}
                   <th className="py-3 px-3.5">ชนิดเหล็ก</th>
                   <th className="py-3 px-3.5 text-right">น้ำหนักก่อนใช้</th>
                   <th className="py-3 px-3.5 text-right">น้ำหนักหลังใช้</th>
-                  <th className="py-3 px-3.5 text-right font-black text-emerald-800">ใช้จริง (กก.)</th>
-                  <th className="py-3 px-3.5 text-right font-bold text-teal-800">งาน SO (ม.)</th>
-                  <th className="py-3 px-3.5 text-right text-rose-700 font-bold">ยอด NG (กก.)</th>
-                  <th className="py-3 px-3.5 text-right text-rose-700 font-bold">ยอด NG (ม.)</th>
-                  <th className="py-3 px-3.5">ผู้บันทึก</th>
+                  {renderSortHeader('weight', 'ใช้จริง (กก.)', 'right')}
+                  {renderSortHeader('soLength', 'งาน SO (ม.)', 'right')}
+                  {renderSortHeader('ngKg', 'ยอด NG (กก.)', 'right')}
+                  {renderSortHeader('ngMeters', 'ยอด NG (ม.)', 'right')}
+                  {renderSortHeader('recorder', 'ผู้บันทึก')}
                   <th className="py-3 px-3.5">หมายเหตุ</th>
                   <th className="py-3 px-3.5 text-center">จัดการ</th>
                 </tr>

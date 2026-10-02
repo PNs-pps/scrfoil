@@ -77,6 +77,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const [isNgManuallyEdited, setIsNgManuallyEdited] = useState(false);
   const [customKgPerMeter, setCustomKgPerMeter] = useState<string>('');
   const [showCustomFactor, setShowCustomFactor] = useState(false);
+  /** หน้าต่างยืนยันก่อนบันทึกตัดแซนวิช */
+  const [showConfirmSummary, setShowConfirmSummary] = useState(false);
 
   // History search state
   const [historySearch, setHistorySearch] = useState('');
@@ -88,6 +90,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     setError(null);
     setCustomKgPerMeter('');
     setShowCustomFactor(false);
+    setShowConfirmSummary(false);
+    setIsSubmitting(false);
 
     if (editingRecord) {
       setActiveTab('create');
@@ -181,65 +185,69 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const validateSandwichForm = (): boolean => {
     setError(null);
-
-    // Validations
     if (!soNumber.trim()) {
       setError('กรุณาระบุรหัส SO');
-      return;
+      return false;
     }
     if (soLengthMeters === '' || numSoLength <= 0) {
       setError('กรุณาระบุความยาวตามใบงาน SO (เมตร) ให้ถูกต้องมากกว่า 0');
-      return;
+      return false;
     }
     if (!coilColor.trim()) {
       setError('กรุณาระบุสีคอล์ย');
-      return;
+      return false;
     }
     if (!thickness.trim()) {
       setError('กรุณาระบุความหนา');
-      return;
+      return false;
     }
     if (!coilNumber.trim()) {
       setError('กรุณาระบุเบอร์คอล์ย');
-      return;
+      return false;
     }
     if (weightBefore === '' || numBefore <= 0) {
       setError('กรุณาระบุน้ำหนักก่อนใช้ (กก.) ให้ถูกต้องมากกว่า 0');
-      return;
+      return false;
     }
     if (weightAfter === '' || numAfter < 0) {
       setError('กรุณาระบุน้ำหนักหลังใช้ (กก.) ให้ถูกต้อง');
-      return;
+      return false;
     }
     if (numAfter > numBefore) {
       setError('น้ำหนักหลังใช้ไม่สามารถมากกว่าน้ำหนักก่อนใช้ได้');
-      return;
+      return false;
     }
     if (steelOrigin === 'อื่นๆ' && !customSteelOrigin.trim()) {
       setError('กรุณาระบุรายละเอียดชนิดเหล็ก (กรณีเลือกอื่นๆ)');
-      return;
+      return false;
     }
 
     const numNgKg = parseFloat(ngKg) || 0;
     const numNgMeters = parseFloat(ngMeters) || 0;
     if (numNgKg < 0) {
       setError('ยอด NG (กก.) ต้องไม่ติดลบ');
-      return;
+      return false;
     }
     if (numNgMeters < 0) {
       setError('ยอด NG (เมตร) ต้องไม่ติดลบ');
-      return;
+      return false;
     }
     if (numNgKg > calculatedUsed && calculatedUsed > 0) {
       setError('ยอด NG (กก.) ต้องไม่เกินน้ำหนักเหล็กที่ใช้จริง');
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const executeSandwichSave = async () => {
+    const numNgKg = parseFloat(ngKg) || 0;
+    const numNgMeters = parseFloat(ngMeters) || 0;
 
     try {
       setIsSubmitting(true);
+      setShowConfirmSummary(false);
       if (recordedBy.trim()) {
         saveRecentOperator(recordedBy.trim());
       }
@@ -261,8 +269,12 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       };
 
       if (numSoLength > 0) cleanPayload.soLengthMeters = numSoLength;
-      if (steelOrigin === 'อื่นๆ' && customSteelOrigin.trim()) cleanPayload.customSteelOrigin = customSteelOrigin.trim();
-      if (lengthMeters && parseFloat(lengthMeters) > 0) cleanPayload.lengthMeters = parseFloat(lengthMeters);
+      if (steelOrigin === 'อื่นๆ' && customSteelOrigin.trim()) {
+        cleanPayload.customSteelOrigin = customSteelOrigin.trim();
+      }
+      if (lengthMeters && parseFloat(lengthMeters) > 0) {
+        cleanPayload.lengthMeters = parseFloat(lengthMeters);
+      }
       if (notes.trim()) cleanPayload.notes = notes.trim();
 
       if (onSaveRecord && !editingRecord) {
@@ -297,6 +309,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateSandwichForm()) return;
+    // แสดงสรุปยืนยันก่อนบันทึกจริง
+    setShowConfirmSummary(true);
+  };
   };
 
   // Safe records array
@@ -1013,8 +1033,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   {isSubmitting
                     ? 'กำลังบันทึก...'
                     : editingRecord
-                      ? 'บันทึกการแก้ไข'
-                      : 'บันทึกตัด SO แซนวิช'}
+                      ? 'ตรวจสอบก่อนบันทึกแก้ไข'
+                      : 'ตรวจสอบก่อนตัด SO แซนวิช'}
                 </button>
               </div>
             </form>
@@ -1193,6 +1213,132 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* ========== ยืนยันก่อนตัด SO แซนวิช ========== */}
+      {showConfirmSummary && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-emerald-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center justify-center shrink-0">
+                <Factory className="w-5 h-5 text-emerald-800" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  {editingRecord ? 'ยืนยันก่อนบันทึกการแก้ไข' : 'ยืนยันก่อนตัด SO แซนวิช'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ตรวจสอบสรุปด้านล่างก่อนบันทึกจริง
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2 text-sm">
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 text-xs">รหัส SO</span>
+                <span className="font-bold text-slate-900 font-mono text-xs">{soNumber.trim()}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 text-xs">วันที่ผลิต</span>
+                <span className="font-semibold text-slate-800 text-xs">{productionDate}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 text-xs">คอล์ย</span>
+                <span className="font-semibold text-slate-800 text-xs text-right">
+                  {coilColor.trim()} · {thickness.trim()} มม. · #{coilNumber.trim()}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 text-xs">ชนิดเหล็ก</span>
+                <span className="font-semibold text-slate-800 text-xs">
+                  {steelOrigin}
+                  {steelOrigin === 'อื่นๆ' && customSteelOrigin.trim()
+                    ? ` (${customSteelOrigin.trim()})`
+                    : ''}
+                </span>
+              </div>
+              <div className="pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-[10px] text-slate-400 uppercase">ก่อนใช้</div>
+                  <div className="font-mono font-bold text-slate-800 text-xs">
+                    {numBefore.toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-emerald-600 uppercase">ใช้จริง</div>
+                  <div className="font-mono font-bold text-emerald-700 text-xs">
+                    {calculatedUsed.toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 uppercase">หลังใช้</div>
+                  <div className="font-mono font-bold text-slate-800 text-xs">
+                    {numAfter.toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-between gap-2 pt-1">
+                <span className="text-slate-500 text-xs">ความยาวตาม SO</span>
+                <span className="font-mono font-bold text-teal-800 text-xs">
+                  {numSoLength > 0 ? `${numSoLength.toLocaleString('th-TH')} ม.` : '—'}
+                </span>
+              </div>
+              {(parseFloat(ngKg) > 0 || parseFloat(ngMeters) > 0) && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-rose-600 text-xs font-semibold">ยอด NG</span>
+                  <span className="font-mono font-bold text-rose-700 text-xs">
+                    {(parseFloat(ngKg) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
+                    {(parseFloat(ngMeters) || 0) > 0
+                      ? ` / ${(parseFloat(ngMeters) || 0).toLocaleString('th-TH')} ม.`
+                      : ''}
+                  </span>
+                </div>
+              )}
+              {recordedBy.trim() && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-500 text-xs">ผู้บันทึก</span>
+                  <span className="text-xs font-semibold text-slate-800">{recordedBy.trim()}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 mt-0.5" />
+              <span className="leading-relaxed">
+                กดยืนยันแล้วระบบจะบันทึกลงเครื่องและซิงค์ Cloud — ตรวจสอบตัวเลขให้ถูกต้องก่อนบันทึก
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => setShowConfirmSummary(false)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                กลับไปแก้
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => executeSandwichSave()}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    กำลังบันทึก...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    ยืนยันบันทึก
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
