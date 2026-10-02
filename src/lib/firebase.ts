@@ -151,7 +151,11 @@ async function signInWithProviderPopup(
       err?.code === 'auth/popup-blocked' ||
       err?.code === 'auth/operation-not-supported-in-this-environment'
     ) {
+      // Redirect navigation takes over the page. Do not rethrow the popup
+      // error, otherwise callers can briefly show a false "Login failed"
+      // message while the redirect is already in progress.
       await signInWithRedirect(auth, provider);
+      return new Promise<User>(() => {});
     }
     throw err;
   }
@@ -1947,9 +1951,15 @@ export async function applyCycleCountAdjustments(
         sanitizeForFirestore(historyItem)
       );
 
-      updatedRolls.push(next);
-      createdRecords.push(record);
+      return { next, record };
     });
+
+    // Firestore may retry a transaction callback. Keep UI/result arrays outside
+    // the callback so retries cannot append duplicate entries.
+    if (result) {
+      updatedRolls.push(result.next);
+      createdRecords.push(result.record);
+    }
   }
 
   markLocalWrite([
