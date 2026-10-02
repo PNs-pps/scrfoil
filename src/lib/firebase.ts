@@ -266,7 +266,7 @@ const recentLocalWriteIds = new Map<string, number>();
 /** กัน snapshot/cache เก่ทับค่าหลังปรับยอด — ต้องยาวพอให้ server confirm */
 const LOCAL_WRITE_TTL_MS = 45000;
 
-function markLocalWrite(ids: string[]): void {
+export function markLocalWrite(ids: string[]): void {
   const expiry = Date.now() + LOCAL_WRITE_TTL_MS;
   ids.forEach((id) => {
     if (id) recentLocalWriteIds.set(id, expiry);
@@ -479,6 +479,19 @@ export async function saveFoilRollToFirestore(roll: FoilRoll): Promise<void> {
 }
 
 /**
+  * Save a single Stock Cut Record to Firestore
+  */
+export async function saveStockCutRecordToFirestore(record: StockCutRecord): Promise<void> {
+  try {
+    const ref = doc(db, RECORDS_COLLECTION, record.id);
+    await setDoc(ref, sanitizeForFirestore(record), { merge: true });
+  } catch (err: any) {
+    console.warn('Notice: Could not write cut record to Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+/**
  * Delete a Foil Roll from Firestore
  */
 export async function deleteFoilRollFromFirestore(rollId: string): Promise<void> {
@@ -519,7 +532,8 @@ export async function deleteFoilRollFromFirestore(rollId: string): Promise<void>
  */
 export async function executeCutBatchInFirestore(
   batchRecords: StockCutRecord[],
-  rollId: string
+  rollId: string,
+  fallbackRoll?: FoilRoll
 ): Promise<FoilRoll> {
   const rollRef = doc(db, ROLLS_COLLECTION, rollId);
 
@@ -527,10 +541,16 @@ export async function executeCutBatchInFirestore(
     // 1. Read the roll fresh from the server — this is the "read the SO sheet's
     //    real value before showing/saving" requirement.
     const rollSnap = await tx.get(rollRef);
-    if (!rollSnap.exists()) {
+    if (!rollSnap.exists() && !fallbackRoll) {
       throw new Error('ไม่พบม้วนฟอยล์นี้ในระบบ (อาจถูกลบไปแล้วจากเครื่องอื่น)');
     }
-    const serverRoll = rollSnap.data() as FoilRoll;
+    const serverRollRaw = rollSnap.exists()
+      ? (rollSnap.data() as FoilRoll)
+      : fallbackRoll!;
+    const serverRoll: FoilRoll = {
+      ...serverRollRaw,
+      id: serverRollRaw.id || rollSnap.id || rollId,
+    };
 
     // 2. Duplicate-write guard: check which of these record ids already exist
     //    (idempotency — a retried/duplicated submit must not double-deduct).
@@ -544,11 +564,14 @@ export async function executeCutBatchInFirestore(
       return serverRoll;
     }
 
-    // 3. Validate against the FRESH server remaining meters (not the client's copy).
+    // 3. Validate against the FRESH server remaining meters (or fallback if server doc was just seeded).
     const totalUsed = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.usedMeters || 0)), 0));
     const totalNg = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.ngMeters || 0)), 0));
     const totalDeduct = round2(newRecords.reduce((s, r) => s + deductionOf(r), 0));
-    const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
+    
+    const serverRem = Math.max(0, Number(serverRoll.remainingMeters || 0));
+    const fallbackRem = fallbackRoll ? Math.max(0, Number(fallbackRoll.remainingMeters || 0)) : 0;
+    const freshRemaining = serverRem > 0 ? serverRem : (fallbackRem > 0 ? fallbackRem : serverRem);
 
     if (totalDeduct > freshRemaining + 0.01) {
       throw new Error(
@@ -587,6 +610,7 @@ export async function executeCutBatchInFirestore(
 
     const updatedRoll: FoilRoll = {
       ...serverRoll,
+      id: serverRoll.id || rollSnap.id || rollId,
       remainingMeters: newRemaining,
       usedMeters: newUsed,
       ngMeters: newNg,
@@ -671,7 +695,8 @@ export async function executeCutBatchInFirestore(
  * for the same concurrency-safety reasons as executeCutBatchInFirestore above.
  */
 export async function executeMultiRollCutBatchInFirestore(
-  batchRecords: StockCutRecord[]
+  batchRecords: StockCutRecord[],
+  fallbackRollsMap?: Map<string, FoilRoll>
 ): Promise<FoilRoll[]> {
   const recordsByRoll = new Map<string, StockCutRecord[]>();
   batchRecords.forEach((r) => {
@@ -698,10 +723,15 @@ export async function executeMultiRollCutBatchInFirestore(
 
     rollIds.forEach((rollId, idx) => {
       const snap = rollSnaps[idx];
-      if (!snap.exists()) {
+      const fallback = fallbackRollsMap?.get(rollId);
+      if (!snap.exists() && !fallback) {
         throw new Error(`ไม่พบม้วนฟอยล์ ${rollId} ในระบบ (อาจถูกลบไปแล้ว)`);
       }
-      const serverRoll = snap.data() as FoilRoll;
+      const raw = snap.exists() ? (snap.data() as FoilRoll) : fallback!;
+      const serverRoll: FoilRoll = {
+        ...raw,
+        id: raw.id || snap.id || rollId,
+      };
       const newRecordsForRoll = (recordsByRoll.get(rollId) || []).filter((r) => !alreadyWrittenIds.has(r.id));
       if (newRecordsForRoll.length === 0) {
         updatedRolls.push(serverRoll);
@@ -711,7 +741,9 @@ export async function executeMultiRollCutBatchInFirestore(
       const totalUsed = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.usedMeters || 0)), 0));
       const totalNg = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.ngMeters || 0)), 0));
       const totalDeduct = round2(newRecordsForRoll.reduce((s, r) => s + deductionOf(r), 0));
-      const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
+      const serverRem = Math.max(0, Number(serverRoll.remainingMeters || 0));
+      const fallbackRem = fallback ? Math.max(0, Number(fallback.remainingMeters || 0)) : 0;
+      const freshRemaining = serverRem > 0 ? serverRem : (fallbackRem > 0 ? fallbackRem : serverRem);
 
       if (totalDeduct > freshRemaining + 0.01) {
         throw new Error(
@@ -751,6 +783,7 @@ export async function executeMultiRollCutBatchInFirestore(
 
       updatedRolls.push({
         ...serverRoll,
+        id: serverRoll.id || snap.id || rollId,
         remainingMeters: newRemaining,
         usedMeters: newUsed,
         ngMeters: newNg,

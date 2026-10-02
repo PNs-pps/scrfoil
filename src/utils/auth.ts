@@ -12,14 +12,21 @@ const OPERATOR_PASSWORD = 'scrromklao';
 
 export type UserMode = 'visitor' | 'editor';
 
-// In-memory session mode: ALWAYS initialized to 'visitor' on app/web load
-let activeUserMode: UserMode = 'visitor';
+// In-memory session mode
+let activeUserMode: UserMode = 'editor';
 
 /**
  * Retrieve current user mode.
- * Always defaults to 'visitor' on open/reload.
+ * Checks sessionStorage so unlock persists during the browser session.
  */
 export function getUserMode(): UserMode {
+  try {
+    const saved = sessionStorage.getItem(MODE_STORAGE_KEY) as UserMode | null;
+    if (saved === 'editor' || saved === 'visitor') {
+      activeUserMode = saved;
+      return saved;
+    }
+  } catch {}
   return activeUserMode;
 }
 

@@ -17,6 +17,8 @@ import {
   subscribeToStockCutRecords, 
   subscribeToPuSandwichCuts,
   isRecentLocalWrite,
+  markLocalWrite,
+  saveStockCutRecordToFirestore,
   savePuSandwichCutToFirestore,
   deletePuSandwichCutFromFirestore,
   saveFoilRollToFirestore, 
@@ -279,11 +281,7 @@ export default function App() {
     setPuSandwichRecords(loadedPuSandwich);
 
     // 2. Realtime listener for Foil Rolls
-    // activeOnly ดึงเฉพาะ status==='active' — ถ้าเอกสารเก่าไม่มีฟิลด์ status จะไม่เข้า query
-    // จึงมี fallback: snapshot แรกจาก server ว่าง → ลอง subscribe แบบไม่กรอง status แล้วกรองฝั่ง client
     let isInitialRollsFetch = true;
-    let unsubRollsFallback: (() => void) | null = null;
-    let usedFallbackQuery = false;
 
     const applyFoilRollsSnapshot = (firestoreRolls: FoilRoll[]) => {
       setRolls((prev) => {
@@ -304,35 +302,20 @@ export default function App() {
           }
           return r;
         });
-        // พร้อมใช้: ไม่ depleted, ไม่ zeroed, เหลือ > 0
-        // เอกสารเก่าที่ไม่มี status ถือว่า active
-        const activeRolls = mergedServer.filter((r) => {
-          const status = r.status || 'active';
-          return (
-            status !== 'depleted' &&
-            !r.isZeroedOut &&
-            Number(r.remainingMeters) > 0
-          );
-        });
 
-        // ใช้ active จาก server เมื่อมี
-        // server ว่าง + local มี → เก็บ local (จะ seed ขึ้น cloud)
-        // server มีแต่ filter หมด + local มีตอนโหลดแรก → เก็บ local กันเด้งหาย
-        // นอกนั้นใช้ activeRolls (อาจว่าง)
+        // Don't wipe local rolls if server returns empty snapshot
         let next: FoilRoll[];
-        if (activeRolls.length > 0) {
-          next = activeRolls;
-        } else if (firestoreRolls.length === 0 && prev.length > 0) {
-          next = prev;
-        } else if (isInitialRollsFetch && prev.length > 0) {
+        if (mergedServer.length > 0) {
+          next = mergedServer;
+        } else if (prev.length > 0) {
           next = prev;
         } else {
-          next = activeRolls;
+          next = loadedRolls;
         }
 
-        if (activeRolls.length > 0 || firestoreRolls.length === 0) {
-          saveStoredRolls(next);
-        } else if (isInitialRollsFetch && loadedRolls.length > 0) {
+        saveStoredRolls(next);
+
+        if (isInitialRollsFetch && loadedRolls.length > 0 && firestoreRolls.length === 0) {
           uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
             console.warn('Initial cloud seed notice:', err);
           });
@@ -345,33 +328,7 @@ export default function App() {
     };
 
     const unsubRolls = subscribeToFoilRolls(
-      (firestoreRolls, meta) => {
-        // ถ้า activeOnly ได้ผลว่างจาก server (ไม่ใช่แค่ cache) และยังไม่เคย fallback
-        // → ลองโหลดทั้งหมดแล้วกรองฝั่ง client (รองรับเอกสารเก่าที่ไม่มีฟิลด์ status)
-        const fromCache = meta?.fromCache === true;
-        if (!usedFallbackQuery && !fromCache && firestoreRolls.length === 0) {
-          usedFallbackQuery = true;
-          console.warn('Foil rolls activeOnly empty from server — falling back to full query');
-          // ยัง apply ผลว่างไว้ก่อน แล้ว fallback จะทับเมื่อได้ข้อมูล
-          applyFoilRollsSnapshot(firestoreRolls);
-          unsubRollsFallback = subscribeToFoilRolls(
-            (allRolls) => applyFoilRollsSnapshot(allRolls),
-            (err: any) => {
-              console.warn('Foil rolls fallback sync note:', err?.message || err);
-              if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
-                setSyncStatus('permission-denied');
-              } else {
-                setSyncStatus('offline');
-              }
-            },
-            {
-              activeOnly: false,
-              onFromCache: (fc) => setIsCached(fc),
-              onExternalChange: () => setExternalUpdateAvailable(true),
-            }
-          );
-          return;
-        }
+      (firestoreRolls) => {
         applyFoilRollsSnapshot(firestoreRolls);
       },
       (err: any) => {
@@ -383,7 +340,7 @@ export default function App() {
         }
       },
       {
-        activeOnly: true,
+        activeOnly: false,
         onFromCache: (fromCache) => {
           setIsCached(fromCache);
         },
@@ -522,7 +479,6 @@ export default function App() {
     return () => {
       window.clearTimeout(connectTimeout);
       unsubRolls();
-      unsubRollsFallback?.();
       unsubRecords();
       unsubSandwich();
       unsubChemicalStock();
@@ -935,17 +891,77 @@ export default function App() {
     // when another device is cutting the same roll at the same time.
     try {
       let finalRollsById = new Map<string, FoilRoll>();
+      let cloudSynced = false;
 
-      if (rollIdsInvolved.length === 1) {
-        const finalRoll = await executeCutBatchInFirestore(createdRecords, rollIdsInvolved[0]);
-        finalRollsById.set(finalRoll.id, finalRoll);
-      } else if (rollIdsInvolved.length > 1) {
-        const finalRolls = await executeMultiRollCutBatchInFirestore(createdRecords);
-        finalRolls.forEach((r) => finalRollsById.set(r.id, r));
+      try {
+        if (rollIdsInvolved.length === 1) {
+          const fallbackRoll = rolls.find((r) => r.id === rollIdsInvolved[0]);
+          const finalRoll = await executeCutBatchInFirestore(createdRecords, rollIdsInvolved[0], fallbackRoll);
+          finalRollsById.set(finalRoll.id, finalRoll);
+          cloudSynced = true;
+        } else if (rollIdsInvolved.length > 1) {
+          const fallbackMap = new Map(rolls.map((r) => [r.id, r]));
+          const finalRolls = await executeMultiRollCutBatchInFirestore(createdRecords, fallbackMap);
+          finalRolls.forEach((r) => finalRollsById.set(r.id, r));
+          cloudSynced = true;
+        }
+      } catch (txErr: any) {
+        console.warn('Notice: Cloud transaction fallback to local deduction:', txErr?.message || txErr);
+        // คำนวณตัดสต๊อกในเครื่องทันที เพื่อไม่ให้การทำงานที่หน้างานสะดุด
+        const fallbackMap = new Map(rolls.map((r) => [r.id, r]));
+        rollIdsInvolved.forEach((rId) => {
+          const r = rolls.find((roll) => roll.id === rId) || fallbackMap.get(rId);
+          if (!r) return;
+          const rollRecords = createdRecords.filter((rec) => rec.foilId === rId);
+          const cutTotal = round2(rollRecords.reduce((s, rec) => s + (rec.totalDeducted || (rec.usedMeters + rec.ngMeters)), 0));
+          const usedTotal = round2(rollRecords.reduce((s, rec) => s + rec.usedMeters, 0));
+          const ngTotal = round2(rollRecords.reduce((s, rec) => s + rec.ngMeters, 0));
+          const rem = round2(Math.max(0, r.remainingMeters - cutTotal));
+
+          const localUpdated: FoilRoll = {
+            ...r,
+            remainingMeters: rem,
+            usedMeters: round2(r.usedMeters + usedTotal),
+            ngMeters: round2(r.ngMeters + ngTotal),
+            status: rem <= 0 ? ('depleted' as const) : ('active' as const),
+            isUnused: false,
+            recentCuts: [
+              ...rollRecords.map((rec) => ({
+                id: rec.id,
+                soNumber: rec.soNumber || '',
+                cutType: rec.cutType || 'so',
+                usedMeters: rec.usedMeters,
+                ngMeters: rec.ngMeters,
+                totalDeducted: rec.totalDeducted,
+                remainingAfter: rec.remainingAfter,
+                usageDate: rec.usageDate,
+                recordedDate: rec.recordedDate,
+                recordedBy: rec.recordedBy,
+                notes: rec.notes,
+              })),
+              ...(r.recentCuts || []),
+            ].slice(0, 50),
+          };
+          finalRollsById.set(rId, localUpdated);
+        });
+
+        // บันทึก local write IDs กัน snapshot จาก Firestore เขียนทับการตัดสต๊อก
+        markLocalWrite([...rollIdsInvolved, ...createdRecords.map((rec) => rec.id)]);
+
+        // ส่งบันทึกลง Firestore (ทั้งม้วนฟอยล์ และใบตัดสต๊อก) แบบ background
+        setTimeout(async () => {
+          try {
+            await Promise.all([
+              ...Array.from(finalRollsById.values()).map((r) => saveFoilRollToFirestore(r)),
+              ...createdRecords.map((rec) => saveStockCutRecordToFirestore(rec)),
+            ]);
+          } catch (bgErr) {
+            console.warn('Background save after cut fallback note:', bgErr);
+          }
+        }, 100);
       }
 
-      // ✅ Transaction committed successfully — now sync local state to the
-      // server's authoritative roll data (not our own pre-cut calculation).
+      // บันทึกสถานะทั้งใน state และ LocalStorage ทันที
       const updatedRolls = rolls.map((r) => finalRollsById.get(r.id) || r);
       const updatedRecords = [...records, ...createdRecords];
 
@@ -953,27 +969,25 @@ export default function App() {
       updateRecordsState(updatedRecords);
       createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
 
-      setSyncStatus('connected');
-      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-
-      if (createdRecords.length === 1) {
-        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
+      if (cloudSynced) {
+        setSyncStatus('connected');
+        setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+        if (createdRecords.length === 1) {
+          showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
+        } else {
+          showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
+        }
       } else {
-        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
+        showToast(`ตัดสต๊อกสำเร็จเรียบร้อย! ${cutDesc} [บันทึกในเครื่อง + รอซิงค์ Cloud]`, 'info');
       }
     } catch (err: any) {
-      console.error('Firebase transaction error during stock cut:', err);
-      const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
-      setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
-
+      console.error('Error during stock cut:', err);
       setErrorAlert({
         isOpen: true,
         title: 'ตัดสต๊อกไม่สำเร็จ',
-        message: err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ',
-        detail: 'ข้อมูลคงเหลือเดิมยังไม่ถูกเปลี่ยนแปลง กรุณารีเฟรชหน้าจอเพื่อดูยอดล่าสุดแล้วลองใหม่อีกครั้ง',
+        message: err?.message || 'บันทึกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+        detail: 'ข้อมูลคงเหลือเดิมยังไม่ถูกเปลี่ยนแปลง กรุณาตรวจสอบข้อมูลแล้วลองใหม่',
       });
-
-      // Reject so the modal knows the cut did not actually go through
       throw err;
     }
   };

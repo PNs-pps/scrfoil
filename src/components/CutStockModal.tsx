@@ -124,15 +124,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         }
       } else {
         const firstActive = availableRolls.find(r => r.remainingMeters > 0);
-        if (firstActive) {
-          setSelectedFoilId(firstActive.id);
-          setFilterWidth(String(firstActive.width));
-          setFilterPattern(normalizePattern(firstActive.pattern));
-        } else if (availableRolls.length > 0) {
-          setSelectedFoilId(availableRolls[0].id);
-          setFilterWidth(String(availableRolls[0].width));
-          setFilterPattern(normalizePattern(availableRolls[0].pattern));
-        }
+        setSelectedFoilId(firstActive ? firstActive.id : (availableRolls[0]?.id || ''));
+        setFilterWidth('all');
+        setFilterPattern('all');
       }
 
       if (!recordedBy && recentOperators.length > 0) {
@@ -205,11 +199,6 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const handleSelectRoll = (rollId: string) => {
     setSelectedFoilId(rollId);
-    const r = availableRolls.find(roll => roll.id === rollId);
-    if (r) {
-      setFilterWidth(String(r.width));
-      setFilterPattern(normalizePattern(r.pattern));
-    }
   };
 
   // Handlers for step-by-step selection
