@@ -11,6 +11,8 @@ import {
   Sparkles,
   BarChart2,
   ClipboardCheck,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { MonthlyFoilUsageBarChart } from './MonthlyFoilUsageBarChart';
 
@@ -249,41 +251,40 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   return (
     <div className="space-y-5 pb-2">
-      {/* Hero บาง */}
-      <div className="rounded-2xl bg-slate-900 text-white px-4 py-3.5 sm:px-5 sm:py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+      {/* Header แดชบอร์ดภาพรวม สะอาดตา ไม่ซ้ำซ้อน */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-1">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">
-              หลังคาเย็นสยาม
-            </span>
-            <span className="text-[10px] text-slate-400 truncate">คลังฟอยล์ PU FOAM</span>
-          </div>
-          <h2 className="text-base sm:text-lg font-bold tracking-tight truncate">แดชบอร์ดสต๊อก</h2>
+          <h2 className="text-base sm:text-xl font-bold text-slate-900 tracking-tight">
+            แดชบอร์ดภาพรวมสต๊อก
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            สรุปยอดคงเหลือ ม้วนพร้อมใช้ และสถิติการผลิต
+          </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+        <div className="flex items-center flex-wrap gap-2 self-start sm:self-auto">
           {onOpenMonthlySummary && (
-            <div className="flex items-center rounded-xl overflow-hidden border border-white/20 bg-white/10 text-[11px] font-bold">
-              <span className="px-2 py-1.5 text-slate-400 font-medium border-r border-white/15 hidden sm:inline">
-                สรุป
+            <div className="flex items-center rounded-xl p-1 bg-slate-100 border border-slate-200/90 text-xs font-semibold">
+              <span className="px-2 py-0.5 text-slate-400 font-medium hidden sm:inline text-[11px]">
+                สรุป:
               </span>
               <button
                 type="button"
                 onClick={() => onOpenMonthlySummary('all')}
-                className="px-2.5 py-1.5 hover:bg-white/20 text-white cursor-pointer border-r border-white/15"
+                className="px-2.5 py-1 rounded-lg hover:bg-white text-slate-800 transition-colors cursor-pointer"
               >
                 รวม
               </button>
               <button
                 type="button"
                 onClick={() => onOpenMonthlySummary('foil')}
-                className="px-2.5 py-1.5 hover:bg-white/20 text-amber-200 cursor-pointer border-r border-white/15"
+                className="px-2.5 py-1 rounded-lg hover:bg-white text-amber-800 transition-colors cursor-pointer"
               >
                 ฟอยล์
               </button>
               <button
                 type="button"
                 onClick={() => onOpenMonthlySummary('sandwich')}
-                className="px-2.5 py-1.5 hover:bg-white/20 text-emerald-200 cursor-pointer"
+                className="px-2.5 py-1 rounded-lg hover:bg-white text-emerald-800 transition-colors cursor-pointer"
               >
                 แซนวิช
               </button>
@@ -293,33 +294,65 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <button
               type="button"
               onClick={onOpenCycleCount}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-bold cursor-pointer shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold cursor-pointer shadow-xs transition-all active:scale-[0.98]"
             >
               <ClipboardCheck className="w-3.5 h-3.5" />
-              นับสต๊อก
+              <span>นับสต๊อก</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* KPI การ์ดสไลด์แนวนอน */}
-      <div className="-mx-1">
+      {/* KPI การ์ดแสดงเป็นแถวเดียวแบบสไลด์ */}
+      <div className="-mx-1 relative group">
         <div className="flex items-center justify-between px-1 mb-2">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-            ตัวชี้วัดหลัก
-          </span>
-          <span className="text-[10px] text-slate-400 hidden sm:inline">เลื่อนดูการ์ด →</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+              ตัวชี้วัดหลัก (สไลด์แนวนอนแถวเดียว)
+            </span>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-mono">
+              {kpiCards.length} การ์ด
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                const el = scrollerRef.current;
+                if (!el) return;
+                el.scrollBy({ left: -260, behavior: 'smooth' });
+              }}
+              className="p-1 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 shadow-2xs transition-colors cursor-pointer"
+              title="เลื่อนซ้าย"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const el = scrollerRef.current;
+                if (!el) return;
+                el.scrollBy({ left: 260, behavior: 'smooth' });
+              }}
+              className="p-1 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 shadow-2xs transition-colors cursor-pointer"
+              title="เลื่อนขวา"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
+
         <div
           ref={scrollerRef}
-          className="flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-2 px-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-3 px-1 [-ms-overflow-style:none] [scrollbar-width:thin] scrollbar-thin scrollbar-thumb-slate-300"
         >
           {kpiCards.map((card) => {
             const Icon = card.icon;
             return (
               <div
                 key={card.id}
-                className="snap-center shrink-0 w-[78vw] max-w-[280px] sm:w-[240px] sm:max-w-none bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 flex flex-col"
+                className="snap-center shrink-0 w-[78vw] max-w-[280px] sm:w-[260px] bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 flex flex-col hover:border-slate-300 transition-colors"
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
@@ -328,7 +361,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                   <div
                     className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${accentIcon[card.accent]}`}
                   >
-                    <Icon className="w-4.5 h-4.5 w-5 h-5" />
+                    <Icon className="w-4.5 h-4.5" />
                   </div>
                 </div>
                 <div className={`mt-3 text-2xl sm:text-3xl font-bold font-mono tracking-tight ${accentValue[card.accent]}`}>

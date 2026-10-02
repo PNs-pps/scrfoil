@@ -111,11 +111,11 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-3 sm:p-4">
+    <div className="fixed inset-0 bg-[#071326]/75 backdrop-blur-xs z-[70] flex items-center justify-center p-3 sm:p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 bg-slate-900 text-white">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#152A4A] bg-[#0B1B36] text-white">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${
               isAllGood ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
@@ -135,14 +135,14 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
                   Auto-Reconcile
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-blue-200/70 mt-0.5">
                 ตรวจสอบล่าสุด: {checkedAt ? new Date(checkedAt).toLocaleString('th-TH') : '-'}
               </p>
             </div>
           </div>
           <button 
             onClick={onClose} 
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+            className="text-blue-200 hover:text-white p-1.5 rounded-lg hover:bg-[#13284C] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -399,7 +399,7 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
                   type="button"
                   onClick={handleExecuteConsentAutoFix}
                   disabled={!isConsentChecked || isSubmitting}
-                  className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg bg-[#0B1B36] hover:bg-[#13284C] text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer border border-blue-900/50"
                 >
                   {isSubmitting ? (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />

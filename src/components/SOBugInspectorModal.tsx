@@ -197,7 +197,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
       <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
         
         {/* Header */}
-        <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+        <div className="px-5 py-4 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] text-white flex items-center justify-between border-b border-blue-900/40">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
               <Bug className="w-5 h-5" />
@@ -211,14 +211,14 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                   Roll SO Diagnostics
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-blue-200/80 mt-0.5">
                 ตรวจสอบความถูกต้องของรายการตัด SO, ตรวจสอบการบันทึกซ้ำ, และตรวจสอบยอดคงเหลือโซ่ขาด
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+            className="text-blue-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -283,7 +283,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
             <button
               type="button"
               onClick={() => setExpandedRollId(null)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-amber-300 text-xs font-bold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/40 text-amber-300 text-xs font-bold cursor-pointer transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               กลับรายการม้วน
@@ -403,7 +403,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                   type="button"
                   onClick={handleExecuteBulkFix}
                   disabled={!consentChecked || isBulkFixing}
-                  className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/40 text-white text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
                 >
                   {isBulkFixing ? (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />

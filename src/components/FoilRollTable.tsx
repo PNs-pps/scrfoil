@@ -177,7 +177,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 shadow-2xs select-none">
       {/* Background action tray revealed upon sliding left (4 menu actions) */}
-      <div className="absolute inset-y-0 right-0 w-[224px] flex items-stretch bg-slate-900 text-white z-0">
+      <div className="absolute inset-y-0 right-0 w-[224px] flex items-stretch bg-[#0b1b36] text-white z-0">
         {/* 1. ตัดสต๊อก */}
         <button
           type="button"
@@ -208,7 +208,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             setIsSwiped(false);
             onViewHistory(roll);
           }}
-          className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 active:bg-slate-900 transition-colors cursor-pointer"
+          className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 active:bg-[#0b1b36] transition-colors cursor-pointer"
           title="ดูไทม์ไลน์การตัด"
         >
           <History className="w-4 h-4 mb-0.5" />
@@ -992,7 +992,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             setSearchQuery('');
             setSearchTarget('all');
           }}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-amber-300 text-xs font-bold shadow-sm cursor-pointer hover:bg-slate-800"
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/50 text-amber-300 text-xs font-bold shadow-sm cursor-pointer transition-colors"
+          title="ล้างการกรองทั้งหมดเพื่อกลับมาแสดงรายการปกติ"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           กลับหน้ารายการม้วนทั้งหมด
@@ -1369,7 +1370,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 setSelectedPattern('all');
                 setStatusFilter('all');
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer mx-auto"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/50 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer mx-auto shadow-xs"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>ล้างตัวกรองและคำค้นหา</span>
@@ -1420,7 +1421,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     {group.pattern ? (
                       <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${getPatternStyle(group.pattern).dotClass}`} />
                     ) : (
-                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#0b1b36] border border-blue-900/50 text-amber-400">
                         {group.badge}
                       </span>
                     )}
@@ -1675,7 +1676,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       {/* Pop-up Modal 1: จัดการม้วนฟอยล์ (ตัดสต๊อก / ดูไทม์ไลน์ / แก้ไข / ลบ) */}
       {actionMenuRoll && (
         <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#071326]/75 backdrop-blur-xs animate-in fade-in duration-150"
           onClick={() => setActionMenuRoll(null)}
         >
           <div 
@@ -1812,7 +1813,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       {/* Pop-up Modal 2: ยืนยันการลบม้วนฟอยล์ */}
       {deleteConfirmRoll && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#071326]/75 backdrop-blur-xs animate-in fade-in duration-150"
           onClick={() => setDeleteConfirmRoll(null)}
         >
           <div 

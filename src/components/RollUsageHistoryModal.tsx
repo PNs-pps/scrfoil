@@ -308,13 +308,13 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   if (!roll) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#060d1a]/70 backdrop-blur-xs">
       <div 
         id="modal-roll-usage-history"
         className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
               <Layers className="w-5 h-5" />
@@ -324,7 +324,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 <span className="text-xs px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold">
                   ประวัติการใช้งานฟอยล์รายลูก
                 </span>
-                <span className="text-xs text-slate-400 font-mono">
+                <span className="text-xs text-blue-200/80 font-mono">
                   ล็อต {roll.lotNumber} | เบอร์ #{roll.rollNumber}
                 </span>
               </div>
@@ -335,7 +335,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-blue-200 hover:text-white p-1.5 rounded-lg hover:bg-[#13284C] transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -627,7 +627,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                         type="button"
                         onClick={handleFixCurrentRoll}
                         disabled={isFixingThisRoll}
-                        className="px-3 py-1 bg-slate-900 text-white rounded text-xs font-bold hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+                        className="px-3 py-1 bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/40 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                       >
                         {isFixingThisRoll ? (
                           <RefreshCw className="w-3 h-3 animate-spin" />

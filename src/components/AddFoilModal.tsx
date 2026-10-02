@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
-import { round2, formatMeters } from '../utils/formatters';
+import { round2, formatMeters, todayLocalYMD } from '../utils/formatters';
 import { 
   X, 
   PlusCircle, 
@@ -36,7 +36,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   onAddFoil,
   onAddMultipleFoils,
 }) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalYMD();
 
   // Tab mode: 'single' (1 ลูก) vs 'batch' (หลายลูกในล็อตเดียว)
   const [entryMode, setEntryMode] = useState<'single' | 'batch'>('batch');
@@ -278,13 +278,13 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#071326]/75 backdrop-blur-xs animate-in fade-in duration-150">
       <div 
         id="modal-add-foil"
         className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <div className="px-6 py-4 bg-[#0B1B36] text-white flex items-center justify-between border-b border-[#152A4A]">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
               <PackagePlus className="w-5 h-5 stroke-[2.3]" />
@@ -293,7 +293,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
               <h2 className="text-base sm:text-lg font-bold text-white leading-tight">
                 รับม้วนฟอยล์เข้าสต๊อก
               </h2>
-              <p className="text-xs text-slate-300">
+              <p className="text-xs text-blue-200/80">
                 ระบบจัดการสต๊อกฟอยล์ PU Foam หลังคาเหล็กเมทัลชีท
               </p>
             </div>
@@ -301,7 +301,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-blue-200 hover:text-white p-1.5 rounded-lg hover:bg-[#13284C] transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -320,7 +320,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
           >
             <ListPlus className="w-4 h-4" />
             <span>รับทีละหลายลูก (ชุดล็อต)</span>
-            <span className="text-[11px] bg-slate-900/10 px-1.5 py-0.2 rounded-md font-mono">
+            <span className="text-[11px] bg-[#0B1B36]/10 text-[#0B1B36] px-1.5 py-0.2 rounded-md font-mono">
               แนะนำ
             </span>
           </button>

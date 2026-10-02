@@ -1,4 +1,4 @@
-import { notifySuccess, notifyError } from '../utils/feedback';
+import { todayLocalYMD } from '../utils/formatters';
 import React, { useState, useEffect } from 'react';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
@@ -59,7 +59,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
   // Form State
   const [soNumber, setSoNumber] = useState('');
-  const [productionDate, setProductionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [productionDate, setProductionDate] = useState(() => todayLocalYMD());
   const [soLengthMeters, setSoLengthMeters] = useState<string>('');
   const [coilColor, setCoilColor] = useState('');
   const [thickness, setThickness] = useState('0.35');
@@ -93,7 +93,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     if (editingRecord) {
       setActiveTab('create');
       setSoNumber(editingRecord.soNumber || '');
-      setProductionDate(editingRecord.productionDate || new Date().toISOString().slice(0, 10));
+      setProductionDate(editingRecord.productionDate || todayLocalYMD());
       setSoLengthMeters(
         editingRecord.soLengthMeters != null ? String(editingRecord.soLengthMeters) : ''
       );
@@ -123,7 +123,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     const yy = getCurrentThaiYearBE2Digits();
     const mm = getCurrentMonth2Digits();
     setSoNumber(`so${yy}${mm}`);
-    setProductionDate(new Date().toISOString().slice(0, 10));
+    setProductionDate(todayLocalYMD());
     setNgKg('0');
     setNgMeters('0');
     setSoLengthMeters('');
@@ -275,8 +275,6 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         } as PuSandwichCutRecord);
       }
 
-      notifySuccess();
-
       if (editingRecord) {
         onClose();
       } else {
@@ -296,7 +294,6 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         setActiveTab('history');
       }
     } catch (err: any) {
-      notifyError();
       setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
     } finally {
       setIsSubmitting(false);
@@ -1075,7 +1072,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     type="button"
                     onClick={() => exportPuSandwichRecordsToCSV(records)}
                     disabled={records.length === 0}
-                    className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-colors"
+                    className="px-3 py-1.5 rounded-xl bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/40 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-colors shadow-2xs"
                   >
                     <Download className="w-3.5 h-3.5" />
                     ส่งออก CSV
