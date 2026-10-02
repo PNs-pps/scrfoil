@@ -513,7 +513,18 @@ export default function App() {
       const result = await uploadAllToFirestore(rolls, records);
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-      showToast(`บันทึกข้อมูลสำเร็จ! ซิงค์ม้วนฟอยล์ ${result.rollsUploaded} ม้วน และประวัติ ${result.recordsUploaded} รายการ ลงฐานข้อมูลกลาง Firebase เรียบร้อย ทุกเครื่องเห็นข้อมูลตรงกันทันที`);
+      const protectNote =
+        result.rollsStockProtected > 0
+          ? ` · กันทับสต๊อก ${result.rollsStockProtected} ม้วนที่ server ใหม่กว่า`
+          : '';
+      const skipNote =
+        result.recordsSkippedExisting > 0
+          ? ` · ข้ามใบตัดที่มีอยู่แล้ว ${result.recordsSkippedExisting} ใบ`
+          : '';
+      showToast(
+        `ซิงค์ขึ้น Cloud สำเร็จ: ม้วน ${result.rollsUploaded} · ใบตัดใหม่ ${result.recordsUploaded}${protectNote}${skipNote}`,
+        'success'
+      );
     } catch (err: any) {
       console.warn('Notice: Could not upload to Firestore:', err?.message || err);
       if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
@@ -913,6 +924,27 @@ export default function App() {
     const targetRecord = records.find((r) => r.id === recordId);
     if (!targetRecord) return;
 
+    // ใบปรับยอดจากนับสต๊อก — ห้ามลบจากประวัติตัด ต้องใช้เมนู Cycle Count
+    const td = Number(targetRecord.totalDeducted);
+    const isCycleCountAdj =
+      String(targetRecord.id || '').startsWith('cc_') ||
+      String(targetRecord.soNumber || '').trim().startsWith('นับสต๊อก') ||
+      (Number.isFinite(td) &&
+        td < 0 &&
+        Math.abs(Number(targetRecord.usedMeters || 0)) < 0.001 &&
+        Math.abs(Number(targetRecord.ngMeters || 0)) < 0.001);
+    if (isCycleCountAdj) {
+      setErrorAlert({
+        isOpen: true,
+        title: 'ไม่สามารถลบจากประวัติตัดได้',
+        message:
+          'รายการนี้เป็นใบปรับยอดจากนับสต๊อก (Cycle Count)',
+        detail:
+          'กรุณาไปที่เมนู ประวัตินับสต๊อก → ลบงวดนั้น ระบบจะคืนยอดม้วนและลบใบปรับยอดให้อัตโนมัติอย่างถูกต้อง',
+      });
+      throw new Error('CYCLE_COUNT_DELETE_BLOCKED');
+    }
+
     // STRICT DIRECTIVE: run the revert as a transaction against the roll's
     // FRESH server state first, and only update local UI once it actually
     // commits. Passing just the ids (not a pre-computed roll object) means
@@ -957,7 +989,7 @@ export default function App() {
     }
   };
 
-  /** แก้ไขข้อมูลใบตัด SO (เมตร / รหัส SO / วันที่ ฯลฯ) แล้วปรับยอดม้วนตาม delta */
+  /** แก้ไขข้อมูลใบตัด SO แล้วปรับยอดม้วน + realign ห่วงโซ่ remaining ของม้วนนั้น */
   const handleUpdateCutRecord = async (
     updatedRecord: StockCutRecord,
     oldRecord: StockCutRecord
@@ -966,19 +998,41 @@ export default function App() {
       const { updatedRoll, updatedRecord: finalRec } =
         await updateStockCutRecordInFirestore(updatedRecord, oldRecord);
 
-      const updatedRecords = records.map((r) =>
-        r.id === finalRec.id ? finalRec : r
-      );
-      updateRecordsState(updatedRecords);
-
-      const updatedRolls = rolls.map((r) =>
+      let nextRolls = rolls.map((r) =>
         r.id === updatedRoll.id ? updatedRoll : r
       );
-      updateRollsState(updatedRolls);
+      let nextRecords = records.map((r) =>
+        r.id === finalRec.id ? finalRec : r
+      );
+
+      // จัดห่วงโซ่ remainingBefore/After ของทุกใบในม้วนนี้ใหม่หลังแก้เมตร
+      const rollRecordIds = nextRecords
+        .filter((r) => r.foilId === finalRec.foilId)
+        .map((r) => r.id);
+      if (rollRecordIds.length > 0) {
+        try {
+          const { updatedRoll: realignedRoll, updatedRecords: realignedRecs } =
+            await realignRollCutChainInFirestore(finalRec.foilId, rollRecordIds);
+          nextRolls = nextRolls.map((r) =>
+            r.id === realignedRoll.id ? realignedRoll : r
+          );
+          const byId = new Map(realignedRecs.map((r) => [r.id, r]));
+          nextRecords = nextRecords.map((r) => byId.get(r.id) || r);
+        } catch (alignErr: any) {
+          console.warn(
+            'Realign after SO edit failed (ยอดม้วนอัปเดตแล้ว):',
+            alignErr?.message || alignErr
+          );
+        }
+      }
+
+      updateRecordsState(nextRecords);
+      updateRollsState(nextRolls);
 
       setEditingCutRecord(null);
+      const finalRoll = nextRolls.find((r) => r.id === finalRec.foilId) || updatedRoll;
       showToast(
-        `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(updatedRoll.remainingMeters)} ม.`,
+        `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(finalRoll.remainingMeters)} ม. · จัดห่วงโซ่ประวัติแล้ว`,
         'success'
       );
     } catch (err: any) {
@@ -1597,6 +1651,13 @@ export default function App() {
         initialCutMode={cutModalInitialMode}
         onConfirmCut={handleConfirmCut}
         onConfirmCutBatch={handleConfirmCutBatch}
+        onRollRefreshed={(fresh) => {
+          setRolls((prev) => {
+            const next = prev.map((r) => (r.id === fresh.id ? { ...r, ...fresh } : r));
+            saveStoredRolls(next);
+            return next;
+          });
+        }}
       />
 
       {/* Edit existing SO cut record */}
