@@ -192,7 +192,16 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
 
   const totalUsed = historyItems.reduce((sum, r) => sum + Number(r.cutMeters ?? r.usedMeters ?? 0), 0);
   const totalNg = historyItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
-  const totalDeducted = historyItems.reduce((sum, r) => sum + Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0))), 0);
+  // ยอดตัดออกจริง (เฉพาะบวก) ไม่รวมใบคืนสต๊อกจากนับสต๊อก
+  const totalDeducted = historyItems.reduce((sum, r) => {
+    const td = Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0)));
+    return sum + (td > 0 ? td : 0);
+  }, 0);
+  // ยอดคืนสต๊อกจากนับสต๊อก (ค่าติดลบใน totalDeducted)
+  const totalStockIn = historyItems.reduce((sum, r) => {
+    const td = Number(r.totalDeducted ?? 0);
+    return sum + (td < 0 ? Math.abs(td) : 0);
+  }, 0);
 
   // ลำดับรอบของ SO เดียวกันบนม้วนนี้ → แสดงเป็น "รอบที่ 1", "รอบที่ 2"
   const soRoundLabelById = useMemo(() => {
@@ -469,7 +478,12 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             <div className="mt-3">
               <div className="flex justify-between text-xs text-slate-500 mb-1 font-mono">
                 <span>คงเหลือ: {percentLeft}%</span>
-                <span>ตัดออกแล้ว: {formatMeters(totalDeducted)} ม.</span>
+                <span>
+                  ตัดออกแล้ว: {formatMeters(totalDeducted)} ม.
+                  {totalStockIn > 0.05 ? (
+                    <span className="text-emerald-700"> · คืนสต๊อก +{formatMeters(totalStockIn)} ม.</span>
+                  ) : null}
+                </span>
               </div>
               <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                 <div 
@@ -735,8 +749,26 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                           <td className="py-2.5 px-3 text-right font-mono text-rose-600">
                             {(item.ngMeters || 0) > 0 ? `${formatMeters(item.ngMeters)} ม.` : '-'}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">
-                            -{formatMeters(item.totalDeducted || ((item.cutMeters ?? item.usedMeters ?? 0) + (item.ngMeters || 0)))} ม.
+                          <td className="py-2.5 px-3 text-right font-mono font-bold">
+                            {(() => {
+                              const raw = Number(
+                                item.totalDeducted ??
+                                  ((item.cutMeters ?? item.usedMeters ?? 0) + (item.ngMeters || 0))
+                              );
+                              // ติดลบ = คืนสต๊อก (นับสต๊อก) แสดงเป็น + สีเขียว
+                              if (raw < 0) {
+                                return (
+                                  <span className="text-emerald-700">
+                                    +{formatMeters(Math.abs(raw))} ม.
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="text-amber-900">
+                                  -{formatMeters(raw)} ม.
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono text-[11px] whitespace-nowrap">
                             <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
