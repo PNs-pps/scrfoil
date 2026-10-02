@@ -168,7 +168,10 @@ export default function App() {
 
   const runIntegrityCheck = (isManual: boolean = false) => {
     setIsRunningIntegrityCheck(true);
-    const issues = checkStockIntegrity(rolls, records);
+    // auto: ข้ามม้วนที่ตั้งใจตัดเป็น 0; manual: แสดงทั้งหมดเพื่อตรวจสอบ
+    const issues = checkStockIntegrity(rolls, records, {
+      excludeZeroedOut: !isManual,
+    });
     setStockIntegrityIssues(issues);
     if (!isManual) {
       markAutoCheckRun();
@@ -220,14 +223,17 @@ export default function App() {
 
   const showToast = (
     text: string,
-    type: 'success' | 'error' | 'info' = 'success'
+    type: 'success' | 'error' | 'info' = 'success',
+    opts?: { silent?: boolean }
   ) => {
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current);
       toastTimerRef.current = null;
     }
     setToastMessage({ text, type });
-    playFeedback(type === 'error' ? 'error' : type === 'info' ? 'info' : 'success');
+    if (!opts?.silent) {
+      playFeedback(type === 'error' ? 'error' : type === 'info' ? 'info' : 'success');
+    }
     toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
       toastTimerRef.current = null;
@@ -792,24 +798,25 @@ export default function App() {
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
 
+      // silent: เสียง/ผลลัพธ์หลักมาจาก CutStockModal (หรือ caller อื่น) — กัน feedback ซ้ำ
       if (createdRecords.length === 1) {
-        showToast(`ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) [บันทึกลง Firebase เรียบร้อย]`);
+        showToast(
+          `ตัดสต๊อกสำเร็จ! ${cutDesc} (ใช้ ${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.)`,
+          'success',
+          { silent: true }
+        );
       } else {
-        showToast(`ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม. [บันทึกลง Firebase เรียบร้อย]`);
+        showToast(
+          `ตัดสต๊อกสำเร็จ ${createdRecords.length} รายการใบงาน! ยอดตัดรวม ${formatMeters(totalDeductedAll)} ม.`,
+          'success',
+          { silent: true }
+        );
       }
     } catch (err: any) {
       console.error('Firebase transaction error during stock cut:', err);
       const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
       setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
-
-      setErrorAlert({
-        isOpen: true,
-        title: 'ตัดสต๊อกไม่สำเร็จ',
-        message: err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ',
-        detail: 'ข้อมูลคงเหลือเดิมยังไม่ถูกเปลี่ยนแปลง กรุณารีเฟรชหน้าจอเพื่อดูยอดล่าสุดแล้วลองใหม่อีกครั้ง',
-      });
-
-      // Reject so the modal knows the cut did not actually go through
+      // ไม่เปิด errorAlert ซ้อน — ให้ CutStockModal / caller แสดงผลลัพธ์เอง
       throw err;
     }
   };
