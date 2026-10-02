@@ -1,5 +1,6 @@
 import { FoilRoll, StockCutRecord } from '../types';
 import { round2 } from './formatters';
+import { isCycleCountRecord, signedTotalDeducted } from './cutDeduction';
 
 export type SOBugType = 
   | 'DUPLICATE_SO_EXACT'      // รหัส SO เดียวกันและยอดเมตรเท่ากันเป๊ะ (กรอกซ้ำเพราะประวัติไม่ขึ้น)
@@ -196,7 +197,8 @@ export function auditRollSOHistory(
   sortedRecords.forEach((rec, idx) => {
     const safeUsed = Math.abs(Number(rec.usedMeters || 0));
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
-    const safeTotal = Math.abs(Number(rec.totalDeducted ?? (safeUsed + safeNg)));
+    const safeTotal = signedTotalDeducted(rec);
+    const isCcReturn = isCycleCountRecord(rec) && safeTotal < 0; // Cycle Count ของจริงมากกว่าระบบ (คืนยอด)
     const safeBefore = Number(rec.remainingBefore ?? 0);
     const safeAfter = Number(rec.remainingAfter ?? 0);
 
@@ -205,7 +207,7 @@ export function auditRollSOHistory(
     totalDeducted = round2(totalDeducted + safeTotal);
 
     // Math check: used + ng == total
-    const mathSumDiff = Math.abs(safeTotal - (safeUsed + safeNg));
+    const mathSumDiff = isCcReturn ? 0 : Math.abs(safeTotal - (safeUsed + safeNg));
     const mathSubDiff = Math.abs(safeBefore - safeTotal - safeAfter);
     const isMathValid = mathSumDiff < TOLERANCE && (rec.remainingBefore === undefined || mathSubDiff < TOLERANCE);
 
@@ -224,7 +226,7 @@ export function auditRollSOHistory(
     }
 
     // Negative / Zero value check
-    if (rec.usedMeters < 0 || rec.ngMeters < 0 || rec.totalDeducted < 0) {
+    if (rec.usedMeters < 0 || rec.ngMeters < 0 || (rec.totalDeducted < 0 && !isCcReturn)) {
       issues.push({
         id: `neg-${rec.id}`,
         type: 'NEGATIVE_VALUE',
@@ -235,7 +237,7 @@ export function auditRollSOHistory(
         recordId: rec.id,
         suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก',
       });
-    } else if (safeTotal === 0) {
+    } else if (safeTotal === 0 && !isCcReturn) {
       issues.push({
         id: `zero-${rec.id}`,
         type: 'ZERO_METER_CUT',

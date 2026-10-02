@@ -1,3 +1,4 @@
+import { todayLocalYMD } from './formatters';
 import { FoilRoll, StockCutRecord } from '../types';
 import { saveStoredRolls, saveStoredCutRecords } from './storage';
 
@@ -42,10 +43,10 @@ export const DEFAULT_BACKUP_CONFIG: AutoBackupConfig = {
 export function getAutoBackupConfig(): AutoBackupConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
-    if (!raw) return DEFAULT_BACKUP_CONFIG;
+    if (!raw) return { ...DEFAULT_BACKUP_CONFIG };
     return { ...DEFAULT_BACKUP_CONFIG, ...JSON.parse(raw) };
   } catch {
-    return DEFAULT_BACKUP_CONFIG;
+    return { ...DEFAULT_BACKUP_CONFIG };
   }
 }
 
@@ -155,7 +156,7 @@ interface D1ScheduleState {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return todayLocalYMD();
 }
 
 function readD1ScheduleState(): D1ScheduleState {

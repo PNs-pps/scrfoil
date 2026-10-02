@@ -14,7 +14,8 @@
  */
 
 import { FoilRoll, StockCutRecord } from '../types';
-import { round2 } from './formatters';
+import { round2, todayLocalYMD } from './formatters';
+import { signedTotalDeducted } from './cutDeduction';
 
 export interface IntegrityMismatch {
   rollId: string;
@@ -53,7 +54,9 @@ export function checkStockIntegrity(
     const existing = deductionByRoll.get(rec.foilId) || { total: 0, used: 0, ng: 0, count: 0 };
     const safeUsed = Math.abs(Number(rec.usedMeters || 0));
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
-    const deducted = Math.abs(Number(rec.totalDeducted ?? (safeUsed + safeNg)));
+    // Cycle Count ที่ของจริงมากกว่าระบบมี totalDeducted ติดลบ (คืนยอด) — ต้องคงเครื่องหมายไว้
+    // (เดิมใช้ Math.abs ทำให้ถูกนับเป็นยอดตัด → แจ้งผิดว่าม้วนแสดงมากเกินไป และแนะนำให้แก้ยอดลง)
+    const deducted = signedTotalDeducted(rec);
 
     existing.used = round2(existing.used + safeUsed);
     existing.ng = round2(existing.ng + safeNg);
@@ -119,7 +122,7 @@ interface CheckState {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return todayLocalYMD();
 }
 
 function readState(): CheckState {

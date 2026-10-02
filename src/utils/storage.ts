@@ -1,3 +1,4 @@
+import { todayLocalYMD, csvCell } from './formatters';
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
 import { INITIAL_FOIL_ROLLS, INITIAL_CUT_RECORDS } from '../data/initialData';
 import { normalizePattern } from './soFormatter';
@@ -139,20 +140,20 @@ export function exportCutRecordsToCSV(records: StockCutRecord[]): void {
   ];
 
   const rows = records.map(r => [
-    `"${r.soNumber}"`,
-    `"${r.lotNumber}"`,
-    `"${r.rollNumber}"`,
+    csvCell(r.soNumber),
+    csvCell(r.lotNumber),
+    csvCell(r.rollNumber),
     r.width,
-    `"${r.pattern}"`,
+    csvCell(r.pattern),
     r.usedMeters,
     r.ngMeters,
     r.totalDeducted,
-    r.remainingBefore,
+    r.remainingBefore ?? '',
     r.remainingAfter,
-    `"${r.usageDate}"`,
-    `"${r.recordedDate}"`,
-    `"${r.recordedBy.replace(/"/g, '""')}"`,
-    `"${(r.notes || '').replace(/"/g, '""')}"`
+    csvCell(r.usageDate),
+    csvCell(r.recordedDate),
+    csvCell(r.recordedBy),
+    csvCell(r.notes)
   ]);
 
   const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
@@ -160,10 +161,11 @@ export function exportCutRecordsToCSV(records: StockCutRecord[]): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `foil_stock_cut_history_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('download', `foil_stock_cut_history_${todayLocalYMD()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export function exportRollsToCSV(rolls: FoilRoll[]): void {
@@ -182,17 +184,17 @@ export function exportRollsToCSV(rolls: FoilRoll[]): void {
   ];
 
   const rows = rolls.map(r => [
-    `"${r.lotNumber}"`,
-    `"${r.rollNumber}"`,
+    csvCell(r.lotNumber),
+    csvCell(r.rollNumber),
     r.width,
-    `"${r.pattern}"`,
+    csvCell(r.pattern),
     r.totalMeters,
     r.remainingMeters,
     r.usedMeters,
     r.ngMeters,
     r.status === 'active' ? 'พร้อมใช้งาน' : 'หมดแล้ว',
-    `"${r.dateReceived}"`,
-    `"${(r.notes || '').replace(/"/g, '""')}"`
+    csvCell(r.dateReceived),
+    csvCell(r.notes)
   ]);
 
   const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
@@ -200,10 +202,11 @@ export function exportRollsToCSV(rolls: FoilRoll[]): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `foil_inventory_summary_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('download', `foil_inventory_summary_${todayLocalYMD()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 // ----------------------------------------------------
@@ -249,12 +252,12 @@ export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): vo
   ];
 
   const rows = records.map(r => [
-    `"${r.soNumber}"`,
-    `"${r.productionDate || ''}"`,
-    `"${r.coilColor}"`,
-    `"${r.thickness}"`,
-    `"${r.coilNumber}"`,
-    `"${r.steelOrigin === 'อื่นๆ' && r.customSteelOrigin ? `${r.steelOrigin} (${r.customSteelOrigin})` : r.steelOrigin}"`,
+    csvCell(r.soNumber),
+    csvCell(r.productionDate),
+    csvCell(r.coilColor),
+    csvCell(r.thickness),
+    csvCell(r.coilNumber),
+    csvCell(r.steelOrigin === 'อื่นๆ' && r.customSteelOrigin ? `${r.steelOrigin} (${r.customSteelOrigin})` : r.steelOrigin),
     r.weightBefore,
     r.weightAfter,
     r.weightUsed,
@@ -262,9 +265,9 @@ export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): vo
     r.ngKg ?? 0,
     r.ngMeters ?? 0,
     r.lengthMeters ?? '',
-    `"${(r.recordedBy || '').replace(/"/g, '""')}"`,
-    `"${(r.notes || '').replace(/"/g, '""')}"`,
-    `"${r.createdAt}"`
+    csvCell(r.recordedBy),
+    csvCell(r.notes),
+    csvCell(r.createdAt)
   ]);
 
   const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
@@ -272,8 +275,9 @@ export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): vo
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `pu_sandwich_cuts_${new Date().toISOString().slice(0, 10)}.csv`);
+  link.setAttribute('download', `pu_sandwich_cuts_${todayLocalYMD()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

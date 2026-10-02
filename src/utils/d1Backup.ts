@@ -131,7 +131,7 @@ export async function testD1Connection(
     }
     return {
       ok: true,
-      message: `เชื่อมต่อ D1 สำเร็จ — มี snapshot ${(data?.backups || []).length >= 0 ? 'พร้อมใช้งาน' : ''}`,
+      message: 'เชื่อมต่อ D1 สำเร็จ — พร้อมสำรองข้อมูล',
     };
   } catch (err: any) {
     return { ok: false, message: String(err?.message || err) };

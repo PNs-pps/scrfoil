@@ -210,7 +210,8 @@ export function getPatternHexColor(pattern: string): string {
  * as a separate "custom pattern" bar in the dashboard (e.g. an old roll
  * saved as "ท้องขาว" before the pattern was renamed to "ขาว").
  */
-export function normalizePattern(pattern: string): string {
+export function normalizePattern(patternRaw: string): string {
+  const pattern = (patternRaw ?? '').toString().trim();
   switch (pattern) {
     case 'ท้องขาว':
       return 'ขาว';

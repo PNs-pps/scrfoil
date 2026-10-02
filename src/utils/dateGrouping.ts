@@ -1,3 +1,4 @@
+import { todayLocalYMD } from './formatters';
 import { FoilRoll, StockCutRecord } from '../types';
 
 export interface DateGroupedIncoming {
@@ -169,7 +170,7 @@ export function exportDateOrganizedArchiveJSON(rolls: FoilRoll[], records: Stock
   const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const d = new Date().toISOString().slice(0, 10);
+  const d = todayLocalYMD();
   link.setAttribute('href', url);
   link.setAttribute('download', `สำรองข้อมูลแยกโฟลเดอร์วันที่_รับเข้าและตัดSO_${d}.json`);
   document.body.appendChild(link);
