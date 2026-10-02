@@ -319,9 +319,50 @@ export function auditRollSOHistory(
     });
   });
 
+  // 2.5 ใบนับสต๊อกซ้ำช่วงเดียวกัน (มักเกิดจากกดบันทึกซ้ำ)
+  const ccByPeriod = new Map<string, typeof sortedRecords>();
+  sortedRecords.forEach((rec) => {
+    const so = String(rec.soNumber || '').trim();
+    const isCc =
+      String(rec.id || '').startsWith('cc_') || so.startsWith('นับสต๊อก');
+    if (!isCc) return;
+    const period = so.replace(/^นับสต๊อก\s*/i, '').trim() || 'unknown';
+    const list = ccByPeriod.get(period) || [];
+    list.push(rec);
+    ccByPeriod.set(period, list);
+  });
+  ccByPeriod.forEach((list, period) => {
+    if (list.length < 2) return;
+    issues.push({
+      id: `cc-dup-${roll.id}-${period}`,
+      type: 'DUPLICATE_EXACT_CUT',
+      severity: 'error',
+      title: `พบใบนับสต๊อกซ้ำ ${list.length} ใบ (งวด ${period})`,
+      description: `ม้วนนี้มีรายการ "นับสต๊อก ${period}" ซ้ำกัน ${list.length} ครั้ง ควรเหลือเพียง 1 ใบต่องวด — ใบซ้ำทำให้ยอดคำนวณและแจ้งเตือนเพี้ยน กรุณาลบงวดนับสต๊อกจากเมนู Cycle Count แล้วบันทึกใหม่ครั้งเดียว`,
+      soNumber: `นับสต๊อก ${period}`,
+      recordId: list.map((r) => r.id).join(','),
+      affectedMeters: round2(
+        list.slice(1).reduce((s, r) => s + Math.abs(Number(r.totalDeducted) || 0), 0)
+      ),
+      suggestedAction:
+        'ไปที่ประวัตินับสต๊อก → ลบงวดนี้ → นับและบันทึกใหม่เพียงครั้งเดียว',
+    });
+  });
+
   // 3. Compare with Roll Master Document State
-  // totalDeducted is net signed sum; do not clamp so stock-in adjustments are reflected
-  const calculatedRemaining = round2(Number(roll.totalMeters || 0) - totalDeducted);
+  // ถ้ามีใบนับสต๊อกซ้ำ ใช้เฉพาะใบแรกของแต่ละงวดในการคำนวณ expected
+  let totalDeductedForCalc = totalDeducted;
+  ccByPeriod.forEach((list) => {
+    if (list.length < 2) return;
+    list.slice(1).forEach((r) => {
+      totalDeductedForCalc = round2(
+        totalDeductedForCalc - Number(r.totalDeducted || 0)
+      );
+    });
+  });
+  const calculatedRemaining = round2(
+    Number(roll.totalMeters || 0) - totalDeductedForCalc
+  );
   const currentRemaining = round2(Number(roll.remainingMeters || 0));
   const diff = round2(currentRemaining - calculatedRemaining);
 
