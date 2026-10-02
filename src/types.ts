@@ -72,7 +72,7 @@ export interface StockCutRecord {
   roundNumber?: number;      // ลำดับรอบการผลิต เช่น 1, 2, 3
   usedMeters: number;        // จำนวนเมตรที่ใช้
   ngMeters: number;          // NG ที่เสีย (เมตร)
-  totalDeducted: number;     // รวมตัดออก (used + ng)
+  totalDeducted: number;     // ยอดตัดสุทธิ (signed): บวก = ตัดออกจากสต๊อก, ลบ = คืนสต๊อก (เช่น นับสต๊อกของจริง > ระบบ)
   remainingBefore: number;   // คงเหลือก่อนตัด
   remainingAfter: number;    // คงเหลือหลังตัด
   usageDate: string;         // วันที่ใช้ YYYY-MM-DD
