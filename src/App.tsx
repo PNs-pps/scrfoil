@@ -23,7 +23,8 @@ import {
   deleteFoilRollFromFirestore, 
   executeCutBatchInFirestore, 
   executeMultiRollCutBatchInFirestore,
-  revertCutRecordInFirestore, 
+  revertCutRecordInFirestore,
+  updateStockCutRecordInFirestore,
   reconcileRollsInFirestore,
   realignRollCutChainInFirestore,
   uploadAllToFirestore,
@@ -50,6 +51,7 @@ import { DailyProductionFlow } from './components/DailyProductionFlow';
 import { AddFoilModal } from './components/AddFoilModal';
 import { EditFoilModal } from './components/EditFoilModal';
 import { CutStockModal } from './components/CutStockModal';
+import { EditSOCutModal } from './components/EditSOCutModal';
 import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
 import { MonthlySummaryModal } from './components/MonthlySummaryModal';
 import { SOBatchImportModal } from './components/SOBatchImportModal';
@@ -68,6 +70,7 @@ import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, export
 import { getD1BackupConfig, uploadBackupToD1 } from './utils/d1Backup';
 import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
+import { playFeedback } from './utils/feedback';
 import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X } from 'lucide-react';
 
 type AppTab = 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
@@ -188,6 +191,7 @@ export default function App() {
   const [preselectedRollId, setPreselectedRollId] = useState<string | null>(null);
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
   const [editingRoll, setEditingRoll] = useState<FoilRoll | null>(null);
+  const [editingCutRecord, setEditingCutRecord] = useState<StockCutRecord | null>(null);
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
   const [monthlySummaryScope, setMonthlySummaryScope] = useState<'all' | 'foil' | 'sandwich'>('all');
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
@@ -207,14 +211,27 @@ export default function App() {
     detail: '',
   });
 
-  // Feedback Toast
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
+  // Feedback Toast (bottom-center, closable, with sound/haptic)
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = (text: string, type: 'success' | 'info' = 'success') => {
+  const showToast = (
+    text: string,
+    type: 'success' | 'error' | 'info' = 'success'
+  ) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
     setToastMessage({ text, type });
-    setTimeout(() => {
+    playFeedback(type === 'error' ? 'error' : type === 'info' ? 'info' : 'success');
+    toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
-    }, 4000);
+      toastTimerRef.current = null;
+    }, type === 'error' ? 7000 : 4500);
   };
 
   // Realtime load & Firestore subscription (Optimized with Persistent Cache & Read limits)
@@ -933,6 +950,40 @@ export default function App() {
     }
   };
 
+  /** แก้ไขข้อมูลใบตัด SO (เมตร / รหัส SO / วันที่ ฯลฯ) แล้วปรับยอดม้วนตาม delta */
+  const handleUpdateCutRecord = async (
+    updatedRecord: StockCutRecord,
+    oldRecord: StockCutRecord
+  ) => {
+    try {
+      const { updatedRoll, updatedRecord: finalRec } =
+        await updateStockCutRecordInFirestore(updatedRecord, oldRecord);
+
+      const updatedRecords = records.map((r) =>
+        r.id === finalRec.id ? finalRec : r
+      );
+      updateRecordsState(updatedRecords);
+
+      const updatedRolls = rolls.map((r) =>
+        r.id === updatedRoll.id ? updatedRoll : r
+      );
+      updateRollsState(updatedRolls);
+
+      setEditingCutRecord(null);
+      showToast(
+        `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(updatedRoll.remainingMeters)} ม.`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Update cut record failed:', err);
+      const isPermissionError =
+        err?.code === 'permission-denied' || err?.message?.includes('permission');
+      if (isPermissionError) setSyncStatus('permission-denied');
+      playFeedback('error');
+      throw err;
+    }
+  };
+
   // Delete a roll
   const handleDeleteRoll = (rollId: string) => {
     const updatedRolls = rolls.filter((r) => r.id !== rollId);
@@ -1227,14 +1278,43 @@ export default function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200">
-          <div className={`px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2.5 ${
-            toastMessage.type === 'success'
-              ? 'bg-slate-900 text-white border-slate-800'
-              : 'bg-white text-slate-800 border-slate-200 shadow-xl'
-          }`}>
-            <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
-            <span>{toastMessage.text}</span>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] w-[min(92vw,28rem)] animate-in fade-in slide-in-from-bottom-4 duration-200">
+          <div
+            className={`px-4 py-3 rounded-2xl shadow-2xl border text-sm font-medium flex items-start gap-2.5 ${
+              toastMessage.type === 'success'
+                ? 'bg-emerald-600 text-white border-emerald-500'
+                : toastMessage.type === 'error'
+                  ? 'bg-rose-600 text-white border-rose-500'
+                  : 'bg-white text-slate-800 border-slate-200'
+            }`}
+          >
+            {toastMessage.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-white shrink-0 mt-0.5" />
+            ) : toastMessage.type === 'error' ? (
+              <AlertTriangle className="w-5 h-5 text-white shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+            )}
+            <span className="flex-1 leading-snug pt-0.5">{toastMessage.text}</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (toastTimerRef.current) {
+                  clearTimeout(toastTimerRef.current);
+                  toastTimerRef.current = null;
+                }
+                setToastMessage(null);
+              }}
+              className={`shrink-0 p-1 rounded-lg transition-colors cursor-pointer ${
+                toastMessage.type === 'info'
+                  ? 'hover:bg-slate-100 text-slate-500'
+                  : 'hover:bg-white/15 text-white/90'
+              }`}
+              aria-label="ปิด"
+              title="ปิด"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
@@ -1375,6 +1455,9 @@ export default function App() {
               // modal triggered inside handleDeleteRecord already informs the user.
               handleDeleteRecord(recId).catch(() => {});
             })}
+            onEditRecord={(rec) =>
+              requireEditorPermission(() => setEditingCutRecord(rec))
+            }
             onOpenCutModal={() => {
               requireEditorPermission(() => {
                 setPreselectedRollId(null);
@@ -1416,7 +1499,9 @@ export default function App() {
                 setIsCutModalOpen(true);
               });
             }}
-            showToast={(msg, type) => showToast(msg, type === 'error' ? 'info' : type)}
+            showToast={(msg, type) =>
+              showToast(msg, type === 'error' ? 'error' : type === 'info' ? 'info' : 'success')
+            }
           />
         )}
 
@@ -1500,10 +1585,24 @@ export default function App() {
           setPreselectedRollId(null);
         }}
         availableRolls={rolls}
+        existingRecords={records}
         preselectedRollId={preselectedRollId}
         initialCutMode={cutModalInitialMode}
         onConfirmCut={handleConfirmCut}
         onConfirmCutBatch={handleConfirmCutBatch}
+      />
+
+      {/* Edit existing SO cut record */}
+      <EditSOCutModal
+        isOpen={Boolean(editingCutRecord)}
+        onClose={() => setEditingCutRecord(null)}
+        record={editingCutRecord}
+        roll={
+          editingCutRecord
+            ? rolls.find((r) => r.id === editingCutRecord.foilId) || null
+            : null
+        }
+        onSave={handleUpdateCutRecord}
       />
 
       {/* Comprehensive Roll Usage History Modal */}
