@@ -213,6 +213,78 @@
         }
       },
       "required": ["id", "soNumber", "coilColor", "thickness", "coilNumber", "weightBefore", "weightAfter", "steelOrigin"]
+    },
+    "ChemicalStock": {
+      "title": "ChemicalStock",
+      "description": "Inventory stock of PU chemicals Part A (Poly) and Part B (ISO)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "partAName": { "type": "string" },
+        "partBName": { "type": "string" },
+        "partAStockKg": { "type": "number" },
+        "partBStockKg": { "type": "number" },
+        "drumCapacityPolyKg": { "type": "number" },
+        "drumCapacityIsoKg": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "partAName", "partBName", "partAStockKg", "partBStockKg"]
+    },
+    "ChemicalCutRecord": {
+      "title": "ChemicalCutRecord",
+      "description": "Log of chemical stock cut by SO with line speed calibration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "soNumber": { "type": "string" },
+        "cutDate": { "type": "string" },
+        "formulaId": { "type": "string" },
+        "formulaName": { "type": "string" },
+        "lineSpeedMPerMin": { "type": "number" },
+        "usedMeters": { "type": "number" },
+        "ngMeters": { "type": "number" },
+        "totalMeters": { "type": "number" },
+        "chemicalUsedKg": { "type": "number" },
+        "chemicalNgKg": { "type": "number" },
+        "totalChemicalKg": { "type": "number" },
+        "partAKg": { "type": "number" },
+        "partBKg": { "type": "number" },
+        "recordedBy": { "type": "string" }
+      },
+      "required": ["id", "soNumber", "cutDate", "totalChemicalKg", "partAKg", "partBKg"]
+    },
+    "ChemicalRestockRecord": {
+      "title": "ChemicalRestockRecord",
+      "description": "Log of incoming chemical drums added to stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "drumNumber": { "type": "string" },
+        "chemicalType": { "type": "string" },
+        "drumsCount": { "type": "number" },
+        "totalKgAdded": { "type": "number" },
+        "partAKgAdded": { "type": "number" },
+        "partBKgAdded": { "type": "number" }
+      },
+      "required": ["id", "date", "chemicalType", "totalKgAdded"]
+    },
+    "ChemicalFormula": {
+      "title": "ChemicalFormula",
+      "description": "Chemical formula calibration with flow rate and line speed",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "density": { "type": "string" },
+        "inchSize": { "type": "string" },
+        "polyFlowRatePerMin": { "type": "number" },
+        "isoFlowRatePerMin": { "type": "number" },
+        "totalFlowRatePerMin": { "type": "number" },
+        "defaultLineSpeedMPerMin": { "type": "number" },
+        "usageRatePerMeter": { "type": "number" }
+      },
+      "required": ["id", "name", "usageRatePerMeter"]
     }
   },
   "firestore": {
@@ -233,6 +305,30 @@
         "$ref": "#/entities/PuSandwichCutRecord"
       },
       "description": "Collection of PU Sandwich cuts without foil"
+    },
+    "/chemical_stock/{docId}": {
+      "schema": {
+        "$ref": "#/entities/ChemicalStock"
+      },
+      "description": "Collection of PU chemical stock balances"
+    },
+    "/chemical_cut_records/{cutId}": {
+      "schema": {
+        "$ref": "#/entities/ChemicalCutRecord"
+      },
+      "description": "Collection of chemical cut history records by SO"
+    },
+    "/chemical_restock_records/{restockId}": {
+      "schema": {
+        "$ref": "#/entities/ChemicalRestockRecord"
+      },
+      "description": "Collection of chemical drum restock records"
+    },
+    "/chemical_formulas/{formulaId}": {
+      "schema": {
+        "$ref": "#/entities/ChemicalFormula"
+      },
+      "description": "Collection of chemical calculation formulas"
     }
   }
 }
