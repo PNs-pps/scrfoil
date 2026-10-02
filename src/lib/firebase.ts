@@ -303,7 +303,7 @@ export function subscribeToFoilRolls(
   }
 ): () => void {
   try {
-    const activeOnly = options?.activeOnly !== false; // default true for scalability
+    const activeOnly = options?.activeOnly === true; // fetch all by default so legacy or unflagged rolls are never missed
     const q = activeOnly
       ? query(collection(db, ROLLS_COLLECTION), where('status', '==', 'active'))
       : query(collection(db, ROLLS_COLLECTION));
