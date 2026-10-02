@@ -279,55 +279,100 @@ export default function App() {
     setPuSandwichRecords(loadedPuSandwich);
 
     // 2. Realtime listener for Foil Rolls
+    // activeOnly ดึงเฉพาะ status==='active' — ถ้าเอกสารเก่าไม่มีฟิลด์ status จะไม่เข้า query
+    // จึงมี fallback: snapshot แรกจาก server ว่าง → ลอง subscribe แบบไม่กรอง status แล้วกรองฝั่ง client
     let isInitialRollsFetch = true;
-    const unsubRolls = subscribeToFoilRolls(
-      (firestoreRolls) => {
-        // activeOnly query already filters status==='active'; also drop any legacy
-        // depleted/zeroed that slipped through so the main list stays lean.
-        setRolls((prev) => {
-          const prevMap = new Map(prev.map((r) => [r.id, r]));
-          // ถเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่เด้งกลับ
-          const mergedServer = firestoreRolls.map((r) => {
-            if (isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
-              const local = prevMap.get(r.id)!;
-              return {
-                ...r,
-                remainingMeters: local.remainingMeters,
-                usedMeters: local.usedMeters,
-                ngMeters: local.ngMeters,
-                recentCuts: local.recentCuts ?? r.recentCuts,
-                isZeroedOut: local.isZeroedOut,
-                status: local.status,
-              };
-            }
-            return r;
-          });
-          // พร้อมใช้เท่านั้น — เหลือ 0 / depleted / zeroed ไม่นับในลิสต์หลัก
-          const activeRolls = mergedServer.filter(
-            (r) =>
-              r.status !== 'depleted' &&
-              !r.isZeroedOut &&
-              Number(r.remainingMeters) > 0
-          );
-          const next =
-            activeRolls.length > 0 || firestoreRolls.length === 0
-              ? activeRolls.length > 0
-                ? activeRolls
-                : mergedServer
-              : prev;
+    let unsubRollsFallback: (() => void) | null = null;
+    let usedFallbackQuery = false;
 
-          if (activeRolls.length > 0 || firestoreRolls.length === 0) {
-            saveStoredRolls(next);
-          } else if (isInitialRollsFetch && loadedRolls.length > 0) {
-            uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
-              console.warn('Initial cloud seed notice:', err);
-            });
+    const applyFoilRollsSnapshot = (firestoreRolls: FoilRoll[]) => {
+      setRolls((prev) => {
+        const prevMap = new Map(prev.map((r) => [r.id, r]));
+        // เพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
+        const mergedServer = firestoreRolls.map((r) => {
+          if (r.id && isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
+            const local = prevMap.get(r.id)!;
+            return {
+              ...r,
+              remainingMeters: local.remainingMeters,
+              usedMeters: local.usedMeters,
+              ngMeters: local.ngMeters,
+              recentCuts: local.recentCuts ?? r.recentCuts,
+              isZeroedOut: local.isZeroedOut,
+              status: local.status,
+            };
           }
-          isInitialRollsFetch = false;
-          return next;
+          return r;
         });
-        setSyncStatus('connected');
-        setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+        // พร้อมใช้: ไม่ depleted, ไม่ zeroed, เหลือ > 0
+        // เอกสารเก่าที่ไม่มี status ถือว่า active
+        const activeRolls = mergedServer.filter((r) => {
+          const status = r.status || 'active';
+          return (
+            status !== 'depleted' &&
+            !r.isZeroedOut &&
+            Number(r.remainingMeters) > 0
+          );
+        });
+
+        // ใช้ active จาก server เมื่อมี
+        // server ว่าง + local มี → เก็บ local (จะ seed ขึ้น cloud)
+        // server มีแต่ filter หมด + local มีตอนโหลดแรก → เก็บ local กันเด้งหาย
+        // นอกนั้นใช้ activeRolls (อาจว่าง)
+        let next: FoilRoll[];
+        if (activeRolls.length > 0) {
+          next = activeRolls;
+        } else if (firestoreRolls.length === 0 && prev.length > 0) {
+          next = prev;
+        } else if (isInitialRollsFetch && prev.length > 0) {
+          next = prev;
+        } else {
+          next = activeRolls;
+        }
+
+        if (activeRolls.length > 0 || firestoreRolls.length === 0) {
+          saveStoredRolls(next);
+        } else if (isInitialRollsFetch && loadedRolls.length > 0) {
+          uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
+            console.warn('Initial cloud seed notice:', err);
+          });
+        }
+        isInitialRollsFetch = false;
+        return next;
+      });
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+    };
+
+    const unsubRolls = subscribeToFoilRolls(
+      (firestoreRolls, meta) => {
+        // ถ้า activeOnly ได้ผลว่างจาก server (ไม่ใช่แค่ cache) และยังไม่เคย fallback
+        // → ลองโหลดทั้งหมดแล้วกรองฝั่ง client (รองรับเอกสารเก่าที่ไม่มีฟิลด์ status)
+        const fromCache = meta?.fromCache === true;
+        if (!usedFallbackQuery && !fromCache && firestoreRolls.length === 0) {
+          usedFallbackQuery = true;
+          console.warn('Foil rolls activeOnly empty from server — falling back to full query');
+          // ยัง apply ผลว่างไว้ก่อน แล้ว fallback จะทับเมื่อได้ข้อมูล
+          applyFoilRollsSnapshot(firestoreRolls);
+          unsubRollsFallback = subscribeToFoilRolls(
+            (allRolls) => applyFoilRollsSnapshot(allRolls),
+            (err: any) => {
+              console.warn('Foil rolls fallback sync note:', err?.message || err);
+              if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+                setSyncStatus('permission-denied');
+              } else {
+                setSyncStatus('offline');
+              }
+            },
+            {
+              activeOnly: false,
+              onFromCache: (fc) => setIsCached(fc),
+              onExternalChange: () => setExternalUpdateAvailable(true),
+            }
+          );
+          return;
+        }
+        applyFoilRollsSnapshot(firestoreRolls);
       },
       (err: any) => {
         console.warn('Foil rolls sync note:', err?.message || err);
@@ -468,8 +513,16 @@ export default function App() {
       }
     );
 
+    // ถ้า snapshot ไม่มาภายใน 15 วินาที (ค้างที่ "กำลังเชื่อมต่อ") → เปลี่ยนเป็น offline
+    // เพื่อให้ UI ไม่ค้าง และผู้ใช้รู้ว่ามีปัญหาเครือข่าย/สิทธิ์
+    const connectTimeout = window.setTimeout(() => {
+      setSyncStatus((prev) => (prev === 'syncing' ? 'offline' : prev));
+    }, 15000);
+
     return () => {
+      window.clearTimeout(connectTimeout);
       unsubRolls();
+      unsubRollsFallback?.();
       unsubRecords();
       unsubSandwich();
       unsubChemicalStock();
