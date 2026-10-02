@@ -986,22 +986,26 @@ export async function realignRollCutChainInFirestore(
     const updatedRecords: StockCutRecord[] = [];
 
     sortedRecords.forEach((rec) => {
+      // used/ng ไม่ติดลบ; totalDeducted เป็น SIGNED (บวก=ตัดออก, ลบ=คืนสต๊อก)
+      // ห้าม Math.abs(totalDeducted) — จะทำลายรายการนับสต๊อกคืนยอด
       const safeUsed = Math.abs(Number(rec.usedMeters || 0));
       const safeNg = Math.abs(Number(rec.ngMeters || 0));
-      const safeTotal = Math.abs(Number(rec.totalDeducted || (safeUsed + safeNg)));
+      const rawTotal = Number(rec.totalDeducted);
+      const signedTotal = Number.isFinite(rawTotal) ? rawTotal : safeUsed + safeNg;
+      const isStockIn = signedTotal < 0 && safeUsed === 0 && safeNg === 0;
 
       totalUsed = round2(totalUsed + safeUsed);
       totalNg = round2(totalNg + safeNg);
 
       const stepBefore = runningBalance;
-      const stepAfter = round2(Math.max(0, stepBefore - safeTotal));
+      const stepAfter = round2(stepBefore - signedTotal);
       runningBalance = stepAfter;
 
       const updatedRec: StockCutRecord = {
         ...rec,
-        usedMeters: safeUsed,
-        ngMeters: safeNg,
-        totalDeducted: safeTotal,
+        usedMeters: isStockIn ? 0 : safeUsed,
+        ngMeters: isStockIn ? 0 : safeNg,
+        totalDeducted: signedTotal,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
       };
@@ -1015,10 +1019,10 @@ export async function realignRollCutChainInFirestore(
       const historyItem: CutHistoryItem = {
         id: rec.id,
         soNumber: rec.soNumber || '',
-        cutMeters: safeUsed,
-        usedMeters: safeUsed,
-        ngMeters: safeNg,
-        totalDeducted: safeTotal,
+        cutMeters: isStockIn ? signedTotal : safeUsed,
+        usedMeters: isStockIn ? 0 : safeUsed,
+        ngMeters: isStockIn ? 0 : safeNg,
+        totalDeducted: signedTotal,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
         cutDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
@@ -1043,7 +1047,8 @@ export async function realignRollCutChainInFirestore(
       tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem));
     });
 
-    const finalRemaining = runningBalance;
+    // อนุญาต remaining > totalMeters (กรณีคืนสต๊อกจากนับสต๊อก); แค่กันค่าติดลบจาก floating point
+    const finalRemaining = round2(Math.max(0, runningBalance));
 
     const updatedRoll: FoilRoll = {
       ...serverRoll,
@@ -1107,13 +1112,31 @@ export async function updateStockCutRecordInFirestore(
     const serverRoll = rollSnap.data() as FoilRoll;
     const oldServerRecord = recSnap.data() as StockCutRecord;
 
+    // ห้ามแก้ใบปรับยอดจากนับสต๊อก (totalDeducted ติดลบ / id ขึ้นต้น cc_ / soNumber นับสต๊อก)
+    const oldSignedTotal = Number(oldServerRecord.totalDeducted);
+    const isCycleCountAdj =
+      String(oldServerRecord.id || recordId).startsWith('cc_') ||
+      String(oldServerRecord.soNumber || '').trim().startsWith('นับสต๊อก') ||
+      (Number.isFinite(oldSignedTotal) &&
+        oldSignedTotal < 0 &&
+        Math.abs(Number(oldServerRecord.usedMeters || 0)) < 0.001 &&
+        Math.abs(Number(oldServerRecord.ngMeters || 0)) < 0.001);
+    if (isCycleCountAdj) {
+      throw new Error(
+        'ไม่สามารถแก้ไขใบปรับยอดจากนับสต๊อกได้ — กรุณาลบประวัตินับสต๊อกแล้วสร้างใหม่ หรือใช้เมนู Cycle Count'
+      );
+    }
+
     const oldUsed = Math.abs(Number(oldServerRecord.usedMeters ?? oldRecord.usedMeters ?? 0));
     const oldNg = Math.abs(Number(oldServerRecord.ngMeters ?? oldRecord.ngMeters ?? 0));
-    const oldTotal = Math.abs(Number(oldServerRecord.totalDeducted ?? (oldUsed + oldNg)));
+    // ใบตัดปกติ totalDeducted ต้องไม่ติดลบ
+    const oldTotal = Math.abs(
+      Number.isFinite(oldSignedTotal) ? oldSignedTotal : oldUsed + oldNg
+    );
 
     const newUsed = Math.abs(Number(updatedRecord.usedMeters || 0));
     const newNg = Math.abs(Number(updatedRecord.ngMeters || 0));
-    const newTotal = Math.abs(Number(updatedRecord.totalDeducted ?? (newUsed + newNg)));
+    const newTotal = round2(newUsed + newNg);
 
     const deltaTotal = round2(newTotal - oldTotal);
     const deltaUsed = round2(newUsed - oldUsed);
@@ -1132,12 +1155,18 @@ export async function updateStockCutRecordInFirestore(
     const nextUsed = round2(Math.max(0, Number(serverRoll.usedMeters || 0) + deltaUsed));
     const nextNg = round2(Math.max(0, Number(serverRoll.ngMeters || 0) + deltaNg));
 
+    // remainingAfter ของใบนี้ = ยอดม้วนหลังใช้ delta นี้ (อิง server ปัจจุบัน)
+    // remainingBefore เก็บค่าเดิมของใบถ้ามี เพื่อไม่ทำลายห่วงโซ่ย้อนหลังทั้งหมด
     const finalRecord: StockCutRecord = {
       ...updatedRecord,
       usedMeters: newUsed,
       ngMeters: newNg,
       totalDeducted: newTotal,
-      remainingAfter: round2(Math.max(0, (updatedRecord.remainingBefore ?? currentRemaining) - newTotal)),
+      remainingBefore:
+        updatedRecord.remainingBefore ??
+        oldServerRecord.remainingBefore ??
+        round2(currentRemaining + oldTotal),
+      remainingAfter: nextRemaining,
     };
 
     const historyItem: CutHistoryItem = {
