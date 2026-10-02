@@ -1333,7 +1333,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     <CheckCircle2 className="w-4 h-4" />
                     ยืนยันบันทึก
                   </>
-                )}
+                )
               </button>
             </div>
           </div>
