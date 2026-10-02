@@ -711,7 +711,9 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                       {rec.ngMeters > 0 ? `${formatMeters(rec.ngMeters)} ม.` : '-'}
                                     </td>
                                     <td className="p-2.5 text-right font-mono font-bold text-amber-900">
-                                      -{formatMeters(rec.totalDeducted)} ม.
+                                      {Number(rec.totalDeducted) < 0
+                                        ? `+${formatMeters(Math.abs(Number(rec.totalDeducted)))} ม. (คืนสต๊อก)`
+                                        : `-${formatMeters(Number(rec.totalDeducted) || 0)} ม.`}
                                     </td>
                                     <td className="p-2.5 text-right font-mono text-[11px]">
                                       <span className="text-slate-500">{formatMeters(rec.remainingBefore ?? 0)}</span>

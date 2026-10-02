@@ -307,7 +307,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
       `📐 หน้ากว้าง: ${item.width} มม.`,
       `🎨 ลายฟอยล์: ${item.pattern}${sideText}`,
       `✂️ ยอดตัดใช้งาน: ${formatMeters(item.usedMeters)} ม.` + (item.ngMeters > 0 ? ` (NG เสีย: ${formatMeters(item.ngMeters)} ม.)` : ''),
-      `📉 รวมตัดออกสุทธิ: ${formatMeters(item.totalDeducted)} ม.`,
+      Number(item.totalDeducted) < 0
+        ? `📈 คืนสต๊อก (นับสต๊อก): +${formatMeters(Math.abs(Number(item.totalDeducted)))} ม.`
+        : `📉 รวมตัดออกสุทธิ: ${formatMeters(item.totalDeducted)} ม.`,
       `📊 คงเหลือในม้วน: ${formatMeters(item.remainingAfter)} ม.`,
       `👤 ผู้บันทึก: ${item.recordedBy || '-'}`,
       item.notes ? `📝 หมายเหตุ: ${item.notes}` : '',
@@ -1120,7 +1122,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       handleActionGuarded(() => {
                         if (
                           confirm(
-                            `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${rec.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
+                            `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะ${Number(rec.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(rec.totalDeducted) || 0).toLocaleString()} เมตร ${Number(rec.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
                           )
                         ) {
                           onDeleteRecord(rec.id);
@@ -1394,7 +1396,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               handleActionGuarded(() => {
                                 if (
                                   confirm(
-                                    `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                    `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะ${Number(item.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(item.totalDeducted) || 0).toLocaleString()} เมตร ${Number(item.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
                                   )
                                 ) {
                                   onDeleteRecord(item.id);
@@ -1550,7 +1552,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                             handleActionGuarded(() => {
                               if (
                                 confirm(
-                                  `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${rec.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
+                                  `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะ${Number(rec.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(rec.totalDeducted) || 0).toLocaleString()} เมตร ${Number(rec.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
                                 )
                               ) {
                                 onDeleteRecord(rec.id);
@@ -1686,7 +1688,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                                         handleActionGuarded(() => {
                                           if (
                                             confirm(
-                                              `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                              `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะ${Number(item.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(item.totalDeducted) || 0).toLocaleString()} เมตร ${Number(item.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
                                             )
                                           ) {
                                             onDeleteRecord(item.id);
