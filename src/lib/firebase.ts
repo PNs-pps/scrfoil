@@ -105,7 +105,7 @@ function createDb(): Firestore {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
-      experimentalAutoDetectLongPolling: true,
+      experimentalForceLongPolling: true,
     };
     return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
       ? initializeFirestore(firebaseApp, firestoreSettings, firebaseConfig.firestoreDatabaseId)
