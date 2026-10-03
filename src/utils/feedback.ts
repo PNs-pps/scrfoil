@@ -1,13 +1,13 @@
 /**
- * Audio + haptic feedback for cut / save success and errors.
- * Works in modern browsers; fails silently when unsupported.
+ * Haptic + short audio feedback for factory floor (success / error).
+ * Safe no-ops when browser blocks AudioContext or vibration.
  */
 
-type FeedbackKind = 'success' | 'error' | 'info';
+type ToneKind = 'success' | 'error' | 'info';
 
 let sharedCtx: AudioContext | null = null;
 
-function getAudioContext(): AudioContext | null {
+function getAudioCtx(): AudioContext | null {
   try {
     const AC =
       window.AudioContext ||
@@ -17,7 +17,7 @@ function getAudioContext(): AudioContext | null {
       sharedCtx = new AC();
     }
     if (sharedCtx.state === 'suspended') {
-      sharedCtx.resume().catch(() => undefined);
+      sharedCtx.resume().catch(() => {});
     }
     return sharedCtx;
   } catch {
@@ -26,7 +26,7 @@ function getAudioContext(): AudioContext | null {
 }
 
 function beep(freq: number, durationMs: number, volume = 0.18, type: OscillatorType = 'sine') {
-  const ctx = getAudioContext();
+  const ctx = getAudioCtx();
   if (!ctx) return;
   try {
     const osc = ctx.createOscillator();
@@ -42,42 +42,47 @@ function beep(freq: number, durationMs: number, volume = 0.18, type: OscillatorT
     osc.start(now);
     osc.stop(now + durationMs / 1000 + 0.02);
   } catch {
-    // ignore
+    /* ignore */
   }
 }
 
-function vibrate(pattern: number | number[]) {
+export function vibrateSuccess() {
   try {
-    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(pattern);
-    }
+    if (navigator.vibrate) navigator.vibrate([40, 40, 60]);
   } catch {
-    // ignore
+    /* ignore */
   }
 }
 
-/** Success: two short high beeps + light double vibration */
-export function playSuccessFeedback() {
-  beep(880, 80, 0.16, 'sine');
-  setTimeout(() => beep(1175, 90, 0.14, 'sine'), 110);
-  vibrate([40, 40, 40]);
+export function vibrateError() {
+  try {
+    if (navigator.vibrate) navigator.vibrate([80, 50, 80, 50, 120]);
+  } catch {
+    /* ignore */
+  }
 }
 
-/** Error: low tone + longer vibration */
-export function playErrorFeedback() {
-  beep(220, 280, 0.2, 'triangle');
-  setTimeout(() => beep(180, 220, 0.16, 'triangle'), 160);
-  vibrate([120, 60, 180]);
+export function playSuccessBeep() {
+  beep(880, 90, 0.16, 'sine');
+  setTimeout(() => beep(1175, 140, 0.14, 'sine'), 95);
 }
 
-/** Soft info tick */
-export function playInfoFeedback() {
-  beep(660, 60, 0.1, 'sine');
-  vibrate(25);
+export function playErrorBeep() {
+  beep(220, 160, 0.2, 'square');
+  setTimeout(() => beep(165, 220, 0.18, 'square'), 140);
 }
 
-export function playFeedback(kind: FeedbackKind) {
-  if (kind === 'success') playSuccessFeedback();
-  else if (kind === 'error') playErrorFeedback();
-  else playInfoFeedback();
+export function notifySuccess() {
+  vibrateSuccess();
+  playSuccessBeep();
+}
+
+export function notifyError() {
+  vibrateError();
+  playErrorBeep();
+}
+
+export function notifyByKind(kind: ToneKind) {
+  if (kind === 'success') notifySuccess();
+  else if (kind === 'error') notifyError();
 }

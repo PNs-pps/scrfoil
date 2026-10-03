@@ -1,3 +1,5 @@
+import { todayLocalYMD } from '../utils/formatters';
+import { isCycleCountRecord, signedTotalDeducted } from '../utils/cutDeduction';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { 
   getFirestore, 
@@ -36,7 +38,17 @@ import {
   Auth, 
   User 
 } from 'firebase/auth';
-import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession } from '../types';
+import { 
+  FoilRoll, 
+  StockCutRecord, 
+  CutHistoryItem, 
+  PuSandwichCutRecord, 
+  CycleCountSession,
+  ChemicalStock,
+  ChemicalCutRecord,
+  ChemicalRestockRecord,
+  ChemicalFormula
+} from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 
 // User's custom configuration as requested
@@ -46,9 +58,9 @@ export const USER_FIREBASE_CONFIG = {
   projectId: "stock-foil",
   storageBucket: "stock-foil.firebasestorage.app",
   messagingSenderId: "490056674486",
-  appId: "1:490056674486:web:7821ae1a9bef881c1e8a17",
-  measurementId: "G-5JNSJETRJP",
-  firestoreDatabaseId: "(default)",
+  appId: "1:490056674486:web:e04dd7c683dae30a1e8a17",
+  measurementId: "",
+  firestoreDatabaseId: "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4",
   name: "User Firebase (stock-foil)"
 };
 
@@ -98,6 +110,10 @@ export const firebaseApp: FirebaseApp = getApps().find(a => a.name === appName)
 // This dramatically reduces Firebase read quota by serving previously cached
 // documents straight from browser IndexedDB storage (0 network reads for unchanged docs)
 function createDb(): Firestore {
+  const targetDbId = (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)')
+    ? firebaseConfig.firestoreDatabaseId
+    : "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4";
+
   try {
     const firestoreSettings = {
       ignoreUndefinedProperties: true,
@@ -105,15 +121,11 @@ function createDb(): Firestore {
         tabManager: persistentMultipleTabManager(),
       }),
     };
-    return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-      ? initializeFirestore(firebaseApp, firestoreSettings, firebaseConfig.firestoreDatabaseId)
-      : initializeFirestore(firebaseApp, firestoreSettings);
+    return initializeFirestore(firebaseApp, firestoreSettings, targetDbId);
   } catch (err) {
     // initializeFirestore throws if Firestore was already initialized for this app
     // (e.g. hot-reload or environment re-render); fall back to the existing instance.
-    return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-      ? getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId)
-      : getFirestore(firebaseApp);
+    return getFirestore(firebaseApp, targetDbId);
   }
 }
 
@@ -215,15 +227,17 @@ export function subscribeToAuthState(callback: (user: User | null) => void): () 
 // Test connection (On-demand only - do NOT run automatically at module load to save reads)
 export async function testFirestoreConnection(): Promise<{ isConnected: boolean; error?: string }> {
   try {
-    const q = query(collection(db, 'test'), limit(1));
-    await getDocs(q);
+    await getDocFromServer(doc(db, 'test', 'connection'));
     return { isConnected: true };
   } catch (error: any) {
     if (error?.code === 'permission-denied') {
       console.warn('Firestore test note (permission-denied):', error?.message);
       return { isConnected: false, error: 'permission-denied' };
     }
-    if (error instanceof Error && error.message.includes('the client is offline')) {
+    if (
+      (error instanceof Error && error.message.includes('the client is offline')) ||
+      error?.code === 'unavailable'
+    ) {
       console.warn('Firestore test note (client offline):', error?.message);
       return { isConnected: false, error: 'ออฟไลน์ (Client offline)' };
     }
@@ -252,7 +266,7 @@ const recentLocalWriteIds = new Map<string, number>();
 /** กัน snapshot/cache เก่ทับค่าหลังปรับยอด — ต้องยาวพอให้ server confirm */
 const LOCAL_WRITE_TTL_MS = 45000;
 
-function markLocalWrite(ids: string[]): void {
+export function markLocalWrite(ids: string[]): void {
   const expiry = Date.now() + LOCAL_WRITE_TTL_MS;
   ids.forEach((id) => {
     if (id) recentLocalWriteIds.set(id, expiry);
@@ -279,7 +293,7 @@ export interface SubscriptionOptions {
  * Realtime listener for Foil Rolls with gentle non-fatal error handling
  */
 export function subscribeToFoilRolls(
-  onUpdate: (rolls: FoilRoll[]) => void,
+  onUpdate: (rolls: FoilRoll[], meta?: { fromCache: boolean }) => void,
   onError?: (err: Error) => void,
   options?: {
     onFromCache?: (isFromCache: boolean) => void;
@@ -289,7 +303,7 @@ export function subscribeToFoilRolls(
   }
 ): () => void {
   try {
-    const activeOnly = options?.activeOnly !== false; // default true for scalability
+    const activeOnly = options?.activeOnly === true; // fetch all by default so legacy or unflagged rolls are never missed
     const q = activeOnly
       ? query(collection(db, ROLLS_COLLECTION), where('status', '==', 'active'))
       : query(collection(db, ROLLS_COLLECTION));
@@ -298,7 +312,8 @@ export function subscribeToFoilRolls(
     return onSnapshot(
       q,
       (snapshot) => {
-        options?.onFromCache?.(snapshot.metadata.fromCache);
+        const fromCache = snapshot.metadata.fromCache;
+        options?.onFromCache?.(fromCache);
 
         // Detect changes that came from another device (see comment above the
         // recentLocalWriteIds tracker). Skip the very first snapshot (initial
@@ -316,14 +331,20 @@ export function subscribeToFoilRolls(
         const rolls: FoilRoll[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as FoilRoll;
-          // Normalize legacy pattern spellings (e.g. old "ท้องขาว" rolls) so they
-          // group under today's canonical pattern name instead of appearing as a
-          // separate duplicate pattern in the dashboard breakdown.
-          rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
+          // Always prefer the document ID from Firestore so missing/mismatched
+          // `id` fields in legacy docs don't drop the roll from the UI.
+          // Default missing status → 'active' so old docs without the field
+          // still appear when loaded via the full (non-activeOnly) query.
+          rolls.push({
+            ...data,
+            id: data.id || docSnap.id,
+            status: (data.status as FoilRoll['status']) || 'active',
+            pattern: normalizePattern(data.pattern),
+          });
         });
         // Sort newest first
         rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        onUpdate(rolls);
+        onUpdate(rolls, { fromCache });
       },
       (err) => {
         // Use console.warn instead of console.error to avoid failing the applet test runner
@@ -349,7 +370,12 @@ export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
     const rolls: FoilRoll[] = [];
     snapshot.forEach((docSnap) => {
       const data = docSnap.data() as FoilRoll;
-      rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
+      rolls.push({
+        ...data,
+        id: data.id || docSnap.id,
+        status: (data.status as FoilRoll['status']) || 'depleted',
+        pattern: normalizePattern(data.pattern),
+      });
     });
     rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     return rolls;
@@ -453,18 +479,15 @@ export async function saveFoilRollToFirestore(roll: FoilRoll): Promise<void> {
 }
 
 /**
- * อ่านยอดม้วนจาก server โดยตรง (ข้าม local cache)
- * ใช้ก่อนยืนยันตัด เพื่อกันยอดค้างจากเครื่องอื่นที่ตัดม้วนเดียวกันไปแล้ว
- */
-export async function fetchFoilRollFromServer(rollId: string): Promise<FoilRoll | null> {
-  if (!rollId) return null;
+  * Save a single Stock Cut Record to Firestore
+  */
+export async function saveStockCutRecordToFirestore(record: StockCutRecord): Promise<void> {
   try {
-    const snap = await getDocFromServer(doc(db, ROLLS_COLLECTION, rollId));
-    if (!snap.exists()) return null;
-    return { ...(snap.data() as FoilRoll), id: snap.id };
+    const ref = doc(db, RECORDS_COLLECTION, record.id);
+    await setDoc(ref, sanitizeForFirestore(record), { merge: true });
   } catch (err: any) {
-    console.warn('fetchFoilRollFromServer failed:', err?.message || err);
-    return null;
+    console.warn('Notice: Could not write cut record to Firestore:', err?.message || err);
+    throw err;
   }
 }
 
@@ -509,7 +532,8 @@ export async function deleteFoilRollFromFirestore(rollId: string): Promise<void>
  */
 export async function executeCutBatchInFirestore(
   batchRecords: StockCutRecord[],
-  rollId: string
+  rollId: string,
+  fallbackRoll?: FoilRoll
 ): Promise<FoilRoll> {
   const rollRef = doc(db, ROLLS_COLLECTION, rollId);
 
@@ -517,10 +541,16 @@ export async function executeCutBatchInFirestore(
     // 1. Read the roll fresh from the server — this is the "read the SO sheet's
     //    real value before showing/saving" requirement.
     const rollSnap = await tx.get(rollRef);
-    if (!rollSnap.exists()) {
+    if (!rollSnap.exists() && !fallbackRoll) {
       throw new Error('ไม่พบม้วนฟอยล์นี้ในระบบ (อาจถูกลบไปแล้วจากเครื่องอื่น)');
     }
-    const serverRoll = rollSnap.data() as FoilRoll;
+    const serverRollRaw = rollSnap.exists()
+      ? (rollSnap.data() as FoilRoll)
+      : fallbackRoll!;
+    const serverRoll: FoilRoll = {
+      ...serverRollRaw,
+      id: serverRollRaw.id || rollSnap.id || rollId,
+    };
 
     // 2. Duplicate-write guard: check which of these record ids already exist
     //    (idempotency — a retried/duplicated submit must not double-deduct).
@@ -534,11 +564,14 @@ export async function executeCutBatchInFirestore(
       return serverRoll;
     }
 
-    // 3. Validate against the FRESH server remaining meters (not the client's copy).
+    // 3. Validate against the FRESH server remaining meters (or fallback if server doc was just seeded).
     const totalUsed = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.usedMeters || 0)), 0));
     const totalNg = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.ngMeters || 0)), 0));
-    const totalDeduct = round2(newRecords.reduce((s, r) => s + Math.abs(Number(r.totalDeducted || 0)), 0)) || round2(totalUsed + totalNg);
-    const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
+    const totalDeduct = round2(newRecords.reduce((s, r) => s + deductionOf(r), 0));
+    
+    const serverRem = Math.max(0, Number(serverRoll.remainingMeters || 0));
+    const fallbackRem = fallbackRoll ? Math.max(0, Number(fallbackRoll.remainingMeters || 0)) : 0;
+    const freshRemaining = serverRem > 0 ? serverRem : (fallbackRem > 0 ? fallbackRem : serverRem);
 
     if (totalDeduct > freshRemaining + 0.01) {
       throw new Error(
@@ -550,6 +583,14 @@ export async function executeCutBatchInFirestore(
     const newUsed = round2(Math.max(0, Number(serverRoll.usedMeters || 0) + totalUsed));
     const newNg = round2(Math.max(0, Number(serverRoll.ngMeters || 0) + totalNg));
 
+    // remainingAfter ของแต่ละรายการต้องไล่ตามลำดับ (ไม่ใช่ยอดสุดท้ายของทั้ง batch)
+    const afterById = new Map<string, number>();
+    let chainCursor = freshRemaining;
+    newRecords.forEach((r) => {
+      chainCursor = round2(Math.max(0, chainCursor - deductionOf(r)));
+      afterById.set(r.id, chainCursor);
+    });
+
     const rollCuts = [
       ...newRecords.map((r) => ({
         id: r.id,
@@ -557,10 +598,10 @@ export async function executeCutBatchInFirestore(
         cutType: r.cutType || 'so',
         usedMeters: Math.abs(Number(r.usedMeters || 0)),
         ngMeters: Math.abs(Number(r.ngMeters || 0)),
-        totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
-        remainingAfter: newRemaining,
-        usageDate: r.usageDate || new Date().toISOString().split('T')[0],
-        recordedDate: r.recordedDate || new Date().toISOString().split('T')[0],
+        totalDeducted: deductionOf(r),
+        remainingAfter: afterById.get(r.id) ?? newRemaining,
+        usageDate: r.usageDate || todayLocalYMD(),
+        recordedDate: r.recordedDate || todayLocalYMD(),
         recordedBy: r.recordedBy || '',
         notes: r.notes || '',
       })),
@@ -569,6 +610,7 @@ export async function executeCutBatchInFirestore(
 
     const updatedRoll: FoilRoll = {
       ...serverRoll,
+      id: serverRoll.id || rollSnap.id || rollId,
       remainingMeters: newRemaining,
       usedMeters: newUsed,
       ngMeters: newNg,
@@ -584,7 +626,7 @@ export async function executeCutBatchInFirestore(
     newRecords.forEach((record) => {
       const safeCutMeters = Math.abs(Number(record.usedMeters || 0));
       const safeNgMeters = Math.abs(Number(record.ngMeters || 0));
-      const safeTotalDeducted = Math.abs(Number(record.totalDeducted || (safeCutMeters + safeNgMeters)));
+      const safeTotalDeducted = deductionOf(record);
 
       const stepBefore = runningBatchChain;
       const stepAfter = round2(Math.max(0, stepBefore - safeTotalDeducted));
@@ -599,8 +641,8 @@ export async function executeCutBatchInFirestore(
         remainingAfter: stepAfter,
         notes: record.notes || '',
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
-        usageDate: record.usageDate || new Date().toISOString().split('T')[0],
-        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
+        usageDate: record.usageDate || todayLocalYMD(),
+        recordedDate: record.recordedDate || todayLocalYMD(),
       };
 
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
@@ -615,9 +657,9 @@ export async function executeCutBatchInFirestore(
         totalDeducted: safeTotalDeducted,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
-        cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
-        usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
-        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
+        cutDate: record.usageDate || record.recordedDate || todayLocalYMD(),
+        usageDate: record.usageDate || record.recordedDate || todayLocalYMD(),
+        recordedDate: record.recordedDate || todayLocalYMD(),
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
         notes: record.notes || '',
         createdAt: record.createdAt || new Date().toISOString(),
@@ -653,7 +695,8 @@ export async function executeCutBatchInFirestore(
  * for the same concurrency-safety reasons as executeCutBatchInFirestore above.
  */
 export async function executeMultiRollCutBatchInFirestore(
-  batchRecords: StockCutRecord[]
+  batchRecords: StockCutRecord[],
+  fallbackRollsMap?: Map<string, FoilRoll>
 ): Promise<FoilRoll[]> {
   const recordsByRoll = new Map<string, StockCutRecord[]>();
   batchRecords.forEach((r) => {
@@ -680,10 +723,15 @@ export async function executeMultiRollCutBatchInFirestore(
 
     rollIds.forEach((rollId, idx) => {
       const snap = rollSnaps[idx];
-      if (!snap.exists()) {
+      const fallback = fallbackRollsMap?.get(rollId);
+      if (!snap.exists() && !fallback) {
         throw new Error(`ไม่พบม้วนฟอยล์ ${rollId} ในระบบ (อาจถูกลบไปแล้ว)`);
       }
-      const serverRoll = snap.data() as FoilRoll;
+      const raw = snap.exists() ? (snap.data() as FoilRoll) : fallback!;
+      const serverRoll: FoilRoll = {
+        ...raw,
+        id: raw.id || snap.id || rollId,
+      };
       const newRecordsForRoll = (recordsByRoll.get(rollId) || []).filter((r) => !alreadyWrittenIds.has(r.id));
       if (newRecordsForRoll.length === 0) {
         updatedRolls.push(serverRoll);
@@ -692,8 +740,10 @@ export async function executeMultiRollCutBatchInFirestore(
 
       const totalUsed = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.usedMeters || 0)), 0));
       const totalNg = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.ngMeters || 0)), 0));
-      const totalDeduct = round2(newRecordsForRoll.reduce((s, r) => s + Math.abs(Number(r.totalDeducted || 0)), 0)) || round2(totalUsed + totalNg);
-      const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
+      const totalDeduct = round2(newRecordsForRoll.reduce((s, r) => s + deductionOf(r), 0));
+      const serverRem = Math.max(0, Number(serverRoll.remainingMeters || 0));
+      const fallbackRem = fallback ? Math.max(0, Number(fallback.remainingMeters || 0)) : 0;
+      const freshRemaining = serverRem > 0 ? serverRem : (fallbackRem > 0 ? fallbackRem : serverRem);
 
       if (totalDeduct > freshRemaining + 0.01) {
         throw new Error(
@@ -705,6 +755,13 @@ export async function executeMultiRollCutBatchInFirestore(
       const newUsed = round2(Math.max(0, Number(serverRoll.usedMeters || 0) + totalUsed));
       const newNg = round2(Math.max(0, Number(serverRoll.ngMeters || 0) + totalNg));
 
+      const afterById = new Map<string, number>();
+      let chainCursor = freshRemaining;
+      newRecordsForRoll.forEach((r) => {
+        chainCursor = round2(Math.max(0, chainCursor - deductionOf(r)));
+        afterById.set(r.id, chainCursor);
+      });
+
       const rollCuts = [
         ...newRecordsForRoll.map((r) => ({
           id: r.id,
@@ -714,10 +771,10 @@ export async function executeMultiRollCutBatchInFirestore(
           roundNumber: r.roundNumber,
           usedMeters: Math.abs(Number(r.usedMeters || 0)),
           ngMeters: Math.abs(Number(r.ngMeters || 0)),
-          totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
-          remainingAfter: newRemaining,
-          usageDate: r.usageDate || new Date().toISOString().split('T')[0],
-          recordedDate: r.recordedDate || new Date().toISOString().split('T')[0],
+          totalDeducted: deductionOf(r),
+          remainingAfter: afterById.get(r.id) ?? newRemaining,
+          usageDate: r.usageDate || todayLocalYMD(),
+          recordedDate: r.recordedDate || todayLocalYMD(),
           recordedBy: r.recordedBy || '',
           notes: r.notes || '',
         })),
@@ -726,6 +783,7 @@ export async function executeMultiRollCutBatchInFirestore(
 
       updatedRolls.push({
         ...serverRoll,
+        id: serverRoll.id || snap.id || rollId,
         remainingMeters: newRemaining,
         usedMeters: newUsed,
         ngMeters: newNg,
@@ -753,7 +811,7 @@ export async function executeMultiRollCutBatchInFirestore(
       const parentRoll: any = updatedRolls.find((r) => r.id === record.foilId);
       const safeCutMeters = Math.abs(Number(record.usedMeters || 0));
       const safeNgMeters = Math.abs(Number(record.ngMeters || 0));
-      const safeTotalDeducted = Math.abs(Number(record.totalDeducted || (safeCutMeters + safeNgMeters)));
+      const safeTotalDeducted = deductionOf(record);
 
       const currentBalance = runningChainByRoll.get(record.foilId) ?? (parentRoll?._freshRemainingBefore ?? record.remainingBefore ?? 0);
       const stepBefore = currentBalance;
@@ -780,9 +838,9 @@ export async function executeMultiRollCutBatchInFirestore(
         totalDeducted: safeTotalDeducted,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
-        cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
-        usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
-        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
+        cutDate: record.usageDate || record.recordedDate || todayLocalYMD(),
+        usageDate: record.usageDate || record.recordedDate || todayLocalYMD(),
+        recordedDate: record.recordedDate || todayLocalYMD(),
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
         productionRound: record.productionRound || '',
         roundNumber: record.roundNumber,
@@ -852,10 +910,11 @@ export async function revertCutRecordInFirestore(
     const record = recordSnap.data() as StockCutRecord;
     const serverRoll = rollSnap.data() as FoilRoll;
 
-    const restoredRemaining = Math.min(
+    // deductionOf ของ Cycle Count ที่ติดลบจะทำให้ยอดลดลง (ย้อนการคืนยอด) จึงกันไม่ให้ต่ำกว่า 0
+    const restoredRemaining = Math.max(0, Math.min(
       Number(serverRoll.totalMeters || 0),
-      Number(serverRoll.remainingMeters || 0) + Number(record.totalDeducted || 0)
-    );
+      Number(serverRoll.remainingMeters || 0) + deductionOf(record)
+    ));
     const restoredUsed = Math.max(0, Number(serverRoll.usedMeters || 0) - Number(record.usedMeters || 0));
     const restoredNg = Math.max(0, Number(serverRoll.ngMeters || 0) - Number(record.ngMeters || 0));
 
@@ -1002,26 +1061,23 @@ export async function realignRollCutChainInFirestore(
     const updatedRecords: StockCutRecord[] = [];
 
     sortedRecords.forEach((rec) => {
-      // used/ng ไม่ติดลบ; totalDeducted เป็น SIGNED (บวก=ตัดออก, ลบ=คืนสต๊อก)
-      // ห้าม Math.abs(totalDeducted) — จะทำลายรายการนับสต๊อกคืนยอด
       const safeUsed = Math.abs(Number(rec.usedMeters || 0));
       const safeNg = Math.abs(Number(rec.ngMeters || 0));
-      const rawTotal = Number(rec.totalDeducted);
-      const signedTotal = Number.isFinite(rawTotal) ? rawTotal : safeUsed + safeNg;
-      const isStockIn = signedTotal < 0 && safeUsed === 0 && safeNg === 0;
+      // คงเครื่องหมายของ Cycle Count (ติดลบ = คืนยอด) — เดิม abs ทำให้ realign เขียนทับเป็นค่าบวก
+      const safeTotal = isCycleCountRecord(rec) ? signedTotalDeducted(rec) : Math.abs(Number(rec.totalDeducted || (safeUsed + safeNg)));
 
       totalUsed = round2(totalUsed + safeUsed);
       totalNg = round2(totalNg + safeNg);
 
       const stepBefore = runningBalance;
-      const stepAfter = round2(stepBefore - signedTotal);
+      const stepAfter = round2(Math.max(0, stepBefore - safeTotal));
       runningBalance = stepAfter;
 
       const updatedRec: StockCutRecord = {
         ...rec,
-        usedMeters: isStockIn ? 0 : safeUsed,
-        ngMeters: isStockIn ? 0 : safeNg,
-        totalDeducted: signedTotal,
+        usedMeters: safeUsed,
+        ngMeters: safeNg,
+        totalDeducted: safeTotal,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
       };
@@ -1035,15 +1091,15 @@ export async function realignRollCutChainInFirestore(
       const historyItem: CutHistoryItem = {
         id: rec.id,
         soNumber: rec.soNumber || '',
-        cutMeters: isStockIn ? signedTotal : safeUsed,
-        usedMeters: isStockIn ? 0 : safeUsed,
-        ngMeters: isStockIn ? 0 : safeNg,
-        totalDeducted: signedTotal,
+        cutMeters: safeUsed,
+        usedMeters: safeUsed,
+        ngMeters: safeNg,
+        totalDeducted: safeTotal,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
-        cutDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
-        usageDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
-        recordedDate: rec.recordedDate || new Date().toISOString().split('T')[0],
+        cutDate: rec.usageDate || rec.recordedDate || todayLocalYMD(),
+        usageDate: rec.usageDate || rec.recordedDate || todayLocalYMD(),
+        recordedDate: rec.recordedDate || todayLocalYMD(),
         recordedBy: rec.recordedBy || 'ช่างคุมเครื่อง',
         notes: rec.notes || '',
         createdAt: rec.createdAt || new Date().toISOString(),
@@ -1063,8 +1119,7 @@ export async function realignRollCutChainInFirestore(
       tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem));
     });
 
-    // อนุญาต remaining > totalMeters (กรณีคืนสต๊อกจากนับสต๊อก); แค่กันค่าติดลบจาก floating point
-    const finalRemaining = round2(Math.max(0, runningBalance));
+    const finalRemaining = runningBalance;
 
     const updatedRoll: FoilRoll = {
       ...serverRoll,
@@ -1128,31 +1183,16 @@ export async function updateStockCutRecordInFirestore(
     const serverRoll = rollSnap.data() as FoilRoll;
     const oldServerRecord = recSnap.data() as StockCutRecord;
 
-    // ห้ามแก้ใบปรับยอดจากนับสต๊อก (totalDeducted ติดลบ / id ขึ้นต้น cc_ / soNumber นับสต๊อก)
-    const oldSignedTotal = Number(oldServerRecord.totalDeducted);
-    const isCycleCountAdj =
-      String(oldServerRecord.id || recordId).startsWith('cc_') ||
-      String(oldServerRecord.soNumber || '').trim().startsWith('นับสต๊อก') ||
-      (Number.isFinite(oldSignedTotal) &&
-        oldSignedTotal < 0 &&
-        Math.abs(Number(oldServerRecord.usedMeters || 0)) < 0.001 &&
-        Math.abs(Number(oldServerRecord.ngMeters || 0)) < 0.001);
-    if (isCycleCountAdj) {
-      throw new Error(
-        'ไม่สามารถแก้ไขใบปรับยอดจากนับสต๊อกได้ — กรุณาลบประวัตินับสต๊อกแล้วสร้างใหม่ หรือใช้เมนู Cycle Count'
-      );
-    }
-
     const oldUsed = Math.abs(Number(oldServerRecord.usedMeters ?? oldRecord.usedMeters ?? 0));
     const oldNg = Math.abs(Number(oldServerRecord.ngMeters ?? oldRecord.ngMeters ?? 0));
-    // ใบตัดปกติ totalDeducted ต้องไม่ติดลบ
-    const oldTotal = Math.abs(
-      Number.isFinite(oldSignedTotal) ? oldSignedTotal : oldUsed + oldNg
-    );
+    if (isCycleCountRecord(oldServerRecord) && Number(oldServerRecord.totalDeducted || 0) < 0) {
+      throw new Error('รายการนี้เป็นการปรับยอดจาก Cycle Count (ของจริงมากกว่าระบบ) แก้ไขตรง ๆ ไม่ได้ กรุณาลบรอบนับสต๊อกแล้วนับใหม่');
+    }
+    const oldTotal = signedTotalDeducted({ ...oldServerRecord, id: oldServerRecord.id || recordId });
 
     const newUsed = Math.abs(Number(updatedRecord.usedMeters || 0));
     const newNg = Math.abs(Number(updatedRecord.ngMeters || 0));
-    const newTotal = round2(newUsed + newNg);
+    const newTotal = Math.abs(Number(updatedRecord.totalDeducted ?? (newUsed + newNg)));
 
     const deltaTotal = round2(newTotal - oldTotal);
     const deltaUsed = round2(newUsed - oldUsed);
@@ -1171,18 +1211,12 @@ export async function updateStockCutRecordInFirestore(
     const nextUsed = round2(Math.max(0, Number(serverRoll.usedMeters || 0) + deltaUsed));
     const nextNg = round2(Math.max(0, Number(serverRoll.ngMeters || 0) + deltaNg));
 
-    // remainingAfter ของใบนี้ = ยอดม้วนหลังใช้ delta นี้ (อิง server ปัจจุบัน)
-    // remainingBefore เก็บค่าเดิมของใบถ้ามี เพื่อไม่ทำลายห่วงโซ่ย้อนหลังทั้งหมด
     const finalRecord: StockCutRecord = {
       ...updatedRecord,
       usedMeters: newUsed,
       ngMeters: newNg,
       totalDeducted: newTotal,
-      remainingBefore:
-        updatedRecord.remainingBefore ??
-        oldServerRecord.remainingBefore ??
-        round2(currentRemaining + oldTotal),
-      remainingAfter: nextRemaining,
+      remainingAfter: round2(Math.max(0, (updatedRecord.remainingBefore ?? currentRemaining) - newTotal)),
     };
 
     const historyItem: CutHistoryItem = {
@@ -1194,9 +1228,9 @@ export async function updateStockCutRecordInFirestore(
       totalDeducted: newTotal,
       remainingBefore: finalRecord.remainingBefore,
       remainingAfter: finalRecord.remainingAfter,
-      cutDate: finalRecord.usageDate || finalRecord.recordedDate || new Date().toISOString().split('T')[0],
-      usageDate: finalRecord.usageDate || finalRecord.recordedDate || new Date().toISOString().split('T')[0],
-      recordedDate: finalRecord.recordedDate || new Date().toISOString().split('T')[0],
+      cutDate: finalRecord.usageDate || finalRecord.recordedDate || todayLocalYMD(),
+      usageDate: finalRecord.usageDate || finalRecord.recordedDate || todayLocalYMD(),
+      recordedDate: finalRecord.recordedDate || todayLocalYMD(),
       recordedBy: finalRecord.recordedBy || 'ช่างคุมเครื่อง',
       productionRound: finalRecord.productionRound || '',
       roundNumber: finalRecord.roundNumber,
@@ -1253,6 +1287,18 @@ export async function updateStockCutRecordInFirestore(
   return result;
 }
 
+/**
+ * ยอดที่ตัดออกจากม้วนของ record เดียว: ใช้ totalDeducted ถ้ามีค่า
+ * ไม่เช่นนั้นใช้ usedMeters + ngMeters (fallback ต่อ record ไม่ใช่ต่อทั้ง batch)
+ */
+function deductionOf(r: { id?: string; soNumber?: string; notes?: string; usedMeters?: number; ngMeters?: number; totalDeducted?: number }): number {
+  // Cycle Count ที่ติดลบ (ของจริงมากกว่าระบบ) = คืนยอด → คงเครื่องหมายไว้
+  if (isCycleCountRecord(r) && Number(r.totalDeducted || 0) !== 0) return round2(Number(r.totalDeducted));
+  const total = Math.abs(Number(r.totalDeducted || 0));
+  if (total > 0) return total;
+  return round2(Math.abs(Number(r.usedMeters || 0)) + Math.abs(Number(r.ngMeters || 0)));
+}
+
 function round2(num: number): number {
   if (isNaN(num)) return 0;
   return Math.round((num + Number.EPSILON) * 100) / 100;
@@ -1281,7 +1327,8 @@ export function subscribeToRollCutHistory(
       const data = docSnap.data();
       const cutMeters = Math.abs(Number(data.cutMeters ?? data.usedMeters ?? 0));
       const ngMeters = Math.abs(Number(data.ngMeters ?? 0));
-      const totalDeducted = Math.abs(Number(data.totalDeducted ?? (cutMeters + ngMeters)));
+      // Cycle Count ที่ติดลบ (คืนยอด) ต้องแสดงเป็นลบตามจริง
+      const totalDeducted = signedTotalDeducted({ ...data, id: docSnap.id, usedMeters: cutMeters, ngMeters, totalDeducted: data.totalDeducted ?? (cutMeters + ngMeters) });
 
       return {
         id: docSnap.id,
@@ -1384,124 +1431,36 @@ export function subscribeToRollCutHistory(
 /**
  * Push all local rolls and records to Firestore
  */
-/**
- * ซิงค์ขึ้น Cloud แบบกันทับข้อมูลใหม่กว่าบนเซิร์ฟเวอร์
- * - ม้วน: ถ้า server มี used+ng หรือ recentCuts มากกว่า → คงฟิลด์สต๊อกของ server
- * - ใบตัด: ไม่ทับใบที่มีอยู่แล้วบน server (เขียนเฉพาะใบที่ยังไม่มี)
- */
 export async function uploadAllToFirestore(
   rolls: FoilRoll[],
   records: StockCutRecord[]
-): Promise<{
-  rollsUploaded: number;
-  recordsUploaded: number;
-  rollsStockProtected: number;
-  recordsSkippedExisting: number;
-}> {
-  const CHUNK_SIZE = 200;
-  let rollsUploaded = 0;
-  let rollsStockProtected = 0;
-  let recordsUploaded = 0;
-  let recordsSkippedExisting = 0;
+): Promise<{ rollsUploaded: number; recordsUploaded: number }> {
+  const CHUNK_SIZE = 400;
 
   try {
-    // ---- Rolls: เปรียบเทียบกับ server ทีละก้อน ----
+    // Upload rolls
     for (let i = 0; i < rolls.length; i += CHUNK_SIZE) {
       const chunk = rolls.slice(i, i + CHUNK_SIZE);
-      const serverSnaps = await Promise.all(
-        chunk.map((r) =>
-          getDocFromServer(doc(db, ROLLS_COLLECTION, r.id)).catch(() => null)
-        )
-      );
-
       const batch = writeBatch(db);
-      let batchCount = 0;
-
-      chunk.forEach((local, idx) => {
-        const snap = serverSnaps[idx];
-        const ref = doc(db, ROLLS_COLLECTION, local.id);
-
-        if (!snap || !snap.exists()) {
-          batch.set(ref, sanitizeForFirestore(local), { merge: true });
-          rollsUploaded += 1;
-          batchCount += 1;
-          return;
-        }
-
-        const server = snap.data() as FoilRoll;
-        const serverActivity =
-          Math.abs(Number(server.usedMeters || 0)) +
-          Math.abs(Number(server.ngMeters || 0)) +
-          (Array.isArray(server.recentCuts) ? server.recentCuts.length : 0);
-        const localActivity =
-          Math.abs(Number(local.usedMeters || 0)) +
-          Math.abs(Number(local.ngMeters || 0)) +
-          (Array.isArray(local.recentCuts) ? local.recentCuts.length : 0);
-
-        // server นำหน้าด้านสต๊อก → ไม่ทับยอดคงเหลือ / used / ng / status
-        if (serverActivity > localActivity + 0.05) {
-          const { remainingMeters, usedMeters, ngMeters, status, isZeroedOut, recentCuts, isUnused, manualZeroedOriginalMeters, ...safeLocal } =
-            local as FoilRoll & Record<string, unknown>;
-          batch.set(
-            ref,
-            sanitizeForFirestore({
-              ...safeLocal,
-              // คงสต๊อกจาก server
-              remainingMeters: server.remainingMeters,
-              usedMeters: server.usedMeters,
-              ngMeters: server.ngMeters,
-              status: server.status,
-              isZeroedOut: server.isZeroedOut,
-              recentCuts: server.recentCuts,
-              isUnused: server.isUnused,
-              manualZeroedOriginalMeters: server.manualZeroedOriginalMeters,
-            }),
-            { merge: true }
-          );
-          rollsStockProtected += 1;
-        } else {
-          batch.set(ref, sanitizeForFirestore(local), { merge: true });
-        }
-        rollsUploaded += 1;
-        batchCount += 1;
+      chunk.forEach((r) => {
+        const ref = doc(db, ROLLS_COLLECTION, r.id);
+        batch.set(ref, r, { merge: true });
       });
-
-      if (batchCount > 0) await batch.commit();
+      await batch.commit();
     }
 
-    // ---- Records: เขียนเฉพาะใบที่ยังไม่มีบน server ----
+    // Upload records
     for (let i = 0; i < records.length; i += CHUNK_SIZE) {
       const chunk = records.slice(i, i + CHUNK_SIZE);
-      const serverSnaps = await Promise.all(
-        chunk.map((rec) =>
-          getDocFromServer(doc(db, RECORDS_COLLECTION, rec.id)).catch(() => null)
-        )
-      );
-
       const batch = writeBatch(db);
-      let batchCount = 0;
-
-      chunk.forEach((rec, idx) => {
-        const snap = serverSnaps[idx];
-        if (snap && snap.exists()) {
-          recordsSkippedExisting += 1;
-          return;
-        }
+      chunk.forEach((rec) => {
         const ref = doc(db, RECORDS_COLLECTION, rec.id);
-        batch.set(ref, sanitizeForFirestore(rec), { merge: true });
-        recordsUploaded += 1;
-        batchCount += 1;
+        batch.set(ref, rec, { merge: true });
       });
-
-      if (batchCount > 0) await batch.commit();
+      await batch.commit();
     }
 
-    return {
-      rollsUploaded,
-      recordsUploaded,
-      rollsStockProtected,
-      recordsSkippedExisting,
-    };
+    return { rollsUploaded: rolls.length, recordsUploaded: records.length };
   } catch (err: any) {
     console.warn('Notice: Upload all to Firestore incomplete:', err?.message || err);
     throw err;
@@ -1596,6 +1555,196 @@ export async function deletePuSandwichCutFromFirestore(recordId: string): Promis
 }
 
 // ----------------------------------------------------
+// PU Chemical Stock (ระบบตัดสต๊อกน้ำยา PU แยกจากฟอยล์)
+// ----------------------------------------------------
+export const CHEMICAL_STOCK_COLLECTION = 'chemical_stock';
+export const CHEMICAL_CUTS_COLLECTION = 'chemical_cut_records';
+export const CHEMICAL_RESTOCK_COLLECTION = 'chemical_restock_records';
+export const CHEMICAL_FORMULAS_COLLECTION = 'chemical_formulas';
+
+export function subscribeToChemicalStock(
+  callback: (stock: ChemicalStock | null) => void,
+  onError?: (error: any) => void
+): () => void {
+  try {
+    const docRef = doc(db, CHEMICAL_STOCK_COLLECTION, 'main');
+    const unsubscribe = onSnapshot(
+      docRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          callback(docSnap.data() as ChemicalStock);
+        } else {
+          callback(null);
+        }
+      },
+      (error) => {
+        console.warn('Notice: Chemical stock snapshot error:', error?.message || error);
+        if (onError) onError(error);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Notice: Could not subscribe to chemical_stock:', err);
+    return () => {};
+  }
+}
+
+export async function saveChemicalStockToFirestore(stock: ChemicalStock): Promise<void> {
+  try {
+    const docRef = doc(db, CHEMICAL_STOCK_COLLECTION, stock.id || 'main');
+    await setDoc(docRef, sanitizeForFirestore(stock), { merge: true });
+  } catch (err: any) {
+    console.warn('Notice: Failed to save chemical stock to Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+export function subscribeToChemicalCuts(
+  callback: (records: ChemicalCutRecord[]) => void,
+  onError?: (error: any) => void
+): () => void {
+  try {
+    const q = query(collection(db, CHEMICAL_CUTS_COLLECTION));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: ChemicalCutRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          items.push(docSnap.data() as ChemicalCutRecord);
+        });
+        items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        callback(items);
+      },
+      (error) => {
+        console.warn('Notice: Chemical cuts snapshot error:', error?.message || error);
+        if (onError) onError(error);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Notice: Could not subscribe to chemical_cut_records:', err);
+    return () => {};
+  }
+}
+
+export async function saveChemicalCutToFirestore(record: ChemicalCutRecord): Promise<void> {
+  try {
+    const docRef = doc(db, CHEMICAL_CUTS_COLLECTION, record.id);
+    await setDoc(docRef, sanitizeForFirestore(record), { merge: true });
+  } catch (err: any) {
+    console.warn('Notice: Failed to save chemical cut to Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+export async function deleteChemicalCutFromFirestore(recordId: string): Promise<void> {
+  try {
+    const docRef = doc(db, CHEMICAL_CUTS_COLLECTION, recordId);
+    await deleteDoc(docRef);
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete chemical cut from Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+export function subscribeToChemicalRestock(
+  callback: (records: ChemicalRestockRecord[]) => void,
+  onError?: (error: any) => void
+): () => void {
+  try {
+    const q = query(collection(db, CHEMICAL_RESTOCK_COLLECTION));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: ChemicalRestockRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          items.push(docSnap.data() as ChemicalRestockRecord);
+        });
+        items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        callback(items);
+      },
+      (error) => {
+        console.warn('Notice: Chemical restock snapshot error:', error?.message || error);
+        if (onError) onError(error);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Notice: Could not subscribe to chemical_restock_records:', err);
+    return () => {};
+  }
+}
+
+export async function saveChemicalRestockToFirestore(record: ChemicalRestockRecord): Promise<void> {
+  try {
+    const docRef = doc(db, CHEMICAL_RESTOCK_COLLECTION, record.id);
+    await setDoc(docRef, sanitizeForFirestore(record), { merge: true });
+  } catch (err: any) {
+    console.warn('Notice: Failed to save chemical restock to Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+export async function deleteChemicalRestockFromFirestore(recordId: string): Promise<void> {
+  try {
+    const docRef = doc(db, CHEMICAL_RESTOCK_COLLECTION, recordId);
+    await deleteDoc(docRef);
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete chemical restock from Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+export function subscribeToChemicalFormulas(
+  callback: (formulas: ChemicalFormula[]) => void,
+  onError?: (error: any) => void
+): () => void {
+  try {
+    const q = query(collection(db, CHEMICAL_FORMULAS_COLLECTION));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: ChemicalFormula[] = [];
+        snapshot.forEach((docSnap) => {
+          items.push(docSnap.data() as ChemicalFormula);
+        });
+        if (items.length > 0) {
+          callback(items);
+        }
+      },
+      (error) => {
+        console.warn('Notice: Chemical formulas snapshot error:', error?.message || error);
+        if (onError) onError(error);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Notice: Could not subscribe to chemical_formulas:', err);
+    return () => {};
+  }
+}
+
+export async function saveChemicalFormulaToFirestore(formula: ChemicalFormula): Promise<void> {
+  try {
+    const docRef = doc(db, CHEMICAL_FORMULAS_COLLECTION, formula.id);
+    await setDoc(docRef, sanitizeForFirestore(formula), { merge: true });
+  } catch (err: any) {
+    console.warn('Notice: Failed to save chemical formula to Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+export async function deleteChemicalFormulaFromFirestore(formulaId: string): Promise<void> {
+  try {
+    const docRef = doc(db, CHEMICAL_FORMULAS_COLLECTION, formulaId);
+    await deleteDoc(docRef);
+  } catch (err: any) {
+    console.warn('Notice: Failed to delete chemical formula from Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
+// ----------------------------------------------------
 // Physical Cycle Count (ตรวจนับสต๊อกประจำเดือน)
 // ----------------------------------------------------
 export const CYCLE_COUNTS_COLLECTION = 'cycle_counts';
@@ -1626,41 +1775,34 @@ export async function deleteCycleCountSession(
   const soLabel = period ? `นับสต๊อก ${period}` : '';
 
   // 1) หาใบตัดที่เกิดจาก Cycle Count
-  // รวม adjustmentRecordIds + สแกน server เสมอ (กัน id หาย / ใบซ้ำค้าง)
   let recordIds = [...(fullSession?.adjustmentRecordIds || [])];
-  const adjustedRollIds = new Set(
-    (fullSession?.lines || [])
-      .filter((l) => l.adjusted && Math.abs(Number(l.variance) || 0) > 0.001)
-      .map((l) => l.rollId)
-  );
-  if (adjustedRollIds.size === 0 && fullSession?.lines?.length) {
-    fullSession.lines.forEach((l) => {
-      if (l.rollId) adjustedRollIds.add(l.rollId);
-    });
-  }
-  try {
-    const snap = await getDocs(collection(db, RECORDS_COLLECTION));
-    snap.forEach((d) => {
-      const rec = d.data() as StockCutRecord;
-      const id = d.id;
-      const so = String(rec.soNumber || '').trim();
-      const isCcId = id.startsWith('cc_');
-      const isCcSo =
-        so.startsWith('นับสต๊อก') &&
-        (!period || so.includes(period) || so === soLabel);
-      const isTargetRoll =
-        adjustedRollIds.size === 0 || adjustedRollIds.has(rec.foilId);
-      if ((isCcId || isCcSo) && isTargetRoll) {
-        recordIds.push(id);
-      } else if (isCcSo && adjustedRollIds.size === 0) {
-        // ลบทั้งงวด: ใบนับสต๊อกงวดนี้ทั้งหมด
-        recordIds.push(id);
+  if (recordIds.length === 0 && fullSession) {
+    const adjustedRollIds = new Set(
+      (fullSession.lines || [])
+        .filter((l) => l.adjusted && Math.abs(l.variance) > 0.001)
+        .map((l) => l.rollId)
+    );
+    if (adjustedRollIds.size > 0 || soLabel) {
+      try {
+        const snap = await getDocs(collection(db, RECORDS_COLLECTION));
+        snap.forEach((d) => {
+          const rec = d.data() as StockCutRecord;
+          const id = d.id;
+          const isCcId = id.startsWith('cc_');
+          const isCcSo =
+            soLabel &&
+            String(rec.soNumber || '').trim() === soLabel;
+          const isTargetRoll = adjustedRollIds.size === 0 || adjustedRollIds.has(rec.foilId);
+          if ((isCcId || isCcSo) && isTargetRoll) {
+            recordIds.push(id);
+          }
+        });
+      } catch (err: any) {
+        console.warn('scan cycle count records failed:', err?.message || err);
       }
-    });
-  } catch (err: any) {
-    console.warn('scan cycle count records failed:', err?.message || err);
+    }
   }
-  recordIds = Array.from(new Set(recordIds.filter(Boolean)));
+  recordIds = Array.from(new Set(recordIds));
 
   // 2) ลบใบตัด + cut_history + cuts และคืนยอดม้วนตาม systemRemaining ใน session
   const adjustedLines = (fullSession?.lines || []).filter(
@@ -1819,7 +1961,7 @@ export async function applyCycleCountAdjustments(
   const createdRecords: StockCutRecord[] = [];
   const periodLabel = meta?.period || new Date().toISOString().slice(0, 7);
   const countedBy = (meta?.countedBy || 'Cycle Count').trim() || 'Cycle Count';
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalYMD();
 
   for (const line of lines) {
     const rollRef = doc(db, ROLLS_COLLECTION, line.rollId);
@@ -1847,23 +1989,6 @@ export async function applyCycleCountAdjustments(
       // ใช้ยอดจริงบน server ณ ตอนปรับ เพื่อ consistency
       const effectiveDeduct = Math.round((remainingBefore - safePhysical) * 100) / 100;
       if (Math.abs(effectiveDeduct) < 0.001) return;
-
-      // กันบันทึกนับสต๊อกซ้ำงวดเดียวกัน: ถ้า recentCuts มีใบ cc_ งวดนี้อยู่แล้ว ให้ข้าม
-      const alreadyCc = (serverRoll.recentCuts || []).some((c: any) => {
-        const so = String(c.soNumber || '').trim();
-        const id = String(c.id || '');
-        return (
-          so === soNumber ||
-          so === `นับสต๊อก ${periodLabel}` ||
-          (id.startsWith(`cc_${line.rollId}`) && so.includes(periodLabel))
-        );
-      });
-      if (alreadyCc) {
-        console.warn(
-          `Skip duplicate cycle count for roll ${line.rollId} period ${periodLabel}`
-        );
-        return;
-      }
 
       const usedPart = effectiveDeduct > 0 ? effectiveDeduct : 0;
       const record: StockCutRecord = {

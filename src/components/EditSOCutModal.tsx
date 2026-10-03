@@ -13,7 +13,8 @@ import {
   Clock,
   RotateCcw
 } from 'lucide-react';
-import { formatMeters, todayLocalISO } from '../utils/formatters';
+import { formatMeters, todayLocalYMD } from '../utils/formatters';
+import { signedTotalDeducted } from '../utils/cutDeduction';
 import { getPatternStyle } from '../utils/patternStyles';
 
 interface EditSOCutModalProps {
@@ -64,20 +65,9 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
 
   if (!isOpen || !record) return null;
 
-  const signedTotal = Number(record.totalDeducted);
-  const isCycleCountAdj =
-    String(record.id || '').startsWith('cc_') ||
-    String(record.soNumber || '').trim().startsWith('นับสต๊อก') ||
-    (Number.isFinite(signedTotal) &&
-      signedTotal < 0 &&
-      Math.abs(Number(record.usedMeters || 0)) < 0.001 &&
-      Math.abs(Number(record.ngMeters || 0)) < 0.001);
-
   const oldUsed = Math.abs(Number(record.usedMeters || 0));
   const oldNg = Math.abs(Number(record.ngMeters || 0));
-  const oldTotal = Math.abs(
-    Number.isFinite(signedTotal) ? signedTotal : oldUsed + oldNg
-  );
+  const oldTotal = signedTotalDeducted(record);
 
   const numUsed = Math.abs(parseFloat(usedMeters) || 0);
   const numNg = Math.abs(parseFloat(ngMeters) || 0);
@@ -92,42 +82,9 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
 
   const QUICK_ROUNDS = ['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4', 'รอบพิเศษ'];
 
-  if (isCycleCountAdj) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs">
-        <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full border border-amber-200 p-5 space-y-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-              <AlertTriangle className="w-5 h-5 text-amber-700" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900">ไม่สามารถแก้ไขใบนี้ได้</h3>
-              <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                รายการนี้เป็นใบปรับยอดจาก<strong>นับสต๊อก</strong> หากต้องการแก้
-                กรุณาลบประวัตินับสต๊อกแล้วสร้างใหม่จากเมนู Cycle Count
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl cursor-pointer"
-          >
-            ปิด
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    if (isCycleCountAdj) {
-      setError('ไม่สามารถแก้ไขใบปรับยอดจากนับสต๊อกได้');
-      return;
-    }
 
     const trimmedSo = soNumber.trim();
     if (cutType === 'so' && !trimmedSo) {
@@ -162,7 +119,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
       usedMeters: numUsed,
       ngMeters: numNg,
       totalDeducted: newTotal,
-      usageDate: usageDate || record.usageDate || todayLocalISO(),
+      usageDate: usageDate || record.usageDate || todayLocalYMD(),
       recordedBy: recordedBy.trim() || record.recordedBy || 'ช่างคุมเครื่อง',
       notes: notes.trim(),
       isSilverSide,
@@ -395,18 +352,18 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
           </div>
 
           {/* Delta and Impact Preview Card */}
-          <div className="p-3.5 bg-slate-900 text-white rounded-xl space-y-2">
-            <div className="flex items-center justify-between text-xs border-b border-slate-700 pb-2">
-              <span className="text-slate-400">เปรียบเทียบยอดตัด:</span>
+          <div className="p-3.5 bg-[#0B1B36] border border-blue-900/50 text-white rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs border-b border-blue-900/60 pb-2">
+              <span className="text-blue-200/70">เปรียบเทียบยอดตัด:</span>
               <div className="font-mono">
-                <span className="text-slate-400">เดิมตัด {formatMeters(oldTotal)} ม.</span>
+                <span className="text-blue-200/70">เดิมตัด {formatMeters(oldTotal)} ม.</span>
                 <span className="text-amber-400 mx-2">&rarr;</span>
                 <span className="text-white font-bold">แก้ไขเป็น {formatMeters(newTotal)} ม.</span>
               </div>
             </div>
 
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-300">ผลกระทบต่อสต๊อกม้วนฟอยล์:</span>
+              <span className="text-blue-200/80">ผลกระทบต่อสต๊อกม้วนฟอยล์:</span>
               <span className={`font-mono font-bold ${
                 delta > 0 ? 'text-rose-400' : delta < 0 ? 'text-emerald-400' : 'text-slate-300'
               }`}>
@@ -415,7 +372,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
             </div>
 
             {roll && (
-              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800">
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-blue-900/60">
                 <span className="text-slate-400">คงเหลือในม้วนคาดการณ์:</span>
                 <span className="font-mono font-bold text-amber-300 text-sm">
                   {formatMeters(predictedRollRemaining)} ม.

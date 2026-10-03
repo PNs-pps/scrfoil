@@ -1,5 +1,5 @@
+import { todayLocalYMD, csvCell } from './formatters';
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
-import { todayLocalISO } from './formatters';
 import { INITIAL_FOIL_ROLLS, INITIAL_CUT_RECORDS } from '../data/initialData';
 import { normalizePattern } from './soFormatter';
 
@@ -11,17 +11,11 @@ const STORAGE_KEYS = {
   CLEAN_INITIALIZED: 'pufoam_clean_v3_initialized',
 };
 
-// Automatic one-time cleanup to ensure the requested empty clean state
+// Safe initial state recovery — never wipe user data
 function checkAndCleanInitialState() {
+  // Safe helper: ensure clean initialized flag is set without wiping data
   try {
     if (!localStorage.getItem(STORAGE_KEYS.CLEAN_INITIALIZED)) {
-      // Clear old cached test data
-      localStorage.removeItem('pufoam_foil_rolls_v1');
-      localStorage.removeItem('pufoam_cut_records_v1');
-      localStorage.removeItem('pufoam_foil_rolls_v2');
-      localStorage.removeItem('pufoam_cut_records_v2');
-      localStorage.setItem(STORAGE_KEYS.ROLLS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify([]));
       localStorage.setItem(STORAGE_KEYS.CLEAN_INITIALIZED, 'true');
     }
   } catch {}
@@ -30,17 +24,74 @@ function checkAndCleanInitialState() {
 export function getStoredRolls(): FoilRoll[] {
   try {
     checkAndCleanInitialState();
-    const raw = localStorage.getItem(STORAGE_KEYS.ROLLS);
+    let raw = localStorage.getItem(STORAGE_KEYS.ROLLS);
+    
+    // If v3 is empty or missing, check fallback locations: v2, v1, or backup snapshots
+    if (!raw || raw === '[]' || raw.trim() === '') {
+      const v2 = localStorage.getItem('pufoam_foil_rolls_v2');
+      if (v2 && v2 !== '[]') {
+        raw = v2;
+      } else {
+        const v1 = localStorage.getItem('pufoam_foil_rolls_v1');
+        if (v1 && v1 !== '[]') {
+          raw = v1;
+        } else {
+          // Check auto backup snapshots
+          const snapRaw = localStorage.getItem('pufoam_autobackup_snapshots_v1');
+          if (snapRaw) {
+            try {
+              const snaps = JSON.parse(snapRaw);
+              if (Array.isArray(snaps) && snaps.length > 0) {
+                for (const s of snaps) {
+                  if (s?.data?.rolls && Array.isArray(s.data.rolls) && s.data.rolls.length > 0) {
+                    saveStoredRolls(s.data.rolls);
+                    return s.data.rolls.map((r: FoilRoll) => ({
+                      ...r,
+                      pattern: normalizePattern(r.pattern),
+                    }));
+                  }
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+
     if (!raw) {
       saveStoredRolls(INITIAL_FOIL_ROLLS);
       return INITIAL_FOIL_ROLLS;
     }
     const parsed: FoilRoll[] = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      // Check if snapshots have data to recover
+      try {
+        const snapRaw = localStorage.getItem('pufoam_autobackup_snapshots_v1');
+        if (snapRaw) {
+          const snaps = JSON.parse(snapRaw);
+          if (Array.isArray(snaps)) {
+            for (const s of snaps) {
+              if (s?.data?.rolls && Array.isArray(s.data.rolls) && s.data.rolls.length > 0) {
+                saveStoredRolls(s.data.rolls);
+                return s.data.rolls.map((r: FoilRoll) => ({
+                  ...r,
+                  pattern: normalizePattern(r.pattern),
+                }));
+              }
+            }
+          }
+        }
+      } catch {}
+      return [];
+    }
     // Normalize spelling for existing saved data
-    return parsed.map(r => ({
+    const normalized = parsed.map(r => ({
       ...r,
       pattern: normalizePattern(r.pattern),
     }));
+    // Re-save to current key so future reads are fast
+    saveStoredRolls(normalized);
+    return normalized;
   } catch (err) {
     console.warn('Failed to load foil rolls from storage', err);
     return INITIAL_FOIL_ROLLS;
@@ -58,16 +109,72 @@ export function saveStoredRolls(rolls: FoilRoll[]): void {
 export function getStoredCutRecords(): StockCutRecord[] {
   try {
     checkAndCleanInitialState();
-    const raw = localStorage.getItem(STORAGE_KEYS.RECORDS);
+    let raw = localStorage.getItem(STORAGE_KEYS.RECORDS);
+
+    // If v3 is empty or missing, check fallback locations: v2, v1, or backup snapshots
+    if (!raw || raw === '[]' || raw.trim() === '') {
+      const v2 = localStorage.getItem('pufoam_cut_records_v2');
+      if (v2 && v2 !== '[]') {
+        raw = v2;
+      } else {
+        const v1 = localStorage.getItem('pufoam_cut_records_v1');
+        if (v1 && v1 !== '[]') {
+          raw = v1;
+        } else {
+          // Check auto backup snapshots
+          const snapRaw = localStorage.getItem('pufoam_autobackup_snapshots_v1');
+          if (snapRaw) {
+            try {
+              const snaps = JSON.parse(snapRaw);
+              if (Array.isArray(snaps) && snaps.length > 0) {
+                for (const s of snaps) {
+                  if (s?.data?.records && Array.isArray(s.data.records) && s.data.records.length > 0) {
+                    saveStoredCutRecords(s.data.records);
+                    return s.data.records.map((r: StockCutRecord) => ({
+                      ...r,
+                      pattern: normalizePattern(r.pattern),
+                    }));
+                  }
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+
     if (!raw) {
       saveStoredCutRecords(INITIAL_CUT_RECORDS);
       return INITIAL_CUT_RECORDS;
     }
     const parsed: StockCutRecord[] = JSON.parse(raw);
-    return parsed.map(r => ({
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      // Check if snapshots have records
+      try {
+        const snapRaw = localStorage.getItem('pufoam_autobackup_snapshots_v1');
+        if (snapRaw) {
+          const snaps = JSON.parse(snapRaw);
+          if (Array.isArray(snaps)) {
+            for (const s of snaps) {
+              if (s?.data?.records && Array.isArray(s.data.records) && s.data.records.length > 0) {
+                saveStoredCutRecords(s.data.records);
+                return s.data.records.map((r: StockCutRecord) => ({
+                  ...r,
+                  pattern: normalizePattern(r.pattern),
+                }));
+              }
+            }
+          }
+        }
+      } catch {}
+      return [];
+    }
+    const normalized = parsed.map(r => ({
       ...r,
       pattern: normalizePattern(r.pattern),
     }));
+    saveStoredCutRecords(normalized);
+    return normalized;
   } catch (err) {
     console.warn('Failed to load cut records from storage', err);
     return INITIAL_CUT_RECORDS;
@@ -140,20 +247,20 @@ export function exportCutRecordsToCSV(records: StockCutRecord[]): void {
   ];
 
   const rows = records.map(r => [
-    `"${r.soNumber}"`,
-    `"${r.lotNumber}"`,
-    `"${r.rollNumber}"`,
+    csvCell(r.soNumber),
+    csvCell(r.lotNumber),
+    csvCell(r.rollNumber),
     r.width,
-    `"${r.pattern}"`,
+    csvCell(r.pattern),
     r.usedMeters,
     r.ngMeters,
     r.totalDeducted,
-    r.remainingBefore,
+    r.remainingBefore ?? '',
     r.remainingAfter,
-    `"${r.usageDate}"`,
-    `"${r.recordedDate}"`,
-    `"${r.recordedBy.replace(/"/g, '""')}"`,
-    `"${(r.notes || '').replace(/"/g, '""')}"`
+    csvCell(r.usageDate),
+    csvCell(r.recordedDate),
+    csvCell(r.recordedBy),
+    csvCell(r.notes)
   ]);
 
   const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
@@ -161,10 +268,11 @@ export function exportCutRecordsToCSV(records: StockCutRecord[]): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `foil_stock_cut_history_${todayLocalISO()}.csv`);
+  link.setAttribute('download', `foil_stock_cut_history_${todayLocalYMD()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export function exportRollsToCSV(rolls: FoilRoll[]): void {
@@ -183,17 +291,17 @@ export function exportRollsToCSV(rolls: FoilRoll[]): void {
   ];
 
   const rows = rolls.map(r => [
-    `"${r.lotNumber}"`,
-    `"${r.rollNumber}"`,
+    csvCell(r.lotNumber),
+    csvCell(r.rollNumber),
     r.width,
-    `"${r.pattern}"`,
+    csvCell(r.pattern),
     r.totalMeters,
     r.remainingMeters,
     r.usedMeters,
     r.ngMeters,
     r.status === 'active' ? 'พร้อมใช้งาน' : 'หมดแล้ว',
-    `"${r.dateReceived}"`,
-    `"${(r.notes || '').replace(/"/g, '""')}"`
+    csvCell(r.dateReceived),
+    csvCell(r.notes)
   ]);
 
   const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
@@ -201,10 +309,11 @@ export function exportRollsToCSV(rolls: FoilRoll[]): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `foil_inventory_summary_${todayLocalISO()}.csv`);
+  link.setAttribute('download', `foil_inventory_summary_${todayLocalYMD()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 // ----------------------------------------------------
@@ -250,12 +359,12 @@ export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): vo
   ];
 
   const rows = records.map(r => [
-    `"${r.soNumber}"`,
-    `"${r.productionDate || ''}"`,
-    `"${r.coilColor}"`,
-    `"${r.thickness}"`,
-    `"${r.coilNumber}"`,
-    `"${r.steelOrigin === 'อื่นๆ' && r.customSteelOrigin ? `${r.steelOrigin} (${r.customSteelOrigin})` : r.steelOrigin}"`,
+    csvCell(r.soNumber),
+    csvCell(r.productionDate),
+    csvCell(r.coilColor),
+    csvCell(r.thickness),
+    csvCell(r.coilNumber),
+    csvCell(r.steelOrigin === 'อื่นๆ' && r.customSteelOrigin ? `${r.steelOrigin} (${r.customSteelOrigin})` : r.steelOrigin),
     r.weightBefore,
     r.weightAfter,
     r.weightUsed,
@@ -263,9 +372,9 @@ export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): vo
     r.ngKg ?? 0,
     r.ngMeters ?? 0,
     r.lengthMeters ?? '',
-    `"${(r.recordedBy || '').replace(/"/g, '""')}"`,
-    `"${(r.notes || '').replace(/"/g, '""')}"`,
-    `"${r.createdAt}"`
+    csvCell(r.recordedBy),
+    csvCell(r.notes),
+    csvCell(r.createdAt)
   ]);
 
   const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
@@ -273,8 +382,9 @@ export function exportPuSandwichRecordsToCSV(records: PuSandwichCutRecord[]): vo
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `pu_sandwich_cuts_${todayLocalISO()}.csv`);
+  link.setAttribute('download', `pu_sandwich_cuts_${todayLocalYMD()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

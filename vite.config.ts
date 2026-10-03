@@ -5,6 +5,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // ใช้ path แบบ relative เพื่อให้รันบน GitHub Pages sub-path (/<repo>/) ได้
+    base: './',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

@@ -718,7 +718,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
               onClick={() => setMetric('used')}
               className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
                 metric === 'used'
-                  ? 'bg-slate-900 text-white font-bold'
+                  ? 'bg-[#0B1B36] text-white font-bold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -729,7 +729,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
               onClick={() => setMetric('totalDeducted')}
               className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
                 metric === 'totalDeducted'
-                  ? 'bg-slate-900 text-white font-bold'
+                  ? 'bg-[#0B1B36] text-white font-bold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -785,7 +785,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
             onClick={() => setShowDataTable(!showDataTable)}
             className={`px-2.5 py-1 rounded-xl border font-medium transition-colors cursor-pointer flex items-center gap-1 ${
               showDataTable
-                ? 'bg-slate-900 text-white border-slate-900'
+                ? 'bg-[#0B1B36] text-white border-[#0B1B36]'
                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
             }`}
           >

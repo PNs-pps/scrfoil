@@ -87,20 +87,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
     const prefix = `${selectedYear}-${selectedMonth}`;
     return records.filter((r) => {
       const d = r.usageDate || r.recordedDate;
-      if (!d || !d.startsWith(prefix)) return false;
-      // ไม่นับใบปรับยอดจากนับสต๊อกในสถิติการใช้รายเดือน
-      const so = String(r.soNumber || '').trim();
-      if (so.startsWith('นับสต๊อก') || String(r.id || '').startsWith('cc_')) return false;
-      const td = Number(r.totalDeducted);
-      if (
-        Number.isFinite(td) &&
-        td < 0 &&
-        Math.abs(Number(r.usedMeters || 0)) < 0.001 &&
-        Math.abs(Number(r.ngMeters || 0)) < 0.001
-      ) {
-        return false;
-      }
-      return true;
+      return d && d.startsWith(prefix);
     });
   }, [records, selectedYear, selectedMonth]);
 
@@ -432,13 +419,13 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#060d1a]/75 backdrop-blur-xs">
       <div 
         id="modal-monthly-summary"
         className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Modal Header */}
-        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-2">
+        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
               <FileSpreadsheet className="w-6 h-6" />
@@ -457,7 +444,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
 
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+            className="text-blue-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>

@@ -4,7 +4,6 @@ import {
   Search, 
   Download, 
   Trash2, 
-  Pencil,
   Calendar, 
   User, 
   FileText, 
@@ -26,7 +25,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { exportCutRecordsToCSV } from '../utils/storage';
-import { formatMeters, compareLotAndRoll } from '../utils/formatters';
+import { formatMeters, compareLotAndRoll, toLocalYMD } from '../utils/formatters';
 import { UserMode } from '../utils/auth';
 import { groupCutsByDate, exportCutsDateCSV } from '../utils/dateGrouping';
 import { getPatternStyle } from '../utils/patternStyles';
@@ -41,7 +40,6 @@ interface SwipeableCutRecordCardProps {
   searchQuery: string;
   isDup: boolean;
   onOpenDetail: (item: StockCutRecord) => void;
-  onEdit?: (item: StockCutRecord) => void;
   onDelete: (item: StockCutRecord) => void;
   highlightMatch: (text: string, query: string) => React.ReactNode;
 }
@@ -51,7 +49,6 @@ const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
   searchQuery,
   isDup,
   onOpenDetail,
-  onEdit,
   onDelete,
   highlightMatch,
 }) => {
@@ -61,7 +58,6 @@ const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
   const startYRef = useRef(0);
   const isDraggingRef = useRef(false);
   const isHorizontalScrollRef = useRef<boolean | null>(null);
-  const swipeWidth = onEdit ? 216 : 144;
 
   const patternStyle = getPatternStyle(item.pattern);
 
@@ -88,10 +84,10 @@ const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
     if (!isHorizontalScrollRef.current) return;
 
     if (isSwiped) {
-      const next = Math.max(-swipeWidth, Math.min(0, -swipeWidth + diffX));
+      const next = Math.max(-144, Math.min(0, -144 + diffX));
       setTranslateX(next);
     } else if (diffX < 0) {
-      const next = Math.max(-swipeWidth, diffX);
+      const next = Math.max(-144, diffX);
       setTranslateX(next);
     }
   };
@@ -100,7 +96,7 @@ const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
     if (translateX < -45) {
-      setTranslateX(-swipeWidth);
+      setTranslateX(-144);
       setIsSwiped(true);
     } else {
       setTranslateX(0);
@@ -114,18 +110,16 @@ const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
       setTranslateX(0);
       setIsSwiped(false);
     } else {
-      setTranslateX(-swipeWidth);
+      setTranslateX(-144);
       setIsSwiped(true);
     }
   };
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 shadow-2xs select-none">
-      {/* Background slide actions: รายละเอียด + แก้ไข + ลบ */}
-      <div
-        className="absolute inset-y-0 right-0 flex items-stretch bg-slate-900 text-white z-0"
-        style={{ width: swipeWidth }}
-      >
+      {/* Background slide actions revealed upon sliding left (2 actions: รายละเอียด + ลบ) */}
+      <div className="absolute inset-y-0 right-0 w-[144px] flex items-stretch bg-[#0b1b36] text-white z-0">
+        {/* 1. รายละเอียด (Pop-up) */}
         <button
           type="button"
           onClick={(e) => {
@@ -141,23 +135,7 @@ const SwipeableCutRecordCard: React.FC<SwipeableCutRecordCardProps> = ({
           <span className="leading-tight">รายละเอียด</span>
         </button>
 
-        {onEdit && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setTranslateX(0);
-              setIsSwiped(false);
-              onEdit(item);
-            }}
-            className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 active:bg-amber-600 transition-colors cursor-pointer"
-            title="แก้ไขข้อมูลใบ SO นี้"
-          >
-            <Pencil className="w-4 h-4 mb-0.5" />
-            <span className="leading-tight">แก้ไข</span>
-          </button>
-        )}
-
+        {/* 2. ลบ */}
         <button
           type="button"
           onClick={(e) => {
@@ -287,7 +265,6 @@ interface CuttingHistoryTableProps {
   records: StockCutRecord[];
   rolls?: FoilRoll[];
   onDeleteRecord: (recordId: string) => void;
-  onEditRecord?: (record: StockCutRecord) => void;
   onOpenCutModal: () => void;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
@@ -297,7 +274,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   records,
   rolls = [],
   onDeleteRecord,
-  onEditRecord,
   onOpenCutModal,
   userMode = 'visitor',
   onRequestUnlock,
@@ -331,9 +307,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
       `📐 หน้ากว้าง: ${item.width} มม.`,
       `🎨 ลายฟอยล์: ${item.pattern}${sideText}`,
       `✂️ ยอดตัดใช้งาน: ${formatMeters(item.usedMeters)} ม.` + (item.ngMeters > 0 ? ` (NG เสีย: ${formatMeters(item.ngMeters)} ม.)` : ''),
-      Number(item.totalDeducted) < 0
-        ? `📈 คืนสต๊อก (นับสต๊อก): +${formatMeters(Math.abs(Number(item.totalDeducted)))} ม.`
-        : `📉 รวมตัดออกสุทธิ: ${formatMeters(item.totalDeducted)} ม.`,
+      `📉 รวมตัดออกสุทธิ: ${formatMeters(item.totalDeducted)} ม.`,
       `📊 คงเหลือในม้วน: ${formatMeters(item.remainingAfter)} ม.`,
       `👤 ผู้บันทึก: ${item.recordedBy || '-'}`,
       item.notes ? `📝 หมายเหตุ: ${item.notes}` : '',
@@ -435,7 +409,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   // Date range preset handler
   const handleDatePreset = (preset: 'today' | '7days' | '30days' | 'this_month' | 'clear') => {
     const today = new Date();
-    const toYMD = (d: Date) => d.toISOString().split('T')[0];
+    const toYMD = (d: Date) => toLocalYMD(d);
 
     if (preset === 'clear') {
       setStartDate('');
@@ -1142,16 +1116,11 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                     searchQuery={searchQuery}
                     isDup={hiddenDupIdSet.has(item.id)}
                     onOpenDetail={(rec) => setSelectedDetailRecord(rec)}
-                    onEdit={
-                      onEditRecord
-                        ? (rec) => handleActionGuarded(() => onEditRecord(rec))
-                        : undefined
-                    }
                     onDelete={(rec) => {
                       handleActionGuarded(() => {
                         if (
                           confirm(
-                            `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะ${Number(rec.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(rec.totalDeducted) || 0).toLocaleString()} เมตร ${Number(rec.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
+                            `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${rec.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
                           )
                         ) {
                           onDeleteRecord(rec.id);
@@ -1419,34 +1388,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                             )}
                           </button>
 
-                          {onEditRecord && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleActionGuarded(() => onEditRecord(item))
-                              }
-                              title={
-                                userMode === 'visitor'
-                                  ? 'ต้องปลดล็อคโหมดคีย์ข้อมูลก่อนแก้ไข'
-                                  : 'แก้ไขข้อมูลใบ SO นี้'
-                              }
-                              className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                            >
-                              {userMode === 'visitor' ? (
-                                <Lock className="w-3.5 h-3.5 text-slate-300" />
-                              ) : (
-                                <Pencil className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          )}
-
                           <button
                             type="button"
                             onClick={() => {
                               handleActionGuarded(() => {
                                 if (
                                   confirm(
-                                    `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะ${Number(item.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(item.totalDeducted) || 0).toLocaleString()} เมตร ${Number(item.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                    `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
                                   )
                                 ) {
                                   onDeleteRecord(item.id);
@@ -1598,16 +1546,11 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                           searchQuery={searchQuery}
                           isDup={hiddenDupIdSet.has(item.id)}
                           onOpenDetail={(rec) => setSelectedDetailRecord(rec)}
-                          onEdit={
-                            onEditRecord
-                              ? (rec) => handleActionGuarded(() => onEditRecord(rec))
-                              : undefined
-                          }
                           onDelete={(rec) => {
                             handleActionGuarded(() => {
                               if (
                                 confirm(
-                                  `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะ${Number(rec.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(rec.totalDeducted) || 0).toLocaleString()} เมตร ${Number(rec.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
+                                  `ต้องการยกเลิกรายการตัดสต๊อก ${rec.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${rec.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${rec.lotNumber} เบอร์ ${rec.rollNumber} อัตโนมัติ)`
                                 )
                               ) {
                                 onDeleteRecord(rec.id);
@@ -1737,26 +1680,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                                       )}
                                     </button>
 
-                                    {onEditRecord && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          handleActionGuarded(() => onEditRecord(item))
-                                        }
-                                        className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
-                                        title="แก้ไขข้อมูลใบ SO นี้"
-                                      >
-                                        <Pencil className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-
                                     <button
                                       type="button"
                                       onClick={() => {
                                         handleActionGuarded(() => {
                                           if (
                                             confirm(
-                                              `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะ${Number(item.totalDeducted) < 0 ? 'หัก' : 'คืน'}ยอด ${Math.abs(Number(item.totalDeducted) || 0).toLocaleString()} เมตร ${Number(item.totalDeducted) < 0 ? 'ออกจาก' : 'กลับเข้า'}ม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
+                                              `ต้องการยกเลิกรายการตัดสต๊อก ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${item.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วน ${item.lotNumber} เบอร์ ${item.rollNumber} อัตโนมัติ)`
                                             )
                                           ) {
                                             onDeleteRecord(item.id);

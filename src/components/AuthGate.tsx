@@ -201,7 +201,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
               <Layers className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div className="min-w-0">
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-900 text-amber-400 tracking-wide inline-block mb-0.5">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#0B1B36] border border-blue-900/60 text-amber-300 tracking-wide inline-block mb-0.5">
                 หลังคาเย็นสยาม
               </span>
               <h1 className="text-sm font-bold text-slate-900 leading-tight truncate">

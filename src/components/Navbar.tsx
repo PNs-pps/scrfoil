@@ -1,14 +1,15 @@
 import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory, Bug, LogOut } from 'lucide-react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Factory, Bug, LogOut, Beaker } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings';
-  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'settings') => void;
+  activeTab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'chemical' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'flow' | 'sandwich' | 'chemical' | 'settings') => void;
   onOpenAddModal: () => void;
   onOpenCutModal: (mode?: 'so' | 'non_so') => void;
   onOpenPuSandwichModal: () => void;
   puSandwichCount?: number;
+  chemicalCutsCount?: number;
   totalRemainingMeters: number;
   activeRollsCount: number;
   onResetData: () => void;
@@ -31,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenCutModal,
   onOpenPuSandwichModal,
   puSandwichCount = 0,
+  chemicalCutsCount = 0,
   totalRemainingMeters,
   activeRollsCount,
   onResetData,
@@ -296,6 +298,27 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}>
                 {puSandwichCount}
               </span>
+            </button>
+
+            <button
+              id="tab-chemical"
+              onClick={() => setActiveTab('chemical')}
+              className={`inline-flex items-center gap-2 py-2 px-3.5 rounded-xl font-medium text-xs lg:text-sm transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'chemical'
+                  ? 'bg-white text-slate-950 font-bold shadow-xs border border-slate-200/70'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              <Beaker className="w-4 h-4 text-amber-600" />
+              <span className="lg:hidden">น้ำยา PU</span>
+              <span className="hidden lg:inline">ตัดสต๊อกน้ำยา PU</span>
+              {chemicalCutsCount > 0 && (
+                <span className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  activeTab === 'chemical' ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {chemicalCutsCount}
+                </span>
+              )}
             </button>
 
             <button

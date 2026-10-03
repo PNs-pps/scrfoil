@@ -14,7 +14,8 @@
  */
 
 import { FoilRoll, StockCutRecord } from '../types';
-import { round2, todayLocalISO } from './formatters';
+import { round2, todayLocalYMD } from './formatters';
+import { signedTotalDeducted } from './cutDeduction';
 
 export interface IntegrityMismatch {
   rollId: string;
@@ -51,17 +52,11 @@ export function checkStockIntegrity(
 
   records.forEach((rec) => {
     const existing = deductionByRoll.get(rec.foilId) || { total: 0, used: 0, ng: 0, count: 0 };
-    // usedMeters / ngMeters are always non-negative (production cuts).
-    // totalDeducted is SIGNED: positive = stock out, negative = stock in
-    // (e.g. Cycle Count when physical count > system remaining).
-    // Using Math.abs on totalDeducted would turn stock-in adjustments into
-    // extra deductions and produce false integrity mismatches / system errors.
     const safeUsed = Math.abs(Number(rec.usedMeters || 0));
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
-    const rawTotal = Number(rec.totalDeducted);
-    const deducted = Number.isFinite(rawTotal)
-      ? rawTotal
-      : safeUsed + safeNg;
+    // Cycle Count ที่ของจริงมากกว่าระบบมี totalDeducted ติดลบ (คืนยอด) — ต้องคงเครื่องหมายไว้
+    // (เดิมใช้ Math.abs ทำให้ถูกนับเป็นยอดตัด → แจ้งผิดว่าม้วนแสดงมากเกินไป และแนะนำให้แก้ยอดลง)
+    const deducted = signedTotalDeducted(rec);
 
     existing.used = round2(existing.used + safeUsed);
     existing.ng = round2(existing.ng + safeNg);
@@ -74,9 +69,7 @@ export function checkStockIntegrity(
 
   rolls.forEach((roll) => {
     const deduction = deductionByRoll.get(roll.id) || { total: 0, used: 0, ng: 0, count: 0 };
-    // Do not clamp expected to >=0: signed adjustments (stock-in) can make
-    // remaining legitimately higher than totalMeters until total is revised.
-    const expectedRemaining = round2(Number(roll.totalMeters || 0) - deduction.total);
+    const expectedRemaining = round2(Math.max(0, Number(roll.totalMeters || 0) - deduction.total));
     const actualRemaining = round2(Number(roll.remainingMeters || 0));
     const diff = round2(actualRemaining - expectedRemaining);
 
@@ -129,7 +122,7 @@ interface CheckState {
 }
 
 function todayStr(): string {
-  return todayLocalISO();
+  return todayLocalYMD();
 }
 
 function readState(): CheckState {
