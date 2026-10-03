@@ -550,16 +550,19 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
       <div 
         id="modal-cut-stock"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cut-stock-title"
         className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-amber-500 text-slate-950 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-slate-950/15 border border-slate-950/20 flex items-center justify-center text-slate-950">
+            <div className="w-8 h-8 rounded-lg bg-slate-950/15 border border-slate-950/20 flex items-center justify-center text-slate-950" aria-hidden="true">
               <Scissors className="w-5 h-5 stroke-[2.3]" />
             </div>
             <div>
-              <h2 className="text-base font-bold leading-tight">
+              <h2 id="cut-stock-title" className="text-base font-bold leading-tight">
                 ตัดสต็อกฟอยล์
               </h2>
               <p className="text-xs text-slate-900/80">
@@ -571,18 +574,19 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="text-slate-900/70 hover:text-slate-950 p-1.5 rounded-lg hover:bg-slate-950/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่' : 'ปิดหน้าต่าง'}
+            className="text-slate-900/70 hover:text-slate-950 p-2 rounded-lg hover:bg-slate-950/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] flex items-center justify-center"
             title={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่...' : 'ปิด'}
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-sm">
           {error && (
-            <div className="p-3.5 bg-rose-50 border border-rose-300 text-rose-900 rounded-xl text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
-              <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 mt-0.5" />
+            <div role="alert" className="p-3.5 bg-rose-50 border border-rose-300 text-rose-900 rounded-xl text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
+              <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 mt-0.5" aria-hidden="true" />
               <div className="space-y-1">
                 <p className="font-bold text-rose-950 text-sm">{error}</p>
                 {error.includes('กรุณาตรวจสอบการเชื่อมต่อ') && (
@@ -654,7 +658,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         value={r.id}
                         disabled={r.remainingMeters <= 0}
                       >
-                        {r.lotNumber} #{r.rollNumber} - เหลือ {formatMeters(r.remainingMeters)} ม. {r.remainingMeters <= 0 ? '(หมด)' : ''}
+                        ล็อต {r.lotNumber} · เบอร์ #{r.rollNumber} · เหลือ {formatMeters(r.remainingMeters)} ม.{r.remainingMeters <= 0 ? ' (หมด)' : ''}
                       </option>
                     ))
                   )}
@@ -662,17 +666,29 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               </div>
             </div>
 
-            {/* Selected Roll Highlight Details */}
+            {/* Selected Roll Highlight — ล็อต + เบอร์ม้วน เด่นชัดมาก เพื่อลดความผิดพลาด */}
             {currentRoll && (
-              <div className="p-3 bg-white border border-slate-200 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900 font-mono">
-                    ล็อต {currentRoll.lotNumber} #{currentRoll.rollNumber}
-                  </span>
-                  <span className="text-slate-400">•</span>
-                  <span className="text-slate-700">{currentRoll.width} มม.</span>
-                  <span className="text-slate-400">•</span>
-                  <span className="font-semibold text-slate-800">ลาย {currentRoll.pattern}</span>
+              <div className="p-3 sm:p-3.5 bg-amber-50 border-2 border-amber-400 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col gap-2 min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 bg-slate-900 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-amber-200/90">ล็อต</span>
+                      <span className="lot-number-display text-base sm:text-lg font-bold text-white leading-none">
+                        {currentRoll.lotNumber}
+                      </span>
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 bg-white border-2 border-amber-400 text-slate-900 px-3 py-1.5 rounded-lg shadow-sm">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">เบอร์</span>
+                      <span className="lot-number-display text-base sm:text-lg font-bold leading-none">
+                        #{currentRoll.rollNumber}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="font-semibold">{currentRoll.width} มม.</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="font-semibold">ลาย {currentRoll.pattern}</span>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1181,12 +1197,19 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               </div>
             )}
 
-            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2 text-sm">
-              <div className="flex justify-between gap-2">
-                <span className="text-slate-500 text-xs">ม้วน / ล็อต</span>
-                <span className="font-bold text-slate-900 font-mono text-xs text-right">
-                  {currentRoll.lotNumber} #{currentRoll.rollNumber}
-                </span>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2.5 text-sm">
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500 text-xs shrink-0">ล็อต / เบอร์ม้วน</span>
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2 py-1 rounded-md">
+                    <span className="text-[9px] font-bold uppercase text-amber-200/90">ล็อต</span>
+                    <span className="lot-number-display text-sm font-bold text-white">{currentRoll.lotNumber}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2 py-1 rounded-md">
+                    <span className="text-[9px] font-bold uppercase text-amber-700">เบอร์</span>
+                    <span className="lot-number-display text-sm font-bold">#{currentRoll.rollNumber}</span>
+                  </span>
+                </div>
               </div>
               <div className="flex justify-between gap-2">
                 <span className="text-slate-500 text-xs">ลาย / กว้าง</span>

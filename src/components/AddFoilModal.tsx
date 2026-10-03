@@ -281,16 +281,19 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150">
       <div 
         id="modal-add-foil"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-foil-title"
         className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs" aria-hidden="true">
               <PackagePlus className="w-5 h-5 stroke-[2.3]" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-white leading-tight">
+              <h2 id="add-foil-title" className="text-base sm:text-lg font-bold text-white leading-tight">
                 รับม้วนฟอยล์เข้าสต๊อก
               </h2>
               <p className="text-xs text-slate-300">
@@ -301,9 +304,10 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="ปิดหน้าต่าง"
+            className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 

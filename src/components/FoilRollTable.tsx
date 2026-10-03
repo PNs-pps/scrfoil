@@ -269,14 +269,20 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
         }}
         className={`relative z-10 p-3 ${cardBgClass} ${borderLeftClass} transition-colors cursor-pointer active:bg-slate-50`}
       >
-        {/* Row 1: Lot, Roll Number, Width, Pattern */}
+        {/* Row 1: Lot + เบอร์ม้วน เด่นชัด */}
         <div className="flex items-center justify-between gap-1.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="font-mono font-bold text-slate-900 text-sm truncate">
-              {highlightMatch(roll.lotNumber, searchQuery)}
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2 py-1 rounded-md shrink-0">
+              <span className="text-[9px] font-bold uppercase text-amber-200/90">ล็อต</span>
+              <span className="lot-number-display text-sm font-bold text-white leading-none">
+                {highlightMatch(roll.lotNumber, searchQuery)}
+              </span>
             </span>
-            <span className="font-mono text-xs font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
-              #{highlightMatch(roll.rollNumber, searchQuery)}
+            <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2 py-1 rounded-md shrink-0">
+              <span className="text-[9px] font-bold uppercase text-amber-700">เบอร์</span>
+              <span className="lot-number-display text-sm font-bold leading-none">
+                #{highlightMatch(roll.rollNumber, searchQuery)}
+              </span>
             </span>
             {isRollUnused(roll) ? (
               <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
@@ -807,10 +813,21 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         onClick={() => setActionMenuRoll(roll)}
         title="คลิกเพื่อเปิดเมนูจัดการ (ตัดสต๊อก / ดูไทม์ไลน์ / แก้ไข / ลบ)"
       >
-        {/* Lot & Roll */}
+        {/* Lot & เบอร์ม้วน — เด่นชัดทั้งคู่ */}
         <td className={`px-4 py-3.5 ${borderCellClass}`}>
-          <div className="font-mono font-bold text-slate-900 text-sm flex items-center gap-1.5">
-            <span>{highlightMatch(roll.lotNumber, searchQuery)}</span>
+          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+            <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2 py-1 rounded-md">
+              <span className="text-[9px] font-bold uppercase text-amber-200/90">ล็อต</span>
+              <span className="lot-number-display text-sm sm:text-base font-bold text-white leading-none">
+                {highlightMatch(roll.lotNumber, searchQuery)}
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2 py-1 rounded-md">
+              <span className="text-[9px] font-bold uppercase text-amber-700">เบอร์</span>
+              <span className="lot-number-display text-sm sm:text-base font-bold leading-none">
+                #{highlightMatch(roll.rollNumber, searchQuery)}
+              </span>
+            </span>
             {isRollUnused(roll) ? (
               <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
                 ม้วนเต็ม
@@ -830,9 +847,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 ≤200ม.
               </span>
             )}
-          </div>
-          <div className="text-xs text-slate-600 font-mono">
-            เบอร์ม้วน: <span className="font-semibold text-slate-800">{highlightMatch(roll.rollNumber, searchQuery)}</span>
           </div>
           {roll.notes && (
             <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={roll.notes}>
@@ -1687,10 +1701,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
                   เมนูจัดการม้วนฟอยล์
                 </span>
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5 font-mono">
-                  <span>ล็อต {actionMenuRoll.lotNumber}</span>
-                  <span className="text-amber-600">#{actionMenuRoll.rollNumber}</span>
-                </h3>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2.5 py-1 rounded-md">
+                    <span className="text-[9px] font-bold uppercase text-amber-200/90">ล็อต</span>
+                    <span className="lot-number-display text-base font-bold text-white">{actionMenuRoll.lotNumber}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2.5 py-1 rounded-md">
+                    <span className="text-[9px] font-bold uppercase text-amber-700">เบอร์</span>
+                    <span className="lot-number-display text-base font-bold">#{actionMenuRoll.rollNumber}</span>
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   หน้ากว้าง {actionMenuRoll.width} มม. · {actionMenuRoll.pattern} · คงเหลือ {formatMeters(actionMenuRoll.remainingMeters)} ม.
                 </p>

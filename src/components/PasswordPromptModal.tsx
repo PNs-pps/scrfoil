@@ -44,16 +44,19 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
       <div 
         id="modal-password-prompt"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="password-prompt-title"
         className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400" aria-hidden="true">
               <Lock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white leading-tight">
+              <h3 id="password-prompt-title" className="text-base font-bold text-white leading-tight">
                 ยืนยันรหัสผ่านโหมดคีย์ข้อมูล
               </h3>
               <p className="text-xs text-slate-400">
@@ -64,9 +67,10 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
           <button
             type="button"
             onClick={handleClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="ปิดหน้าต่าง"
+            className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -83,34 +87,36 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
           </div>
 
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
               <span>{error}</span>
             </div>
           )}
 
           <div>
             <label htmlFor="input-operator-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
-              รหัสผ่านสำหรับคีย์ข้อมูล <span className="text-rose-500">*</span>
+              รหัสผ่านสำหรับคีย์ข้อมูล <span className="text-rose-500" aria-hidden="true">*</span>
             </label>
             <div className="relative">
               <input
                 id="input-operator-password"
                 type={showPassword ? 'text' : 'password'}
                 required
+                aria-required="true"
                 autoFocus
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="กรอกรหัสผ่านเพื่อปลดล็อค"
-                className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm font-mono"
+                className="w-full pl-3.5 pr-12 py-2.5 rounded-xl border border-slate-300 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-sm font-mono"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-2 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
                 title={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
               </button>
             </div>
           </div>
