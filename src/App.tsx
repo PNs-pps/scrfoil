@@ -34,8 +34,6 @@ import {
   saveCycleCountSession,
   applyCycleCountAdjustments,
   deleteCycleCountSession,
-  fetchCycleCountSessions,
-  removeOrphanCycleCountRecord,
   firebaseConfig,
   activeTarget,
   setActiveTarget,
@@ -260,7 +258,7 @@ export default function App() {
         // depleted/zeroed that slipped through so the main list stays lean.
         setRolls((prev) => {
           const prevMap = new Map(prev.map((r) => [r.id, r]));
-          // ถ้าเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
+          // ถเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่เด้งกลับ
           const mergedServer = firestoreRolls.map((r) => {
             if (isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
               const local = prevMap.get(r.id)!;
@@ -497,26 +495,14 @@ export default function App() {
   };
 
   // Sync to local storage
-  // รับได้ทั้งอาร์เรย์และฟังก์ชัน (prev => next) — ใช้แบบฟังก์ชันหลัง await
-  // เพื่อไม่ให้เขียนทับด้วยค่า rolls/records เก่าที่ค้างอยู่ใน closure
-  const updateRollsState = (
-    next: FoilRoll[] | ((prev: FoilRoll[]) => FoilRoll[])
-  ) => {
-    setRolls((prev) => {
-      const value = typeof next === 'function' ? next(prev) : next;
-      saveStoredRolls(value);
-      return value;
-    });
+  const updateRollsState = (newRolls: FoilRoll[]) => {
+    setRolls(newRolls);
+    saveStoredRolls(newRolls);
   };
 
-  const updateRecordsState = (
-    next: StockCutRecord[] | ((prev: StockCutRecord[]) => StockCutRecord[])
-  ) => {
-    setRecords((prev) => {
-      const value = typeof next === 'function' ? next(prev) : next;
-      saveStoredCutRecords(value);
-      return value;
-    });
+  const updateRecordsState = (newRecords: StockCutRecord[]) => {
+    setRecords(newRecords);
+    saveStoredCutRecords(newRecords);
   };
 
   // Manual save all data to Firebase Firestore
@@ -681,7 +667,8 @@ export default function App() {
 
   // Update existing foil roll
   const handleUpdateRoll = async (updatedRoll: FoilRoll) => {
-    updateRollsState((prev) => prev.map(r => r.id === updatedRoll.id ? updatedRoll : r));
+    const updated = rolls.map(r => r.id === updatedRoll.id ? updatedRoll : r);
+    updateRollsState(updated);
 
     try {
       await saveFoilRollToFirestore(updatedRoll);
@@ -815,11 +802,8 @@ export default function App() {
       const updatedRolls = rolls.map((r) => finalRollsById.get(r.id) || r);
       const updatedRecords = [...records, ...createdRecords];
 
-      // ใช้ฟังก์ชัน (prev => next) เพื่อไม่ทับข้อมูลที่เปลี่ยนระหว่างรอ transaction
-      // และกันรายการซ้ำถ้า realtime listener เติมใบตัดนี้เข้ามาก่อนแล้ว
-      const newIds = new Set(createdRecords.map((r) => r.id));
-      updateRollsState((prev) => prev.map((r) => finalRollsById.get(r.id) || r));
-      updateRecordsState((prev) => [...prev.filter((r) => !newIds.has(r.id)), ...createdRecords]);
+      updateRollsState(updatedRolls);
+      updateRecordsState(updatedRecords);
       createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
 
       setSyncStatus('connected');
@@ -892,45 +876,36 @@ export default function App() {
 
   // Toggle zero out for low stock rolls (<= 50m)
   const handleToggleZeroOut = (rollId: string, zeroOut: boolean) => {
-    const targetRoll = rolls.find((r) => r.id === rollId) || archivedRolls.find((r) => r.id === rollId);
-    if (!targetRoll) return;
-
+    const targetRoll = rolls.find(r => r.id === rollId);
     let updatedTargetRoll: FoilRoll | null = null;
-    if (zeroOut) {
-      const rollObj: FoilRoll = {
-        ...targetRoll,
-        isZeroedOut: true,
-        // ถ้าม้วนถูกตัดเป็น 0 อยู่แล้ว (กดซ้ำ) ต้องเก็บยอดเดิมไว้ ห้ามเขียนทับเป็น 0
-        manualZeroedOriginalMeters: targetRoll.isZeroedOut
-          ? (targetRoll.manualZeroedOriginalMeters ?? targetRoll.remainingMeters)
-          : targetRoll.remainingMeters,
-        remainingMeters: 0,
-        status: 'depleted' as const,
-      };
-      updatedTargetRoll = rollObj;
+    const updatedRolls = rolls.map((r) => {
+      if (r.id === rollId) {
+        if (zeroOut) {
+          const rollObj: FoilRoll = {
+            ...r,
+            isZeroedOut: true,
+            manualZeroedOriginalMeters: r.remainingMeters,
+            remainingMeters: 0,
+            status: 'depleted' as const,
+          };
+          updatedTargetRoll = rollObj;
+          return rollObj;
+        } else {
+          const restored = r.manualZeroedOriginalMeters ?? 0;
+          const rollObj: FoilRoll = {
+            ...r,
+            isZeroedOut: false,
+            remainingMeters: restored,
+            status: restored > 0 ? ('active' as const) : ('depleted' as const),
+          };
+          updatedTargetRoll = rollObj;
+          return rollObj;
+        }
+      }
+      return r;
+    });
 
-      updateRollsState((prev) => prev.map((r) => (r.id === rollId ? rollObj : r)));
-      setArchivedRolls((prev) => {
-        const exists = prev.some((r) => r.id === rollId);
-        return exists ? prev.map((r) => (r.id === rollId ? rollObj : r)) : [rollObj, ...prev];
-      });
-    } else {
-      const restored = targetRoll.manualZeroedOriginalMeters ?? 0;
-      const rollObj: FoilRoll = {
-        ...targetRoll,
-        isZeroedOut: false,
-        remainingMeters: restored,
-        status: restored > 0 ? ('active' as const) : ('depleted' as const),
-      };
-      updatedTargetRoll = rollObj;
-
-      updateRollsState((prev) => {
-        const exists = prev.some((r) => r.id === rollId);
-        return exists ? prev.map((r) => (r.id === rollId ? rollObj : r)) : [rollObj, ...prev];
-      });
-      setArchivedRolls((prev) => prev.filter((r) => r.id !== rollId));
-    }
-
+    updateRollsState(updatedRolls);
     if (updatedTargetRoll) {
       saveFoilRollToFirestore(updatedTargetRoll).catch((err) => {
         console.warn('Notice: Update zero-out in Firestore pending/offline:', err?.message || err);
@@ -959,59 +934,15 @@ export default function App() {
         Math.abs(Number(targetRecord.usedMeters || 0)) < 0.001 &&
         Math.abs(Number(targetRecord.ngMeters || 0)) < 0.001);
     if (isCycleCountAdj) {
-      // ถ้างวดนับสต๊อกที่เป็นเจ้าของใบนี้ยังอยู่ → ต้องลบที่เมนูประวัตินับสต๊อก
-      // ถ้างวดถูกลบไปแล้ว (ใบตกค้าง) → อนุญาตล้างใบตกค้างได้ โดยตรวจยอดม้วนกันคืนซ้ำ
-      let ownerSessionExists = true;
-      try {
-        const sessions = await fetchCycleCountSessions(200);
-        const label = String(targetRecord.soNumber || '').trim();
-        ownerSessionExists = sessions.some(
-          (s) =>
-            (s.adjustmentRecordIds || []).includes(recordId) ||
-            `นับสต๊อก ${s.period}` === label
-        );
-      } catch {
-        ownerSessionExists = true; // อ่านงวดไม่ได้ → ปลอดภัยไว้ก่อน
-      }
-
-      if (ownerSessionExists) {
-        setErrorAlert({
-          isOpen: true,
-          title: 'ไม่สามารถลบจากประวัติตัดได้',
-          message:
-            'รายการนี้เป็นใบปรับยอดจากนับสต๊อก (Cycle Count)',
-          detail:
-            'กรุณาไปที่เมนู ประวัตินับสต๊อก → ลบงวดนั้น ระบบจะคืนยอดม้วนและลบใบปรับยอดให้อัตโนมัติอย่างถูกต้อง',
-        });
-        throw new Error('CYCLE_COUNT_DELETE_BLOCKED');
-      }
-
-      try {
-        const { roll: finalRoll, mode } = await removeOrphanCycleCountRecord(
-          recordId,
-          targetRecord.foilId
-        );
-        updateRecordsState((prev) => prev.filter((r) => r.id !== recordId));
-        if (finalRoll) {
-          updateRollsState((prev) => prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)));
-        }
-        showToast(
-          mode === 'reverted'
-            ? 'ลบใบปรับยอดนับสต๊อกที่ตกค้างและย้อนยอดม้วนเรียบร้อย [ซิงค์ Cloud]'
-            : 'ลบใบปรับยอดนับสต๊อกที่ตกค้างเรียบร้อย (ยอดม้วนไม่เปลี่ยน เพราะย้อนยอดไปแล้ว) [ซิงค์ Cloud]',
-          'info'
-        );
-        return;
-      } catch (err: any) {
-        console.error('Remove orphan cycle count record failed:', err);
-        setErrorAlert({
-          isOpen: true,
-          title: 'ลบใบปรับยอดที่ตกค้างไม่สำเร็จ',
-          message: err?.message || 'ไม่สามารถลบรายการนี้ได้',
-          detail: 'ข้อมูลเดิมยังไม่ถูกเปลี่ยนแปลง',
-        });
-        throw err;
-      }
+      setErrorAlert({
+        isOpen: true,
+        title: 'ไม่สามารถลบจากประวัติตัดได้',
+        message:
+          'รายการนี้เป็นใบปรับยอดจากนับสต๊อก (Cycle Count)',
+        detail:
+          'กรุณาไปที่เมนู ประวัตินับสต๊อก → ลบงวดนั้น ระบบจะคืนยอดม้วนและลบใบปรับยอดให้อัตโนมัติอย่างถูกต้อง',
+      });
+      throw new Error('CYCLE_COUNT_DELETE_BLOCKED');
     }
 
     // STRICT DIRECTIVE: run the revert as a transaction against the roll's
@@ -1023,18 +954,12 @@ export default function App() {
     try {
       const finalRoll = await revertCutRecordInFirestore(recordId, targetRecord.foilId);
 
-      updateRecordsState((prev) => prev.filter((r) => r.id !== recordId));
+      const updatedRecords = records.filter((r) => r.id !== recordId);
+      updateRecordsState(updatedRecords);
 
       if (finalRoll) {
-        updateRollsState((prev) => {
-          const exists = prev.some((r) => r.id === finalRoll.id);
-          return exists ? prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)) : [finalRoll, ...prev];
-        });
-        if (finalRoll.status === 'active' && Number(finalRoll.remainingMeters) > 0) {
-          setArchivedRolls((prev) => prev.filter((r) => r.id !== finalRoll.id));
-        } else {
-          setArchivedRolls((prev) => prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)));
-        }
+        const updatedRolls = rolls.map((r) => (r.id === finalRoll.id ? finalRoll : r));
+        updateRollsState(updatedRolls);
         showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
       } else {
         // Roll no longer exists — the orphaned/duplicate record was still
@@ -1073,43 +998,39 @@ export default function App() {
       const { updatedRoll, updatedRecord: finalRec } =
         await updateStockCutRecordInFirestore(updatedRecord, oldRecord);
 
-      // เก็บ "สิ่งที่เปลี่ยน" แล้วค่อย apply แบบ prev => next หลัง await ทั้งหมด
-      // เพื่อไม่ทับข้อมูลที่เปลี่ยนระหว่างรอ transaction
-      let rollToApply = updatedRoll;
-      const recordUpdates = new Map<string, StockCutRecord>([[finalRec.id, finalRec]]);
+      let nextRolls = rolls.map((r) =>
+        r.id === updatedRoll.id ? updatedRoll : r
+      );
+      let nextRecords = records.map((r) =>
+        r.id === finalRec.id ? finalRec : r
+      );
 
       // จัดห่วงโซ่ remainingBefore/After ของทุกใบในม้วนนี้ใหม่หลังแก้เมตร
-      const rollRecordIds = Array.from(
-        new Set([
-          finalRec.id,
-          ...records.filter((r) => r.foilId === finalRec.foilId).map((r) => r.id),
-        ])
-      );
-      try {
-        const { updatedRoll: realignedRoll, updatedRecords: realignedRecs } =
-          await realignRollCutChainInFirestore(finalRec.foilId, rollRecordIds);
-        rollToApply = realignedRoll;
-        realignedRecs.forEach((r) => recordUpdates.set(r.id, r));
-      } catch (alignErr: any) {
-        console.warn(
-          'Realign after SO edit failed (ยอดม้วนอัปเดตแล้ว):',
-          alignErr?.message || alignErr
-        );
+      const rollRecordIds = nextRecords
+        .filter((r) => r.foilId === finalRec.foilId)
+        .map((r) => r.id);
+      if (rollRecordIds.length > 0) {
+        try {
+          const { updatedRoll: realignedRoll, updatedRecords: realignedRecs } =
+            await realignRollCutChainInFirestore(finalRec.foilId, rollRecordIds);
+          nextRolls = nextRolls.map((r) =>
+            r.id === realignedRoll.id ? realignedRoll : r
+          );
+          const byId = new Map(realignedRecs.map((r) => [r.id, r]));
+          nextRecords = nextRecords.map((r) => byId.get(r.id) || r);
+        } catch (alignErr: any) {
+          console.warn(
+            'Realign after SO edit failed (ยอดม้วนอัปเดตแล้ว):',
+            alignErr?.message || alignErr
+          );
+        }
       }
 
-      updateRecordsState((prev) => prev.map((r) => recordUpdates.get(r.id) || r));
-      updateRollsState((prev) => {
-        const exists = prev.some((r) => r.id === rollToApply.id);
-        return exists ? prev.map((r) => (r.id === rollToApply.id ? rollToApply : r)) : [rollToApply, ...prev];
-      });
-      if (rollToApply.status === 'active' && Number(rollToApply.remainingMeters) > 0) {
-        setArchivedRolls((prev) => prev.filter((r) => r.id !== rollToApply.id));
-      } else {
-        setArchivedRolls((prev) => prev.map((r) => (r.id === rollToApply.id ? rollToApply : r)));
-      }
+      updateRecordsState(nextRecords);
+      updateRollsState(nextRolls);
 
       setEditingCutRecord(null);
-      const finalRoll = rollToApply;
+      const finalRoll = nextRolls.find((r) => r.id === finalRec.foilId) || updatedRoll;
       showToast(
         `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(finalRoll.remainingMeters)} ม. · จัดห่วงโซ่ประวัติแล้ว`,
         'success'
@@ -1126,7 +1047,8 @@ export default function App() {
 
   // Delete a roll
   const handleDeleteRoll = (rollId: string) => {
-    updateRollsState((prev) => prev.filter((r) => r.id !== rollId));
+    const updatedRolls = rolls.filter((r) => r.id !== rollId);
+    updateRollsState(updatedRolls);
     
     // Delete in Firestore
     deleteFoilRollFromFirestore(rollId).catch((err) => {
@@ -1385,7 +1307,7 @@ export default function App() {
   const activeRollsCount = rolls.filter((r) => r.remainingMeters > 0).length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased selection:bg-slate-200">
+    <div className="min-h-screen bg-[#F4F6F9] text-slate-900 flex flex-col antialiased selection:bg-amber-200">
       {/* External update banner: another device changed data — offer a reload
           so this device doesn't keep working on a stale page. */}
       {externalUpdateAvailable && (
@@ -1506,7 +1428,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 lg:px-10 py-6 sm:py-10 pb-28 md:pb-10">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
         {activeTab === 'dashboard' && (
           <DashboardOverview
             rolls={rolls}
