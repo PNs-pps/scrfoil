@@ -260,7 +260,7 @@ export default function App() {
         // depleted/zeroed that slipped through so the main list stays lean.
         setRolls((prev) => {
           const prevMap = new Map(prev.map((r) => [r.id, r]));
-          // ถเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่เด้งกลับ
+          // ถ้าเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
           const mergedServer = firestoreRolls.map((r) => {
             if (isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
               const local = prevMap.get(r.id)!;
@@ -892,39 +892,45 @@ export default function App() {
 
   // Toggle zero out for low stock rolls (<= 50m)
   const handleToggleZeroOut = (rollId: string, zeroOut: boolean) => {
-    const targetRoll = rolls.find(r => r.id === rollId);
-    let updatedTargetRoll: FoilRoll | null = null;
-    const updatedRolls = rolls.map((r) => {
-      if (r.id === rollId) {
-        if (zeroOut) {
-          const rollObj: FoilRoll = {
-            ...r,
-            isZeroedOut: true,
-            // ถ้าม้วนถูกตัดเป็น 0 อยู่แล้ว (กดซ้ำ) ต้องเก็บยอดเดิมไว้ ห้ามเขียนทับเป็น 0
-            manualZeroedOriginalMeters: r.isZeroedOut
-              ? (r.manualZeroedOriginalMeters ?? r.remainingMeters)
-              : r.remainingMeters,
-            remainingMeters: 0,
-            status: 'depleted' as const,
-          };
-          updatedTargetRoll = rollObj;
-          return rollObj;
-        } else {
-          const restored = r.manualZeroedOriginalMeters ?? 0;
-          const rollObj: FoilRoll = {
-            ...r,
-            isZeroedOut: false,
-            remainingMeters: restored,
-            status: restored > 0 ? ('active' as const) : ('depleted' as const),
-          };
-          updatedTargetRoll = rollObj;
-          return rollObj;
-        }
-      }
-      return r;
-    });
+    const targetRoll = rolls.find((r) => r.id === rollId) || archivedRolls.find((r) => r.id === rollId);
+    if (!targetRoll) return;
 
-    updateRollsState(updatedRolls);
+    let updatedTargetRoll: FoilRoll | null = null;
+    if (zeroOut) {
+      const rollObj: FoilRoll = {
+        ...targetRoll,
+        isZeroedOut: true,
+        // ถ้าม้วนถูกตัดเป็น 0 อยู่แล้ว (กดซ้ำ) ต้องเก็บยอดเดิมไว้ ห้ามเขียนทับเป็น 0
+        manualZeroedOriginalMeters: targetRoll.isZeroedOut
+          ? (targetRoll.manualZeroedOriginalMeters ?? targetRoll.remainingMeters)
+          : targetRoll.remainingMeters,
+        remainingMeters: 0,
+        status: 'depleted' as const,
+      };
+      updatedTargetRoll = rollObj;
+
+      updateRollsState((prev) => prev.map((r) => (r.id === rollId ? rollObj : r)));
+      setArchivedRolls((prev) => {
+        const exists = prev.some((r) => r.id === rollId);
+        return exists ? prev.map((r) => (r.id === rollId ? rollObj : r)) : [rollObj, ...prev];
+      });
+    } else {
+      const restored = targetRoll.manualZeroedOriginalMeters ?? 0;
+      const rollObj: FoilRoll = {
+        ...targetRoll,
+        isZeroedOut: false,
+        remainingMeters: restored,
+        status: restored > 0 ? ('active' as const) : ('depleted' as const),
+      };
+      updatedTargetRoll = rollObj;
+
+      updateRollsState((prev) => {
+        const exists = prev.some((r) => r.id === rollId);
+        return exists ? prev.map((r) => (r.id === rollId ? rollObj : r)) : [rollObj, ...prev];
+      });
+      setArchivedRolls((prev) => prev.filter((r) => r.id !== rollId));
+    }
+
     if (updatedTargetRoll) {
       saveFoilRollToFirestore(updatedTargetRoll).catch((err) => {
         console.warn('Notice: Update zero-out in Firestore pending/offline:', err?.message || err);
@@ -1020,7 +1026,15 @@ export default function App() {
       updateRecordsState((prev) => prev.filter((r) => r.id !== recordId));
 
       if (finalRoll) {
-        updateRollsState((prev) => prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)));
+        updateRollsState((prev) => {
+          const exists = prev.some((r) => r.id === finalRoll.id);
+          return exists ? prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)) : [finalRoll, ...prev];
+        });
+        if (finalRoll.status === 'active' && Number(finalRoll.remainingMeters) > 0) {
+          setArchivedRolls((prev) => prev.filter((r) => r.id !== finalRoll.id));
+        } else {
+          setArchivedRolls((prev) => prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)));
+        }
         showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
       } else {
         // Roll no longer exists — the orphaned/duplicate record was still
@@ -1084,7 +1098,15 @@ export default function App() {
       }
 
       updateRecordsState((prev) => prev.map((r) => recordUpdates.get(r.id) || r));
-      updateRollsState((prev) => prev.map((r) => (r.id === rollToApply.id ? rollToApply : r)));
+      updateRollsState((prev) => {
+        const exists = prev.some((r) => r.id === rollToApply.id);
+        return exists ? prev.map((r) => (r.id === rollToApply.id ? rollToApply : r)) : [rollToApply, ...prev];
+      });
+      if (rollToApply.status === 'active' && Number(rollToApply.remainingMeters) > 0) {
+        setArchivedRolls((prev) => prev.filter((r) => r.id !== rollToApply.id));
+      } else {
+        setArchivedRolls((prev) => prev.map((r) => (r.id === rollToApply.id ? rollToApply : r)));
+      }
 
       setEditingCutRecord(null);
       const finalRoll = rollToApply;

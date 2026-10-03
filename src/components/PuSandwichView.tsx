@@ -50,6 +50,7 @@ type SortDirection = 'asc' | 'desc';
 
 export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   records = [],
+  onOpenCreateModal,
   onEditRecord,
   onDeleteRecord,
   userMode,
@@ -336,12 +337,54 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   return (
     <div className="space-y-3 animate-in fade-in duration-200">
       {/* หัวข้อบาง + ปุ่ม */}
-      <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-2xl px-3.5 py-3 text-white shadow-sm flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-2xl px-4 py-3.5 text-white shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <Factory className="w-4 h-4 text-emerald-300 shrink-0" />
-            <h2 className="text-sm sm:text-base font-bold truncate">PU Sandwich · ตัด SO ไม่ใช้ฟอยล์</h2>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-700/60 flex items-center justify-center shrink-0">
+              <Factory className="w-4 h-4 text-emerald-300" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-bold truncate">PU Sandwich · ตัด SO ไม่ใช้ฟอยล์</h2>
+              <p className="text-[11px] text-emerald-200/80 font-mono">เบิกเหล็กคอล์ยผลิตแซนวิช และบันทึกของเสีย NG</p>
+            </div>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setModalMonth(selectedMonth);
+              setIsMonthlyModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-xs transition-colors cursor-pointer border border-white/15"
+            title="ดูรายงานสรุปผลการผลิต PU Sandwich ประจำเดือน"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-emerald-300" />
+            <span>สรุปรายเดือน</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => exportPuSandwichRecordsToCSV(filteredRecords.length > 0 ? filteredRecords : safeRecords)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-xs transition-colors cursor-pointer border border-white/15"
+            title="ส่งออกรายการเป็นไฟล์ CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-300" />
+            <span>ส่งออก CSV</span>
+          </button>
+
+          {onOpenCreateModal && (
+            <button
+              type="button"
+              onClick={onOpenCreateModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+              title="บันทึกรายการตัด SO แซนวิชใหม่"
+            >
+              <Factory className="w-3.5 h-3.5 stroke-[2.4]" />
+              <span>+ ตัด SO แซนวิช</span>
+            </button>
+          )}
         </div>
       </div>
 

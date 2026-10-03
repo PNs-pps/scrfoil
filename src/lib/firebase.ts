@@ -47,23 +47,23 @@ export const USER_FIREBASE_CONFIG = {
   projectId: "stock-foil",
   storageBucket: "stock-foil.firebasestorage.app",
   messagingSenderId: "490056674486",
-  appId: "1:490056674486:web:7821ae1a9bef881c1e8a17",
+  appId: "1:490056674486:web:e04dd7c683dae30a1e8a17",
   measurementId: "G-5JNSJETRJP",
-  firestoreDatabaseId: "(default)",
+  firestoreDatabaseId: "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4",
   name: "User Firebase (stock-foil)"
 };
 
-// Auto-provisioned AI Studio fallback configuration (already verified and rules deployed)
+// Auto-provisioned AI Studio configuration (matches firebase-applet-config.json)
 export const MANAGED_FIREBASE_CONFIG = {
-  projectId: "xenon-airport-rlxdt",
-  appId: "1:964466336233:web:6c7adda3fed5be2cecab78",
-  apiKey: "AIzaSyCupE89q8EEJM5tguACQrLQCPFdHRrbp_4",
-  authDomain: "xenon-airport-rlxdt.firebaseapp.com",
+  projectId: "stock-foil",
+  appId: "1:490056674486:web:e04dd7c683dae30a1e8a17",
+  apiKey: "AIzaSyCMtSWsr2HnVDAupSZMjZKrQ6o8ve_YxH4",
+  authDomain: "stock-foil.firebaseapp.com",
   firestoreDatabaseId: "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4",
-  storageBucket: "xenon-airport-rlxdt.firebasestorage.app",
-  messagingSenderId: "964466336233",
+  storageBucket: "stock-foil.firebasestorage.app",
+  messagingSenderId: "490056674486",
   measurementId: "",
-  name: "AI Studio Cloud (Auto-Provisioned)"
+  name: "AI Studio Cloud (stock-foil)"
 };
 
 // Check which project the user has currently selected
@@ -105,6 +105,7 @@ function createDb(): Firestore {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
+      experimentalAutoDetectLongPolling: true,
     };
     return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
       ? initializeFirestore(firebaseApp, firestoreSettings, firebaseConfig.firestoreDatabaseId)
