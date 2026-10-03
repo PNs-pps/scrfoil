@@ -1,12 +1,14 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import {defineConfig} from 'vite';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
   return {
-    // ใช้ path แบบ relative เพื่อให้รันบน GitHub Pages sub-path (/<repo>/) ได้
-    base: './',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

@@ -3,6 +3,14 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // จำกัดสิทธิ์เฉพาะพนักงาน (อีเมลเดียว)
+    // อีเมลต้องเป็นตัวพิมพ์เล็ก และต้องสมัครบัญชีนี้ในแอปไว้แล้ว
+    function isStaff() {
+      return request.auth != null &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == 'ikuyisad@ikwai.com';
+    }
+
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -35,7 +43,7 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Connection test document — left open for connectivity checks (no real
+    // Connection test document — readable by any signed-in user for connectivity checks (no real
     // business data lives here)
     match /test/{docId} {
       allow read, write: if request.auth != null;
@@ -44,54 +52,37 @@ service cloud.firestore {
     // Foil rolls inventory collection — requires a signed-in Google account
     // (guest/anonymous access has been removed; see AuthGate.tsx on the client)
     match /foil_rolls/{rollId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isStaff();
 
       // Cuts subcollection per roll
       match /cuts/{cutId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isStaff();
       }
 
       // Cut history subcollection per roll (foil_rolls/{rollId}/cut_history)
       match /cut_history/{cutId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isStaff();
       }
     }
 
     // Collection group query for cut_history across all rolls
     match /{path=**}/cut_history/{cutId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isStaff();
     }
 
     // Stock cut records collection
     match /stock_cut_records/{recordId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isStaff();
     }
 
     // PU Sandwich cut records (no foil) collection
     match /pu_sandwich_cuts/{recordId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isStaff();
     }
 
     // Physical Cycle Count sessions (monthly stock count + variance)
     match /cycle_counts/{sessionId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // PU Chemical Stock (ตัดสต๊อกน้ำยา PU แยกจากฟอยล์)
-    match /chemical_stock/{docId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /chemical_cut_records/{recordId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /chemical_restock_records/{recordId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /chemical_formulas/{formulaId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isStaff();
     }
   }
 }
