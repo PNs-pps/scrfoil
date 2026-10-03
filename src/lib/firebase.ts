@@ -1,5 +1,4 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { todayLocalISO } from '../utils/formatters';
 import { 
   getFirestore, 
   initializeFirestore,
@@ -560,8 +559,8 @@ export async function executeCutBatchInFirestore(
         ngMeters: Math.abs(Number(r.ngMeters || 0)),
         totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
         remainingAfter: newRemaining,
-        usageDate: r.usageDate || todayLocalISO(),
-        recordedDate: r.recordedDate || todayLocalISO(),
+        usageDate: r.usageDate || new Date().toISOString().split('T')[0],
+        recordedDate: r.recordedDate || new Date().toISOString().split('T')[0],
         recordedBy: r.recordedBy || '',
         notes: r.notes || '',
       })),
@@ -600,8 +599,8 @@ export async function executeCutBatchInFirestore(
         remainingAfter: stepAfter,
         notes: record.notes || '',
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
-        usageDate: record.usageDate || todayLocalISO(),
-        recordedDate: record.recordedDate || todayLocalISO(),
+        usageDate: record.usageDate || new Date().toISOString().split('T')[0],
+        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
       };
 
       const recordRef = doc(db, RECORDS_COLLECTION, record.id);
@@ -616,9 +615,9 @@ export async function executeCutBatchInFirestore(
         totalDeducted: safeTotalDeducted,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
-        cutDate: record.usageDate || record.recordedDate || todayLocalISO(),
-        usageDate: record.usageDate || record.recordedDate || todayLocalISO(),
-        recordedDate: record.recordedDate || todayLocalISO(),
+        cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
         notes: record.notes || '',
         createdAt: record.createdAt || new Date().toISOString(),
@@ -717,8 +716,8 @@ export async function executeMultiRollCutBatchInFirestore(
           ngMeters: Math.abs(Number(r.ngMeters || 0)),
           totalDeducted: Math.abs(Number(r.totalDeducted || 0)),
           remainingAfter: newRemaining,
-          usageDate: r.usageDate || todayLocalISO(),
-          recordedDate: r.recordedDate || todayLocalISO(),
+          usageDate: r.usageDate || new Date().toISOString().split('T')[0],
+          recordedDate: r.recordedDate || new Date().toISOString().split('T')[0],
           recordedBy: r.recordedBy || '',
           notes: r.notes || '',
         })),
@@ -781,9 +780,9 @@ export async function executeMultiRollCutBatchInFirestore(
         totalDeducted: safeTotalDeducted,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
-        cutDate: record.usageDate || record.recordedDate || todayLocalISO(),
-        usageDate: record.usageDate || record.recordedDate || todayLocalISO(),
-        recordedDate: record.recordedDate || todayLocalISO(),
+        cutDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        usageDate: record.usageDate || record.recordedDate || new Date().toISOString().split('T')[0],
+        recordedDate: record.recordedDate || new Date().toISOString().split('T')[0],
         recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
         productionRound: record.productionRound || '',
         roundNumber: record.roundNumber,
@@ -1042,9 +1041,9 @@ export async function realignRollCutChainInFirestore(
         totalDeducted: signedTotal,
         remainingBefore: stepBefore,
         remainingAfter: stepAfter,
-        cutDate: rec.usageDate || rec.recordedDate || todayLocalISO(),
-        usageDate: rec.usageDate || rec.recordedDate || todayLocalISO(),
-        recordedDate: rec.recordedDate || todayLocalISO(),
+        cutDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
+        usageDate: rec.usageDate || rec.recordedDate || new Date().toISOString().split('T')[0],
+        recordedDate: rec.recordedDate || new Date().toISOString().split('T')[0],
         recordedBy: rec.recordedBy || 'ช่างคุมเครื่อง',
         notes: rec.notes || '',
         createdAt: rec.createdAt || new Date().toISOString(),
@@ -1195,9 +1194,9 @@ export async function updateStockCutRecordInFirestore(
       totalDeducted: newTotal,
       remainingBefore: finalRecord.remainingBefore,
       remainingAfter: finalRecord.remainingAfter,
-      cutDate: finalRecord.usageDate || finalRecord.recordedDate || todayLocalISO(),
-      usageDate: finalRecord.usageDate || finalRecord.recordedDate || todayLocalISO(),
-      recordedDate: finalRecord.recordedDate || todayLocalISO(),
+      cutDate: finalRecord.usageDate || finalRecord.recordedDate || new Date().toISOString().split('T')[0],
+      usageDate: finalRecord.usageDate || finalRecord.recordedDate || new Date().toISOString().split('T')[0],
+      recordedDate: finalRecord.recordedDate || new Date().toISOString().split('T')[0],
       recordedBy: finalRecord.recordedBy || 'ช่างคุมเครื่อง',
       productionRound: finalRecord.productionRound || '',
       roundNumber: finalRecord.roundNumber,
@@ -1627,34 +1626,41 @@ export async function deleteCycleCountSession(
   const soLabel = period ? `นับสต๊อก ${period}` : '';
 
   // 1) หาใบตัดที่เกิดจาก Cycle Count
+  // รวม adjustmentRecordIds + สแกน server เสมอ (กัน id หาย / ใบซ้ำค้าง)
   let recordIds = [...(fullSession?.adjustmentRecordIds || [])];
-  if (recordIds.length === 0 && fullSession) {
-    const adjustedRollIds = new Set(
-      (fullSession.lines || [])
-        .filter((l) => l.adjusted && Math.abs(l.variance) > 0.001)
-        .map((l) => l.rollId)
-    );
-    if (adjustedRollIds.size > 0 || soLabel) {
-      try {
-        const snap = await getDocs(collection(db, RECORDS_COLLECTION));
-        snap.forEach((d) => {
-          const rec = d.data() as StockCutRecord;
-          const id = d.id;
-          const isCcId = id.startsWith('cc_');
-          const isCcSo =
-            soLabel &&
-            String(rec.soNumber || '').trim() === soLabel;
-          const isTargetRoll = adjustedRollIds.size === 0 || adjustedRollIds.has(rec.foilId);
-          if ((isCcId || isCcSo) && isTargetRoll) {
-            recordIds.push(id);
-          }
-        });
-      } catch (err: any) {
-        console.warn('scan cycle count records failed:', err?.message || err);
-      }
-    }
+  const adjustedRollIds = new Set(
+    (fullSession?.lines || [])
+      .filter((l) => l.adjusted && Math.abs(Number(l.variance) || 0) > 0.001)
+      .map((l) => l.rollId)
+  );
+  if (adjustedRollIds.size === 0 && fullSession?.lines?.length) {
+    fullSession.lines.forEach((l) => {
+      if (l.rollId) adjustedRollIds.add(l.rollId);
+    });
   }
-  recordIds = Array.from(new Set(recordIds));
+  try {
+    const snap = await getDocs(collection(db, RECORDS_COLLECTION));
+    snap.forEach((d) => {
+      const rec = d.data() as StockCutRecord;
+      const id = d.id;
+      const so = String(rec.soNumber || '').trim();
+      const isCcId = id.startsWith('cc_');
+      const isCcSo =
+        so.startsWith('นับสต๊อก') &&
+        (!period || so.includes(period) || so === soLabel);
+      const isTargetRoll =
+        adjustedRollIds.size === 0 || adjustedRollIds.has(rec.foilId);
+      if ((isCcId || isCcSo) && isTargetRoll) {
+        recordIds.push(id);
+      } else if (isCcSo && adjustedRollIds.size === 0) {
+        // ลบทั้งงวด: ใบนับสต๊อกงวดนี้ทั้งหมด
+        recordIds.push(id);
+      }
+    });
+  } catch (err: any) {
+    console.warn('scan cycle count records failed:', err?.message || err);
+  }
+  recordIds = Array.from(new Set(recordIds.filter(Boolean)));
 
   // 2) ลบใบตัด + cut_history + cuts และคืนยอดม้วนตาม systemRemaining ใน session
   const adjustedLines = (fullSession?.lines || []).filter(
@@ -1811,9 +1817,9 @@ export async function applyCycleCountAdjustments(
 ): Promise<{ updatedRolls: FoilRoll[]; createdRecords: StockCutRecord[] }> {
   const updatedRolls: FoilRoll[] = [];
   const createdRecords: StockCutRecord[] = [];
-  const periodLabel = meta?.period || todayLocalISO().slice(0, 7);
+  const periodLabel = meta?.period || new Date().toISOString().slice(0, 7);
   const countedBy = (meta?.countedBy || 'Cycle Count').trim() || 'Cycle Count';
-  const today = todayLocalISO();
+  const today = new Date().toISOString().slice(0, 10);
 
   for (const line of lines) {
     const rollRef = doc(db, ROLLS_COLLECTION, line.rollId);
