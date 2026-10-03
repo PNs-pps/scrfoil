@@ -1,1 +1,435 @@
 @import "tailwindcss";
+
+/* =====================================================================
+   8-BIT RETRO ARCADE THEME
+   ธีมพิกเซลอาร์ตทับทั้งแอป โดยไม่แก้ลอจิกของคอมโพเนนต์
+   พาเลต: navy #1a1c23 · arcade blue #5b6ee1 · coin yellow #fbf236 · health red #ac3232
+   ===================================================================== */
+
+@theme {
+  /* Typography: Press Start 2P (หัวข้อ) · VT323 (ตัวเลข/โค้ด) · Chakra Petch (ข้อความ + ภาษาไทย) */
+  --font-sans: 'Chakra Petch', 'Prompt', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'VT323', 'JetBrains Mono', 'Chakra Petch', ui-monospace, monospace;
+  --font-pixel: 'Press Start 2P', 'Chakra Petch', ui-monospace, monospace;
+
+  /* Hard pixel shadows (ไม่มี blur) */
+  --shadow-2xs: 2px 2px 0 0 #000;
+  --shadow-xs: 2px 2px 0 0 #000;
+  --shadow-sm: 3px 3px 0 0 #000;
+  --shadow-md: 4px 4px 0 0 #000;
+  --shadow-lg: 4px 4px 0 0 #000;
+  --shadow-xl: 6px 6px 0 0 #000;
+  --shadow-2xl: 6px 6px 0 0 #000;
+
+  /* Arcade palette ทับสีเดิมทั้งหมด (คงลำดับความเข้ม-อ่อนเพื่อให้คอนทราสต์เดิมใช้ได้) */
+  --color-slate-50: #f4f5fb;
+  --color-slate-100: #e9ebf7;
+  --color-slate-200: #d5d9ee;
+  --color-slate-300: #aeb4d6;
+  --color-slate-400: #7d84ae;
+  --color-slate-500: #5a6190;
+  --color-slate-600: #434a75;
+  --color-slate-700: #303659;
+  --color-slate-800: #232842;
+  --color-slate-900: #1a1c23;
+  --color-slate-950: #0f1017;
+  --color-gray-50: #f4f5fb;
+  --color-gray-100: #e9ebf7;
+  --color-gray-200: #d5d9ee;
+  --color-gray-300: #aeb4d6;
+  --color-gray-400: #7d84ae;
+  --color-gray-500: #5a6190;
+  --color-gray-600: #434a75;
+  --color-gray-700: #303659;
+  --color-gray-800: #232842;
+  --color-gray-900: #1a1c23;
+  --color-gray-950: #0f1017;
+  --color-zinc-50: #f4f5fb;
+  --color-zinc-100: #e9ebf7;
+  --color-zinc-200: #d5d9ee;
+  --color-zinc-300: #aeb4d6;
+  --color-zinc-400: #7d84ae;
+  --color-zinc-500: #5a6190;
+  --color-zinc-600: #434a75;
+  --color-zinc-700: #303659;
+  --color-zinc-800: #232842;
+  --color-zinc-900: #1a1c23;
+  --color-zinc-950: #0f1017;
+  --color-neutral-50: #f4f5fb;
+  --color-neutral-100: #e9ebf7;
+  --color-neutral-200: #d5d9ee;
+  --color-neutral-300: #aeb4d6;
+  --color-neutral-400: #7d84ae;
+  --color-neutral-500: #5a6190;
+  --color-neutral-600: #434a75;
+  --color-neutral-700: #303659;
+  --color-neutral-800: #232842;
+  --color-neutral-900: #1a1c23;
+  --color-neutral-950: #0f1017;
+  --color-stone-50: #f4f5fb;
+  --color-stone-100: #e9ebf7;
+  --color-stone-200: #d5d9ee;
+  --color-stone-300: #aeb4d6;
+  --color-stone-400: #7d84ae;
+  --color-stone-500: #5a6190;
+  --color-stone-600: #434a75;
+  --color-stone-700: #303659;
+  --color-stone-800: #232842;
+  --color-stone-900: #1a1c23;
+  --color-stone-950: #0f1017;
+  --color-amber-50: #fffde6;
+  --color-amber-100: #fff9b0;
+  --color-amber-200: #fef480;
+  --color-amber-300: #fcee4f;
+  --color-amber-400: #fff56b;
+  --color-amber-500: #fbf236;
+  --color-amber-600: #a88700;
+  --color-amber-700: #8a6d00;
+  --color-amber-800: #6b5200;
+  --color-amber-900: #4a3900;
+  --color-amber-950: #2e2300;
+  --color-yellow-50: #fffde6;
+  --color-yellow-100: #fff9b0;
+  --color-yellow-200: #fef480;
+  --color-yellow-300: #fcee4f;
+  --color-yellow-400: #fff56b;
+  --color-yellow-500: #fbf236;
+  --color-yellow-600: #a88700;
+  --color-yellow-700: #8a6d00;
+  --color-yellow-800: #6b5200;
+  --color-yellow-900: #4a3900;
+  --color-yellow-950: #2e2300;
+  --color-orange-50: #fffde6;
+  --color-orange-100: #fff9b0;
+  --color-orange-200: #fef480;
+  --color-orange-300: #fcee4f;
+  --color-orange-400: #fff56b;
+  --color-orange-500: #fbf236;
+  --color-orange-600: #a88700;
+  --color-orange-700: #8a6d00;
+  --color-orange-800: #6b5200;
+  --color-orange-900: #4a3900;
+  --color-orange-950: #2e2300;
+  --color-rose-50: #fdeeee;
+  --color-rose-100: #f9d5d5;
+  --color-rose-200: #f1b0b0;
+  --color-rose-300: #e38282;
+  --color-rose-400: #cf5555;
+  --color-rose-500: #c24040;
+  --color-rose-600: #ac3232;
+  --color-rose-700: #8c2626;
+  --color-rose-800: #6e1d1d;
+  --color-rose-900: #521616;
+  --color-rose-950: #330d0d;
+  --color-red-50: #fdeeee;
+  --color-red-100: #f9d5d5;
+  --color-red-200: #f1b0b0;
+  --color-red-300: #e38282;
+  --color-red-400: #cf5555;
+  --color-red-500: #c24040;
+  --color-red-600: #ac3232;
+  --color-red-700: #8c2626;
+  --color-red-800: #6e1d1d;
+  --color-red-900: #521616;
+  --color-red-950: #330d0d;
+  --color-pink-50: #fdeeee;
+  --color-pink-100: #f9d5d5;
+  --color-pink-200: #f1b0b0;
+  --color-pink-300: #e38282;
+  --color-pink-400: #cf5555;
+  --color-pink-500: #c24040;
+  --color-pink-600: #ac3232;
+  --color-pink-700: #8c2626;
+  --color-pink-800: #6e1d1d;
+  --color-pink-900: #521616;
+  --color-pink-950: #330d0d;
+  --color-emerald-50: #eefae3;
+  --color-emerald-100: #d6f3bd;
+  --color-emerald-200: #b4e68a;
+  --color-emerald-300: #8dd45a;
+  --color-emerald-400: #6abe30;
+  --color-emerald-500: #4fa628;
+  --color-emerald-600: #3b8a1c;
+  --color-emerald-700: #2e6e17;
+  --color-emerald-800: #235513;
+  --color-emerald-900: #19400e;
+  --color-emerald-950: #0e2608;
+  --color-green-50: #eefae3;
+  --color-green-100: #d6f3bd;
+  --color-green-200: #b4e68a;
+  --color-green-300: #8dd45a;
+  --color-green-400: #6abe30;
+  --color-green-500: #4fa628;
+  --color-green-600: #3b8a1c;
+  --color-green-700: #2e6e17;
+  --color-green-800: #235513;
+  --color-green-900: #19400e;
+  --color-green-950: #0e2608;
+  --color-lime-50: #eefae3;
+  --color-lime-100: #d6f3bd;
+  --color-lime-200: #b4e68a;
+  --color-lime-300: #8dd45a;
+  --color-lime-400: #6abe30;
+  --color-lime-500: #4fa628;
+  --color-lime-600: #3b8a1c;
+  --color-lime-700: #2e6e17;
+  --color-lime-800: #235513;
+  --color-lime-900: #19400e;
+  --color-lime-950: #0e2608;
+  --color-blue-50: #eef0fd;
+  --color-blue-100: #dde1fa;
+  --color-blue-200: #bcc4f4;
+  --color-blue-300: #98a3ee;
+  --color-blue-400: #7886e8;
+  --color-blue-500: #5b6ee1;
+  --color-blue-600: #4857c9;
+  --color-blue-700: #3a46a8;
+  --color-blue-800: #2e3886;
+  --color-blue-900: #232b66;
+  --color-blue-950: #161b40;
+  --color-indigo-50: #eef0fd;
+  --color-indigo-100: #dde1fa;
+  --color-indigo-200: #bcc4f4;
+  --color-indigo-300: #98a3ee;
+  --color-indigo-400: #7886e8;
+  --color-indigo-500: #5b6ee1;
+  --color-indigo-600: #4857c9;
+  --color-indigo-700: #3a46a8;
+  --color-indigo-800: #2e3886;
+  --color-indigo-900: #232b66;
+  --color-indigo-950: #161b40;
+  --color-sky-50: #ecfafd;
+  --color-sky-100: #d0f2f9;
+  --color-sky-200: #a3e6f2;
+  --color-sky-300: #76d9ea;
+  --color-sky-400: #5fcde4;
+  --color-sky-500: #3fb3cc;
+  --color-sky-600: #2f93a9;
+  --color-sky-700: #277688;
+  --color-sky-800: #1f5d6c;
+  --color-sky-900: #17454f;
+  --color-sky-950: #0d2a31;
+  --color-teal-50: #ecfafd;
+  --color-teal-100: #d0f2f9;
+  --color-teal-200: #a3e6f2;
+  --color-teal-300: #76d9ea;
+  --color-teal-400: #5fcde4;
+  --color-teal-500: #3fb3cc;
+  --color-teal-600: #2f93a9;
+  --color-teal-700: #277688;
+  --color-teal-800: #1f5d6c;
+  --color-teal-900: #17454f;
+  --color-teal-950: #0d2a31;
+  --color-cyan-50: #ecfafd;
+  --color-cyan-100: #d0f2f9;
+  --color-cyan-200: #a3e6f2;
+  --color-cyan-300: #76d9ea;
+  --color-cyan-400: #5fcde4;
+  --color-cyan-500: #3fb3cc;
+  --color-cyan-600: #2f93a9;
+  --color-cyan-700: #277688;
+  --color-cyan-800: #1f5d6c;
+  --color-cyan-900: #17454f;
+  --color-cyan-950: #0d2a31;
+  --color-violet-50: #f6effa;
+  --color-violet-100: #e8d6f2;
+  --color-violet-200: #d2b0e4;
+  --color-violet-300: #b583cf;
+  --color-violet-400: #9a5fb8;
+  --color-violet-500: #8a4fa3;
+  --color-violet-600: #76428a;
+  --color-violet-700: #5f3571;
+  --color-violet-800: #4a2a58;
+  --color-violet-900: #371f42;
+  --color-violet-950: #231328;
+  --color-purple-50: #f6effa;
+  --color-purple-100: #e8d6f2;
+  --color-purple-200: #d2b0e4;
+  --color-purple-300: #b583cf;
+  --color-purple-400: #9a5fb8;
+  --color-purple-500: #8a4fa3;
+  --color-purple-600: #76428a;
+  --color-purple-700: #5f3571;
+  --color-purple-800: #4a2a58;
+  --color-purple-900: #371f42;
+  --color-purple-950: #231328;
+  --color-fuchsia-50: #f6effa;
+  --color-fuchsia-100: #e8d6f2;
+  --color-fuchsia-200: #d2b0e4;
+  --color-fuchsia-300: #b583cf;
+  --color-fuchsia-400: #9a5fb8;
+  --color-fuchsia-500: #8a4fa3;
+  --color-fuchsia-600: #76428a;
+  --color-fuchsia-700: #5f3571;
+  --color-fuchsia-800: #4a2a58;
+  --color-fuchsia-900: #371f42;
+  --color-fuchsia-950: #231328;
+}
+
+:root {
+  --px-navy: #1a1c23;
+  --px-blue: #5b6ee1;
+  --px-yellow: #fbf236;
+  --px-red: #ac3232;
+  --px-black: #000;
+}
+
+/* ---------- Base ---------- */
+html {
+  background: var(--px-navy);
+}
+
+body {
+  background-color: var(--px-navy);
+  background-image:
+    linear-gradient(rgba(91, 110, 225, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 110, 225, 0.10) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-attachment: fixed;
+  color: var(--px-navy);
+}
+
+/* พื้นหลังหลักของแอป + หน้า login = กริดพิกเซลสีกรมท่า */
+.min-h-screen.bg-\[\#F4F6F9\],
+.min-h-screen.bg-slate-50 {
+  background-color: transparent;
+  color: #e9ebf7;
+}
+
+/* กล่อง/แผงที่พื้นสว่าง → บังคับตัวอักษรเข้ม (กันตัวอักษรที่สืบทอดสีสว่างจาก root) */
+.bg-white,
+[class*="bg-white/"],
+.bg-slate-50,
+.bg-slate-100,
+.bg-amber-50,
+.bg-rose-50,
+.bg-emerald-50,
+.bg-blue-50,
+.bg-sky-50 {
+  color: var(--px-navy);
+}
+
+/* ---------- Pixel geometry: เหลี่ยมคม ไม่มีมุมโค้ง ---------- */
+*,
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+
+/* ขอบหนาแบบพิกเซล: ขอบสีเทา/สเลทเดิม → ดำ */
+[class*="border-slate-"],
+[class*="border-gray-"],
+[class*="border-zinc-"] {
+  border-color: var(--px-black);
+}
+.border { border-width: 2px; }
+.border-2 { border-width: 3px; }
+.border-b { border-bottom-width: 2px; }
+.border-t { border-top-width: 2px; }
+.border-l { border-left-width: 2px; }
+.border-r { border-right-width: 2px; }
+
+/* การ์ด/โมดัลขนาดใหญ่: ขอบ 3px */
+.shadow-2xl,
+.shadow-xl {
+  border-width: 3px;
+  border-style: solid;
+  border-color: var(--px-black);
+}
+
+/* ---------- Typography ---------- */
+h1, h2, h3 {
+  font-family: var(--font-pixel);
+  font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0;
+  text-transform: none;
+}
+h1 { font-size: 14px; }
+h2 { font-size: 12px; }
+h3 { font-size: 11px; }
+
+/* VT323 ตัวเล็กกว่าฟอนต์ปกติ → ปรับขนาดตามความสูงตัว x ให้อ่านง่าย (เบราว์เซอร์ที่ไม่รองรับจะข้ามไป) */
+.font-mono {
+  font-size-adjust: 0.5;
+  letter-spacing: 0.02em;
+}
+
+/* ตัวหนาในฟอนต์พิกเซลไม่ต้อง synthesize เพิ่ม */
+.font-pixel { font-family: var(--font-pixel); }
+
+/* ---------- Buttons & inputs ---------- */
+button:not(:disabled),
+[role="button"] {
+  cursor: pointer;
+}
+button:not(:disabled):active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+button:disabled {
+  filter: grayscale(0.6);
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--px-yellow);
+  outline-offset: 0;
+  box-shadow: 3px 3px 0 0 var(--px-black);
+}
+
+/* ---------- Motion: เคลื่อนไหวแบบเฟรมต่อเฟรม ---------- */
+.animate-spin { animation-timing-function: steps(8, end); }
+.animate-pulse,
+.animate-ping,
+.animate-bounce { animation-timing-function: steps(2, end); }
+
+/* ---------- Details ---------- */
+::selection {
+  background: var(--px-yellow);
+  color: var(--px-navy);
+}
+
+/* Scrollbar พิกเซล */
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--px-blue) var(--px-navy);
+}
+::-webkit-scrollbar { width: 14px; height: 14px; }
+::-webkit-scrollbar-track { background: var(--px-navy); }
+::-webkit-scrollbar-thumb {
+  background: var(--px-blue);
+  border: 3px solid var(--px-black);
+}
+
+/* เส้นสแกนไลน์แบบ CRT บางเบา (ไม่รับคลิก) */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.05) 0,
+    rgba(0, 0, 0, 0.05) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  body::after { display: none; }
+  body { background: #fff; }
+}
