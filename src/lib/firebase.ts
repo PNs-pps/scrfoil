@@ -151,11 +151,7 @@ async function signInWithProviderPopup(
       err?.code === 'auth/popup-blocked' ||
       err?.code === 'auth/operation-not-supported-in-this-environment'
     ) {
-      // Redirect navigation takes over the page. Do not rethrow the popup
-      // error, otherwise callers can briefly show a false "Login failed"
-      // message while the redirect is already in progress.
       await signInWithRedirect(auth, provider);
-      return new Promise<User>(() => {});
     }
     throw err;
   }
@@ -1648,11 +1644,8 @@ export async function deleteCycleCountSession(
           const isCcSo =
             soLabel &&
             String(rec.soNumber || '').trim() === soLabel;
-          // ต้องเป็นของงวดนี้เท่านั้น (กันลบใบนับสต๊อกของงวดอื่น)
-          const isThisPeriod =
-            !!period && String(rec.notes || '').startsWith(`Cycle Count ${period}`);
           const isTargetRoll = adjustedRollIds.size === 0 || adjustedRollIds.has(rec.foilId);
-          if ((isCcSo || (isCcId && isThisPeriod)) && isTargetRoll) {
+          if ((isCcId || isCcSo) && isTargetRoll) {
             recordIds.push(id);
           }
         });
@@ -1663,108 +1656,72 @@ export async function deleteCycleCountSession(
   }
   recordIds = Array.from(new Set(recordIds));
 
-  // 2) จัดกลุ่มใบตัดตามม้วน (อ่านจาก server; ถ้าไม่มีให้แกะจาก id แบบ cc_{rollId}_{time}_{rand})
-  const recordsByRoll = new Map<string, string[]>();
-  const orphanIds: string[] = [];
-  for (const recordId of recordIds) {
-    let foilId = '';
-    const recSnap = await getDocFromServer(doc(db, RECORDS_COLLECTION, recordId)).catch(
-      () => null
-    );
-    if (recSnap && recSnap.exists()) {
-      foilId = (recSnap.data() as StockCutRecord).foilId || '';
-    }
-    if (!foilId) {
-      const m = recordId.match(/^cc_(.+)_\d{10,}_[a-z0-9]+$/);
-      if (m) foilId = m[1];
-    }
-    if (!foilId) {
-      orphanIds.push(recordId);
-      continue;
-    }
-    const list = recordsByRoll.get(foilId) || [];
-    list.push(recordId);
-    recordsByRoll.set(foilId, list);
-  }
+  // 2) ลบใบตัด + cut_history + cuts และคืนยอดม้วนตาม systemRemaining ใน session
+  const adjustedLines = (fullSession?.lines || []).filter(
+    (l) => l.adjusted && Math.abs(l.variance) > 0.001
+  );
 
-  // 3) ย้อนยอดทีละม้วนแบบ atomic: คืนเฉพาะ "ส่วนต่างที่นับสต๊อกเคยปรับ" (totalDeducted ของใบตัดนั้น)
-  //    ไม่ตั้งยอดกลับเป็นยอดตอนนับ เพื่อไม่ให้ยอดที่ตัดจริงหลังนับสต๊อกหายไป
-  //    และลบใบตัด + cut_history + cuts ใน transaction เดียวกัน (ถ้าใบตัดถูกลบไปแล้วจะไม่คืนซ้ำ)
-  const failedRolls: string[] = [];
-  for (const [rollId, ids] of recordsByRoll) {
-    const rollRef = doc(db, ROLLS_COLLECTION, rollId);
+  for (const line of adjustedLines) {
+    const rollRef = doc(db, ROLLS_COLLECTION, line.rollId);
     try {
-      const next = await runTransaction(db, async (tx) => {
-        const rollSnap = await tx.get(rollRef);
-        const recSnaps = await Promise.all(
-          ids.map((id) => tx.get(doc(db, RECORDS_COLLECTION, id)))
-        );
-
-        let sumDeducted = 0;
-        let sumUsed = 0;
-        recSnaps.forEach((rs) => {
-          if (!rs.exists()) return;
-          const rec = rs.data() as StockCutRecord;
-          sumDeducted += Number(rec.totalDeducted) || 0;
-          sumUsed += Number(rec.usedMeters) || 0;
-        });
-        const hasExisting = recSnaps.some((rs) => rs.exists());
-
-        let updated: FoilRoll | null = null;
-        if (rollSnap.exists() && hasExisting) {
-          const serverRoll = rollSnap.data() as FoilRoll;
-          const restoredRemaining = Math.max(
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(rollRef);
+        if (!snap.exists()) return;
+        const serverRoll = snap.data() as FoilRoll;
+        // คืนยอดตามยอดระบบตอนนับ (systemRemaining)
+        const restoreTo = Math.max(0, Number(line.systemRemaining) || 0);
+        const next: FoilRoll = {
+          ...serverRoll,
+          remainingMeters: restoreTo,
+          usedMeters: Math.max(
             0,
-            Math.round(((Number(serverRoll.remainingMeters) || 0) + sumDeducted) * 100) / 100
-          );
-          updated = {
-            ...serverRoll,
-            remainingMeters: restoredRemaining,
-            usedMeters: Math.max(
-              0,
-              Math.round(((Number(serverRoll.usedMeters) || 0) - sumUsed) * 100) / 100
-            ),
-            status: restoredRemaining > 0 ? ('active' as const) : ('depleted' as const),
-            isZeroedOut: restoredRemaining <= 0,
-            // ลบเฉพาะใบตัดที่กำลังย้อน ไม่แตะรายการนับสต๊อกของงวดอื่น
-            recentCuts: (serverRoll.recentCuts || []).filter((c) => !ids.includes(c.id)),
-          };
-          tx.set(rollRef, sanitizeForFirestore(updated), { merge: true });
-        }
-
-        ids.forEach((id) => {
-          tx.delete(doc(db, RECORDS_COLLECTION, id));
-          tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', id));
-          tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cuts', id));
-        });
-        return updated;
+            Math.round(
+              ((serverRoll.totalMeters || 0) - restoreTo - (serverRoll.ngMeters || 0)) * 100
+            ) / 100
+          ),
+          status: restoreTo > 0 ? ('active' as const) : ('depleted' as const),
+          isZeroedOut: restoreTo <= 0,
+          recentCuts: (serverRoll.recentCuts || []).filter(
+            (c) => !recordIds.includes(c.id) && !(c.soNumber || '').startsWith('นับสต๊อก')
+          ),
+        };
+        tx.set(rollRef, sanitizeForFirestore(next), { merge: true });
+        restoredRolls.push(next);
       });
-
-      // เก็บผลนอก callback เพื่อไม่ให้ซ้ำเมื่อ Firestore retry transaction
-      if (next) restoredRolls.push(next);
-      deletedRecordIds.push(...ids);
     } catch (err: any) {
-      console.warn(`restore roll ${rollId} failed:`, err?.message || err);
-      failedRolls.push(rollId);
+      console.warn(`restore roll ${line.rollId} failed:`, err?.message || err);
     }
   }
 
-  // ใบตัดที่หาม้วนไม่เจอ: ลบเฉพาะเอกสารใบตัด
-  for (const recordId of orphanIds) {
+  // 3) ลบใบตัดทีละใบ
+  for (const recordId of recordIds) {
     try {
-      await deleteDoc(doc(db, RECORDS_COLLECTION, recordId));
+      // หา foilId จาก record ถ้ามี
+      const recRef = doc(db, RECORDS_COLLECTION, recordId);
+      const recSnap = await getDocFromServer(recRef).catch(() => null);
+      let foilId = '';
+      if (recSnap && recSnap.exists()) {
+        foilId = (recSnap.data() as StockCutRecord).foilId || '';
+      }
+      // ถ้าไม่มีใน server ลองจาก id แบบ cc_{rollId}_...
+      if (!foilId && recordId.startsWith('cc_')) {
+        const parts = recordId.split('_');
+        if (parts.length >= 2) foilId = parts[1];
+      }
+
+      await deleteDoc(recRef).catch(() => undefined);
+      if (foilId) {
+        await deleteDoc(doc(db, ROLLS_COLLECTION, foilId, 'cut_history', recordId)).catch(
+          () => undefined
+        );
+        await deleteDoc(doc(db, ROLLS_COLLECTION, foilId, 'cuts', recordId)).catch(
+          () => undefined
+        );
+      }
       deletedRecordIds.push(recordId);
     } catch (err: any) {
       console.warn(`delete cycle count record ${recordId} failed:`, err?.message || err);
     }
-  }
-
-  // ถ้าย้อนยอดม้วนไหนไม่สำเร็จ ห้ามลบเอกสารงวด (ไม่งั้นจะเหลือยอดที่ปรับแล้วโดยไม่มีประวัติ)
-  if (failedRolls.length > 0) {
-    markLocalWrite([...restoredRolls.map((r) => r.id), ...deletedRecordIds]);
-    throw new Error(
-      `ย้อนยอดม้วนไม่สำเร็จ ${failedRolls.length} ม้วน ยังไม่ได้ลบงวดนี้ กรุณาลองใหม่`
-    );
   }
 
   // 4) ลบเอกสารงวด
@@ -1990,15 +1947,9 @@ export async function applyCycleCountAdjustments(
         sanitizeForFirestore(historyItem)
       );
 
-      return { next, record };
+      updatedRolls.push(next);
+      createdRecords.push(record);
     });
-
-    // Firestore may retry a transaction callback. Keep UI/result arrays outside
-    // the callback so retries cannot append duplicate entries.
-    if (result) {
-      updatedRolls.push(result.next);
-      createdRecords.push(result.record);
-    }
   }
 
   markLocalWrite([
