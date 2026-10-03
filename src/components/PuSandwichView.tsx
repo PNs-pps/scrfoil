@@ -737,7 +737,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="px-6 py-5 bg-gradient-to-r from-emerald-900 via-teal-900 to-[#0b1b36] border-b border-teal-800/40 text-white flex items-center justify-between gap-4">
+            <div className="px-6 py-5 bg-linear-to-r from-emerald-800 via-teal-800 to-slate-900 text-white flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-bold shadow-xs">
                   <Calendar className="w-5 h-5" />
@@ -789,7 +789,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                 <button
                   type="button"
                   onClick={handleCopyMonthlySummary}
-                  className="px-3 py-1.5 rounded-xl bg-[#0b1b36] hover:bg-[#12284c] border border-blue-900/40 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
                   title="คัดลอกข้อความสรุปส่ง LINE"
                 >
                   {copiedMonthly ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}

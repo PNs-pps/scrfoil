@@ -13,7 +13,8 @@ import {
   HelpCircle,
   Scissors
 } from 'lucide-react';
-import { formatMeters, round2, todayLocalYMD } from '../utils/formatters';
+import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
+import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
 
 interface ParsedCutRow {
   index: number;
@@ -27,7 +28,7 @@ interface ParsedCutRow {
   recordedBy: string;
   notes: string;
   matchedRoll?: FoilRoll;
-  status: 'valid' | 'roll_not_found' | 'insufficient_meters' | 'invalid_meters' | 'duplicate';
+  status: 'valid' | 'roll_not_found' | 'insufficient_meters' | 'invalid_meters';
   statusMessage: string;
 }
 
@@ -35,8 +36,6 @@ interface SOBatchImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   rolls: FoilRoll[];
-  /** ประวัติการตัดที่มีอยู่ — ใช้กันนำเข้าไฟล์เดิมซ้ำ (ตัดสต๊อกซ้ำ) */
-  existingRecords?: StockCutRecord[];
   onConfirmBatchCut: (batch: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => Promise<void> | void;
 }
 
@@ -44,7 +43,6 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
   isOpen,
   onClose,
   rolls,
-  existingRecords = [],
   onConfirmBatchCut,
 }) => {
   const [file, setFile] = useState<File | null>(null);
@@ -80,28 +78,22 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
   // Parse CSV / text content into validated rows
   const parseCSVContent = (content: string) => {
-    // ตัด BOM (\uFEFF) ที่ Excel ใส่ไว้หน้าไฟล์ CSV ภาษาไทย ไม่ให้ติดไปกับรหัส SO แถวแรก
-    const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const lines = content.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length === 0) {
       setParsedRows([]);
       return;
     }
 
-    // แถวแรกเป็นหัวตารางเมื่อมีคำบ่งชี้ "และ" คอลัมน์เมตรไม่ใช่ตัวเลข
-    // (เดิมเช็กแค่คำว่า "so" ซึ่งอยู่ในรหัส SO ทุกใบ → ไฟล์ที่ไม่มีหัวตารางจะถูกตัดแถวแรกทิ้งเงียบ ๆ)
+    // Check if first line is header
     const firstLine = lines[0].toLowerCase();
-    const firstCols = lines[0].split(/[,;\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
-    const hasKeyword = firstLine.includes('ล็อต') || firstLine.includes('lot') || firstLine.includes('รหัส') || firstLine.includes('เมตร');
-    const meterCellIsNumber = firstCols.length > 3 && firstCols[3] !== '' && !isNaN(Number(firstCols[3]));
-    const hasHeader = hasKeyword && !meterCellIsNumber;
+    const hasHeader = firstLine.includes('so') || firstLine.includes('ล็อต') || firstLine.includes('lot') || firstLine.includes('รหัส');
     const dataLines = hasHeader ? lines.slice(1) : lines;
 
-    const todayStr = todayLocalYMD();
+    const todayStr = todayLocalISO();
     const rows: ParsedCutRow[] = [];
 
     // Track cumulative deductions per roll so we don't allow over-cutting in the same batch
     const cumulativeDeductions = new Map<string, number>();
-    const seenInFile = new Set<string>();
 
     dataLines.forEach((line, idx) => {
       // Split by comma or tab or semicolon
@@ -140,26 +132,11 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
         const currentDeductedSoFar = cumulativeDeductions.get(key) || 0;
         const totalAfterThis = round2(currentDeductedSoFar + totalDeducted);
 
-        const soKey = soNumber.trim().toUpperCase();
-        const dupKey = `${matched.id}|${soKey}|${usedMeters.toFixed(2)}|${usageDate}`;
-        const dupInHistory = existingRecords.some(r =>
-          r.foilId === matched.id &&
-          (r.soNumber || '').trim().toUpperCase() === soKey &&
-          Math.abs(Number(r.usedMeters || 0) - usedMeters) < 0.05 &&
-          (r.usageDate || '') === usageDate
-        );
-
-        if (dupInHistory || seenInFile.has(dupKey)) {
-          status = 'duplicate';
-          statusMessage = dupInHistory
-            ? `ซ้ำกับประวัติที่บันทึกแล้ว (SO ${soNumber} / ${usedMeters} ม. / ${usageDate}) — ข้ามเพื่อกันตัดสต๊อกซ้ำ`
-            : `ซ้ำกับแถวก่อนหน้าในไฟล์เดียวกัน (SO ${soNumber} / ${usedMeters} ม.)`;
-        } else if (totalAfterThis > matched.remainingMeters) {
+        if (totalAfterThis > matched.remainingMeters) {
           status = 'insufficient_meters';
           statusMessage = `ยอดตัดเกินคงเหลือ (ต้องการตัดรวม ${totalAfterThis} ม. / คงเหลือ ${matched.remainingMeters} ม.)`;
         } else {
           cumulativeDeductions.set(key, totalAfterThis);
-          seenInFile.add(dupKey);
         }
       }
 
@@ -228,7 +205,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
     setIsProcessing(true);
     setImportError(null);
 
-    const todayStr = todayLocalYMD();
+    const todayStr = todayLocalISO();
 
     // Group valid rows by rollId to process cuts sequentially per roll
     const cutsToExecute: Omit<StockCutRecord, 'id' | 'createdAt'>[] = [];
@@ -244,7 +221,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
     validRows.forEach((row) => {
       const roll = row.matchedRoll!;
-      const currentRem = remainingTracker.get(roll.id) ?? roll.remainingMeters;
+      const currentRem = remainingTracker.get(roll.id) || roll.remainingMeters;
       const remainingAfter = Math.max(0, round2(currentRem - row.totalDeducted));
       remainingTracker.set(roll.id, remainingAfter);
 
@@ -276,23 +253,25 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
     try {
       await onConfirmBatchCut(cutsToExecute);
+      playSuccessFeedback();
       setIsProcessing(false);
       onClose();
     } catch (err: any) {
       console.error('Batch SO cut failed:', err);
+      playErrorFeedback();
       setImportError(err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ');
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#060d1a]/75 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs">
       <div 
         id="modal-so-batch-import"
         className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 bg-gradient-to-r from-[#0b1b36] via-[#0d2144] to-[#102952] border-b border-blue-900/40 text-white flex items-center justify-between">
+        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
               <Upload className="w-5 h-5" />
@@ -302,7 +281,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
                 <span className="text-xs px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold">
                   นำเข้าข้อมูลใบงาน
                 </span>
-                <span className="text-xs text-blue-200/80 font-mono">
+                <span className="text-xs text-slate-400 font-mono">
                   BATCH SO CUT IMPORT
                 </span>
               </div>
@@ -314,7 +293,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
           <button
             onClick={onClose}
-            className="text-blue-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -328,7 +307,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
               onClick={() => setInputMode('file')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 inputMode === 'file'
-                  ? 'bg-[#0b1b36] text-white shadow-2xs'
+                  ? 'bg-slate-900 text-white'
                   : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
               }`}
             >
@@ -339,7 +318,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
               onClick={() => setInputMode('text')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 inputMode === 'text'
-                  ? 'bg-[#0b1b36] text-white shadow-2xs'
+                  ? 'bg-slate-900 text-white'
                   : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
               }`}
             >
