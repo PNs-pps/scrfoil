@@ -34,6 +34,8 @@ import {
   saveCycleCountSession,
   applyCycleCountAdjustments,
   deleteCycleCountSession,
+  fetchCycleCountSessions,
+  removeOrphanCycleCountRecord,
   firebaseConfig,
   activeTarget,
   setActiveTarget,
@@ -951,15 +953,59 @@ export default function App() {
         Math.abs(Number(targetRecord.usedMeters || 0)) < 0.001 &&
         Math.abs(Number(targetRecord.ngMeters || 0)) < 0.001);
     if (isCycleCountAdj) {
-      setErrorAlert({
-        isOpen: true,
-        title: 'ไม่สามารถลบจากประวัติตัดได้',
-        message:
-          'รายการนี้เป็นใบปรับยอดจากนับสต๊อก (Cycle Count)',
-        detail:
-          'กรุณาไปที่เมนู ประวัตินับสต๊อก → ลบงวดนั้น ระบบจะคืนยอดม้วนและลบใบปรับยอดให้อัตโนมัติอย่างถูกต้อง',
-      });
-      throw new Error('CYCLE_COUNT_DELETE_BLOCKED');
+      // ถ้างวดนับสต๊อกที่เป็นเจ้าของใบนี้ยังอยู่ → ต้องลบที่เมนูประวัตินับสต๊อก
+      // ถ้างวดถูกลบไปแล้ว (ใบตกค้าง) → อนุญาตล้างใบตกค้างได้ โดยตรวจยอดม้วนกันคืนซ้ำ
+      let ownerSessionExists = true;
+      try {
+        const sessions = await fetchCycleCountSessions(200);
+        const label = String(targetRecord.soNumber || '').trim();
+        ownerSessionExists = sessions.some(
+          (s) =>
+            (s.adjustmentRecordIds || []).includes(recordId) ||
+            `นับสต๊อก ${s.period}` === label
+        );
+      } catch {
+        ownerSessionExists = true; // อ่านงวดไม่ได้ → ปลอดภัยไว้ก่อน
+      }
+
+      if (ownerSessionExists) {
+        setErrorAlert({
+          isOpen: true,
+          title: 'ไม่สามารถลบจากประวัติตัดได้',
+          message:
+            'รายการนี้เป็นใบปรับยอดจากนับสต๊อก (Cycle Count)',
+          detail:
+            'กรุณาไปที่เมนู ประวัตินับสต๊อก → ลบงวดนั้น ระบบจะคืนยอดม้วนและลบใบปรับยอดให้อัตโนมัติอย่างถูกต้อง',
+        });
+        throw new Error('CYCLE_COUNT_DELETE_BLOCKED');
+      }
+
+      try {
+        const { roll: finalRoll, mode } = await removeOrphanCycleCountRecord(
+          recordId,
+          targetRecord.foilId
+        );
+        updateRecordsState((prev) => prev.filter((r) => r.id !== recordId));
+        if (finalRoll) {
+          updateRollsState((prev) => prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)));
+        }
+        showToast(
+          mode === 'reverted'
+            ? 'ลบใบปรับยอดนับสต๊อกที่ตกค้างและย้อนยอดม้วนเรียบร้อย [ซิงค์ Cloud]'
+            : 'ลบใบปรับยอดนับสต๊อกที่ตกค้างเรียบร้อย (ยอดม้วนไม่เปลี่ยน เพราะย้อนยอดไปแล้ว) [ซิงค์ Cloud]',
+          'info'
+        );
+        return;
+      } catch (err: any) {
+        console.error('Remove orphan cycle count record failed:', err);
+        setErrorAlert({
+          isOpen: true,
+          title: 'ลบใบปรับยอดที่ตกค้างไม่สำเร็จ',
+          message: err?.message || 'ไม่สามารถลบรายการนี้ได้',
+          detail: 'ข้อมูลเดิมยังไม่ถูกเปลี่ยนแปลง',
+        });
+        throw err;
+      }
     }
 
     // STRICT DIRECTIVE: run the revert as a transaction against the roll's
