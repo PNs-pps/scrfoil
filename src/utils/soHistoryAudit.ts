@@ -1,6 +1,5 @@
 import { FoilRoll, StockCutRecord } from '../types';
 import { round2 } from './formatters';
-import { isCycleCountRecord, signedTotalDeducted } from './cutDeduction';
 
 export type SOBugType = 
   | 'DUPLICATE_SO_EXACT'      // รหัส SO เดียวกันและยอดเมตรเท่ากันเป๊ะ (กรอกซ้ำเพราะประวัติไม่ขึ้น)
@@ -11,7 +10,8 @@ export type SOBugType =
   | 'NEGATIVE_VALUE'          // พบค่าติดลบหรือตัวเลขผิดรูป (NaN)
   | 'ZERO_METER_CUT'          // บันทึกรายการตัดเป็น 0 เมตร
   | 'MASTER_ROLL_MISMATCH'    // ยอดคงเหลือหน้าม้วนไม่ตรงกับผลรวมที่ตัดจริงในประวัติ SO
-  | 'ACCUMULATED_MISMATCH';   // ยอดใช้สะสม (usedMeters/ngMeters) ในม้วนไม่ตรงกับผลรวม
+  | 'ACCUMULATED_MISMATCH'
+  | 'DUPLICATE_EXACT_CUT';   // ยอดใช้สะสม (usedMeters/ngMeters) ในม้วนไม่ตรงกับผลรวม
 
 export interface SOBugIssue {
   id: string;
@@ -197,19 +197,26 @@ export function auditRollSOHistory(
   sortedRecords.forEach((rec, idx) => {
     const safeUsed = Math.abs(Number(rec.usedMeters || 0));
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
-    const safeTotal = signedTotalDeducted(rec);
-    const isCcReturn = isCycleCountRecord(rec) && safeTotal < 0; // Cycle Count ของจริงมากกว่าระบบ (คืนยอด)
+    // totalDeducted is SIGNED: + = stock out, - = stock in (Cycle Count เพิ่มยอด)
+    const rawTotal = Number(rec.totalDeducted);
+    const signedTotal = Number.isFinite(rawTotal) ? rawTotal : safeUsed + safeNg;
     const safeBefore = Number(rec.remainingBefore ?? 0);
     const safeAfter = Number(rec.remainingAfter ?? 0);
 
     totalUsed = round2(totalUsed + safeUsed);
     totalNg = round2(totalNg + safeNg);
-    totalDeducted = round2(totalDeducted + safeTotal);
+    totalDeducted = round2(totalDeducted + signedTotal);
 
-    // Math check: used + ng == total
-    const mathSumDiff = isCcReturn ? 0 : Math.abs(safeTotal - (safeUsed + safeNg));
-    const mathSubDiff = Math.abs(safeBefore - safeTotal - safeAfter);
-    const isMathValid = mathSumDiff < TOLERANCE && (rec.remainingBefore === undefined || mathSubDiff < TOLERANCE);
+    // Math check: for normal cuts, used + ng == total (positive).
+    // For stock-in adjustments (totalDeducted < 0, used=0, ng=0) skip this check.
+    const isStockInAdjustment = signedTotal < 0 && safeUsed === 0 && safeNg === 0;
+    const mathSumDiff = isStockInAdjustment
+      ? 0
+      : Math.abs(signedTotal - (safeUsed + safeNg));
+    const mathSubDiff = Math.abs(safeBefore - signedTotal - safeAfter);
+    const isMathValid =
+      mathSumDiff < TOLERANCE &&
+      (rec.remainingBefore === undefined || mathSubDiff < TOLERANCE);
 
     if (mathSumDiff >= TOLERANCE) {
       issues.push({
@@ -217,16 +224,17 @@ export function auditRollSOHistory(
         type: 'MATH_DISCREPANCY',
         severity: 'error',
         title: `การบวกเลขในใบงาน SO ${rec.soNumber || '-'} ไม่ตรง`,
-        description: `รวมตัดออก (${safeTotal} ม.) ไม่เท่ากับ ผลรวมของ ตัดใช้ (${safeUsed} ม.) + NG (${safeNg} ม.)`,
+        description: `รวมตัดออก (${signedTotal} ม.) ไม่เท่ากับ ผลรวมของ ตัดใช้ (${safeUsed} ม.) + NG (${safeNg} ม.)`,
         soNumber: rec.soNumber,
         recordId: rec.id,
-        affectedMeters: round2(Math.abs(safeTotal - (safeUsed + safeNg))),
+        affectedMeters: round2(Math.abs(signedTotal - (safeUsed + safeNg))),
         suggestedAction: 'ยอดตัดออกควรเท่ากับยอดใช้จริงบวก NG',
       });
     }
 
-    // Negative / Zero value check
-    if (rec.usedMeters < 0 || rec.ngMeters < 0 || (rec.totalDeducted < 0 && !isCcReturn)) {
+    // Negative used/ng is always an error. Negative totalDeducted is allowed
+    // only for Cycle Count / stock-in adjustments (used=0, ng=0).
+    if (rec.usedMeters < 0 || rec.ngMeters < 0) {
       issues.push({
         id: `neg-${rec.id}`,
         type: 'NEGATIVE_VALUE',
@@ -237,7 +245,18 @@ export function auditRollSOHistory(
         recordId: rec.id,
         suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก',
       });
-    } else if (safeTotal === 0 && !isCcReturn) {
+    } else if (signedTotal < 0 && !isStockInAdjustment) {
+      issues.push({
+        id: `neg-${rec.id}`,
+        type: 'NEGATIVE_VALUE',
+        severity: 'error',
+        title: `พบยอดตัดติดลบผิดปกติในรายการ SO ${rec.soNumber || '-'}`,
+        description: `รวมตัด: ${rec.totalDeducted} ม. (ไม่ใช่รายการนับสต๊อกคืนยอด)`,
+        soNumber: rec.soNumber,
+        recordId: rec.id,
+        suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก หรือเป็นรายการนับสต๊อกที่ถูกต้อง',
+      });
+    } else if (signedTotal === 0 && !isStockInAdjustment) {
       issues.push({
         id: `zero-${rec.id}`,
         type: 'ZERO_METER_CUT',
@@ -270,8 +289,8 @@ export function auditRollSOHistory(
       });
     }
 
-    // Update running expected remaining after this cut
-    runningRemaining = round2(Math.max(0, expectedBefore - safeTotal));
+    // Update running expected remaining after this cut (signedTotal may be negative = stock in)
+    runningRemaining = round2(expectedBefore - signedTotal);
 
     const soKey = (rec.soNumber || '').trim().toUpperCase();
     const allCutsForSO = soMap.get(soKey) || [];
@@ -279,7 +298,7 @@ export function auditRollSOHistory(
     
     // Check if another cut of this SO has exact same meters
     const exactMatches = allCutsForSO.filter(
-      (c) => Math.abs((c.totalDeducted || (c.usedMeters + c.ngMeters)) - safeTotal) < 0.05
+      (c) => Math.abs((c.totalDeducted || (c.usedMeters + c.ngMeters)) - signedTotal) < 0.05
     );
     const isExactDuplicateSO = exactMatches.length > 1;
     const isSplitProduction = dupCount > 1 && !isExactDuplicateSO;
@@ -301,8 +320,50 @@ export function auditRollSOHistory(
     });
   });
 
+  // 2.5 ใบนับสต๊อกซ้ำช่วงเดียวกัน (มักเกิดจากกดบันทึกซ้ำ)
+  const ccByPeriod = new Map<string, typeof sortedRecords>();
+  sortedRecords.forEach((rec) => {
+    const so = String(rec.soNumber || '').trim();
+    const isCc =
+      String(rec.id || '').startsWith('cc_') || so.startsWith('นับสต๊อก');
+    if (!isCc) return;
+    const period = so.replace(/^นับสต๊อก\s*/i, '').trim() || 'unknown';
+    const list = ccByPeriod.get(period) || [];
+    list.push(rec);
+    ccByPeriod.set(period, list);
+  });
+  ccByPeriod.forEach((list, period) => {
+    if (list.length < 2) return;
+    issues.push({
+      id: `cc-dup-${roll.id}-${period}`,
+      type: 'DUPLICATE_EXACT_CUT',
+      severity: 'error',
+      title: `พบใบนับสต๊อกซ้ำ ${list.length} ใบ (งวด ${period})`,
+      description: `ม้วนนี้มีรายการ "นับสต๊อก ${period}" ซ้ำกัน ${list.length} ครั้ง ควรเหลือเพียง 1 ใบต่องวด — ใบซ้ำทำให้ยอดคำนวณและแจ้งเตือนเพี้ยน กรุณาลบงวดนับสต๊อกจากเมนู Cycle Count แล้วบันทึกใหม่ครั้งเดียว`,
+      soNumber: `นับสต๊อก ${period}`,
+      recordId: list.map((r) => r.id).join(','),
+      affectedMeters: round2(
+        list.slice(1).reduce((s, r) => s + Math.abs(Number(r.totalDeducted) || 0), 0)
+      ),
+      suggestedAction:
+        'ไปที่ประวัตินับสต๊อก → ลบงวดนี้ → นับและบันทึกใหม่เพียงครั้งเดียว',
+    });
+  });
+
   // 3. Compare with Roll Master Document State
-  const calculatedRemaining = round2(Math.max(0, Number(roll.totalMeters || 0) - totalDeducted));
+  // ถ้ามีใบนับสต๊อกซ้ำ ใช้เฉพาะใบแรกของแต่ละงวดในการคำนวณ expected
+  let totalDeductedForCalc = totalDeducted;
+  ccByPeriod.forEach((list) => {
+    if (list.length < 2) return;
+    list.slice(1).forEach((r) => {
+      totalDeductedForCalc = round2(
+        totalDeductedForCalc - Number(r.totalDeducted || 0)
+      );
+    });
+  });
+  const calculatedRemaining = round2(
+    Number(roll.totalMeters || 0) - totalDeductedForCalc
+  );
   const currentRemaining = round2(Number(roll.remainingMeters || 0));
   const diff = round2(currentRemaining - calculatedRemaining);
 
