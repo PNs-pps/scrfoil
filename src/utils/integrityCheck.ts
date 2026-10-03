@@ -59,7 +59,7 @@ export function checkStockIntegrity(
     const safeUsed = Math.abs(Number(rec.usedMeters || 0));
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
     const rawTotal = Number(rec.totalDeducted);
-    const deducted = Number.isFinite(rawTotal) && (rawTotal !== 0 || (safeUsed === 0 && safeNg === 0))
+    const deducted = Number.isFinite(rawTotal)
       ? rawTotal
       : safeUsed + safeNg;
 

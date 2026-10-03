@@ -199,9 +199,7 @@ export function auditRollSOHistory(
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
     // totalDeducted is SIGNED: + = stock out, - = stock in (Cycle Count เพิ่มยอด)
     const rawTotal = Number(rec.totalDeducted);
-    const signedTotal = Number.isFinite(rawTotal) && (rawTotal !== 0 || (safeUsed === 0 && safeNg === 0))
-      ? rawTotal
-      : safeUsed + safeNg;
+    const signedTotal = Number.isFinite(rawTotal) ? rawTotal : safeUsed + safeNg;
     const safeBefore = Number(rec.remainingBefore ?? 0);
     const safeAfter = Number(rec.remainingAfter ?? 0);
 
