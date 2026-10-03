@@ -47,23 +47,23 @@ export const USER_FIREBASE_CONFIG = {
   projectId: "stock-foil",
   storageBucket: "stock-foil.firebasestorage.app",
   messagingSenderId: "490056674486",
-  appId: "1:490056674486:web:e04dd7c683dae30a1e8a17",
+  appId: "1:490056674486:web:7821ae1a9bef881c1e8a17",
   measurementId: "G-5JNSJETRJP",
-  firestoreDatabaseId: "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4",
+  firestoreDatabaseId: "(default)",
   name: "User Firebase (stock-foil)"
 };
 
-// Auto-provisioned AI Studio configuration (matches firebase-applet-config.json)
+// Auto-provisioned AI Studio fallback configuration (already verified and rules deployed)
 export const MANAGED_FIREBASE_CONFIG = {
-  projectId: "stock-foil",
-  appId: "1:490056674486:web:e04dd7c683dae30a1e8a17",
-  apiKey: "AIzaSyCMtSWsr2HnVDAupSZMjZKrQ6o8ve_YxH4",
-  authDomain: "stock-foil.firebaseapp.com",
+  projectId: "xenon-airport-rlxdt",
+  appId: "1:964466336233:web:6c7adda3fed5be2cecab78",
+  apiKey: "AIzaSyCupE89q8EEJM5tguACQrLQCPFdHRrbp_4",
+  authDomain: "xenon-airport-rlxdt.firebaseapp.com",
   firestoreDatabaseId: "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4",
-  storageBucket: "stock-foil.firebasestorage.app",
-  messagingSenderId: "490056674486",
+  storageBucket: "xenon-airport-rlxdt.firebasestorage.app",
+  messagingSenderId: "964466336233",
   measurementId: "",
-  name: "AI Studio Cloud (stock-foil)"
+  name: "AI Studio Cloud (Auto-Provisioned)"
 };
 
 // Check which project the user has currently selected
@@ -105,7 +105,6 @@ function createDb(): Firestore {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
-      experimentalForceLongPolling: true,
     };
     return firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
       ? initializeFirestore(firebaseApp, firestoreSettings, firebaseConfig.firestoreDatabaseId)
@@ -888,87 +887,6 @@ export async function revertCutRecordInFirestore(
   markLocalWrite([rollId, recordId]);
 
   return updatedRoll;
-}
-
-/**
- * ลบ "ใบปรับยอดนับสต๊อก" ที่ตกค้าง (งวดนับสต๊อกถูกลบไปแล้วแต่ใบปรับยอดยังอยู่ในประวัติตัด)
- * ตรวจยอดม้วนก่อนเสมอเพื่อกันคืนยอดซ้ำ:
- *  - ยอดม้วน = remainingBefore ของใบนี้  → งวดถูกย้อนยอดไปแล้ว ลบเฉพาะใบ (ไม่แตะยอดม้วน)
- *  - ยอดม้วน = remainingAfter ของใบนี้   → ยังไม่ย้อน ย้อนยอดเฉพาะส่วนต่างของใบนี้แล้วลบ
- *  - อย่างอื่น (มีการตัดต่อหลังนับ)       → ไม่ลบ เพื่อไม่ให้ยอดเพี้ยน
- */
-export async function removeOrphanCycleCountRecord(
-  recordId: string,
-  rollId: string
-): Promise<{ roll: FoilRoll | null; mode: 'record_only' | 'reverted' | 'missing' }> {
-  const rollRef = doc(db, ROLLS_COLLECTION, rollId);
-  const recordRef = doc(db, RECORDS_COLLECTION, recordId);
-  const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
-
-  const result = await runTransaction(db, async (tx) => {
-    const [rollSnap, recordSnap] = await Promise.all([tx.get(rollRef), tx.get(recordRef)]);
-
-    const deleteDocs = () => {
-      tx.delete(recordRef);
-      tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', recordId));
-      tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cuts', recordId));
-    };
-
-    if (!recordSnap.exists()) {
-      return {
-        roll: rollSnap.exists() ? (rollSnap.data() as FoilRoll) : null,
-        mode: 'missing' as const,
-      };
-    }
-    if (!rollSnap.exists()) {
-      deleteDocs();
-      return { roll: null, mode: 'record_only' as const };
-    }
-
-    const record = recordSnap.data() as StockCutRecord;
-    const serverRoll = rollSnap.data() as FoilRoll;
-    const remaining = Number(serverRoll.remainingMeters || 0);
-    const before = Number(record.remainingBefore || 0);
-    const after = Number(record.remainingAfter || 0);
-    const recentCuts = (serverRoll.recentCuts || []).filter((c) => c.id !== recordId);
-
-    if (near(remaining, before)) {
-      // งวดถูกย้อนยอดไปแล้ว: ลบเฉพาะใบที่ตกค้าง
-      const next: FoilRoll = { ...serverRoll, recentCuts };
-      deleteDocs();
-      tx.set(rollRef, sanitizeForFirestore(next), { merge: true });
-      return { roll: next, mode: 'record_only' as const };
-    }
-
-    if (near(remaining, after)) {
-      // ยังไม่ได้ย้อนยอด: ย้อนเฉพาะส่วนต่างของใบนี้
-      const restoredRemaining = round2(
-        Math.max(0, remaining + Number(record.totalDeducted || 0))
-      );
-      const restoredUsed = round2(
-        Math.max(0, Number(serverRoll.usedMeters || 0) - Number(record.usedMeters || 0))
-      );
-      const next: FoilRoll = {
-        ...serverRoll,
-        remainingMeters: restoredRemaining,
-        usedMeters: restoredUsed,
-        status: restoredRemaining > 0 ? ('active' as const) : ('depleted' as const),
-        isZeroedOut: restoredRemaining <= 0 ? serverRoll.isZeroedOut : false,
-        recentCuts,
-      };
-      deleteDocs();
-      tx.set(rollRef, sanitizeForFirestore(next), { merge: true });
-      return { roll: next, mode: 'reverted' as const };
-    }
-
-    throw new Error(
-      `ยอดคงเหลือม้วน (${remaining} ม.) ไม่ตรงกับยอดก่อน (${before}) หรือหลัง (${after}) การปรับยอดนับสต๊อกใบนี้ ` +
-        'ระบบจึงไม่ลบเพื่อกันยอดเพี้ยน กรุณาตรวจยอดม้วนก่อน'
-    );
-  });
-
-  markLocalWrite([rollId, recordId]);
-  return result;
 }
 
 export interface RollAdjustmentItem {
@@ -1958,7 +1876,7 @@ export async function applyCycleCountAdjustments(
         ? `Cycle Count: ของจริงน้อยกว่าระบบ ${Math.abs(deduct)} ม.`
         : `Cycle Count: ของจริงมากกว่าระบบ ${Math.abs(deduct)} ม.`);
 
-    const result = await runTransaction(db, async (tx) => {
+    await runTransaction(db, async (tx) => {
       const snap = await tx.get(rollRef);
       if (!snap.exists()) return;
       const serverRoll = snap.data() as FoilRoll;
