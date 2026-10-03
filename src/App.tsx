@@ -495,14 +495,26 @@ export default function App() {
   };
 
   // Sync to local storage
-  const updateRollsState = (newRolls: FoilRoll[]) => {
-    setRolls(newRolls);
-    saveStoredRolls(newRolls);
+  // รับได้ทั้งอาร์เรย์และฟังก์ชัน (prev => next) — ใช้แบบฟังก์ชันหลัง await
+  // เพื่อไม่ให้เขียนทับด้วยค่า rolls/records เก่าที่ค้างอยู่ใน closure
+  const updateRollsState = (
+    next: FoilRoll[] | ((prev: FoilRoll[]) => FoilRoll[])
+  ) => {
+    setRolls((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next;
+      saveStoredRolls(value);
+      return value;
+    });
   };
 
-  const updateRecordsState = (newRecords: StockCutRecord[]) => {
-    setRecords(newRecords);
-    saveStoredCutRecords(newRecords);
+  const updateRecordsState = (
+    next: StockCutRecord[] | ((prev: StockCutRecord[]) => StockCutRecord[])
+  ) => {
+    setRecords((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next;
+      saveStoredCutRecords(value);
+      return value;
+    });
   };
 
   // Manual save all data to Firebase Firestore
@@ -667,8 +679,7 @@ export default function App() {
 
   // Update existing foil roll
   const handleUpdateRoll = async (updatedRoll: FoilRoll) => {
-    const updated = rolls.map(r => r.id === updatedRoll.id ? updatedRoll : r);
-    updateRollsState(updated);
+    updateRollsState((prev) => prev.map(r => r.id === updatedRoll.id ? updatedRoll : r));
 
     try {
       await saveFoilRollToFirestore(updatedRoll);
@@ -802,8 +813,11 @@ export default function App() {
       const updatedRolls = rolls.map((r) => finalRollsById.get(r.id) || r);
       const updatedRecords = [...records, ...createdRecords];
 
-      updateRollsState(updatedRolls);
-      updateRecordsState(updatedRecords);
+      // ใช้ฟังก์ชัน (prev => next) เพื่อไม่ทับข้อมูลที่เปลี่ยนระหว่างรอ transaction
+      // และกันรายการซ้ำถ้า realtime listener เติมใบตัดนี้เข้ามาก่อนแล้ว
+      const newIds = new Set(createdRecords.map((r) => r.id));
+      updateRollsState((prev) => prev.map((r) => finalRollsById.get(r.id) || r));
+      updateRecordsState((prev) => [...prev.filter((r) => !newIds.has(r.id)), ...createdRecords]);
       createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
 
       setSyncStatus('connected');
@@ -884,7 +898,10 @@ export default function App() {
           const rollObj: FoilRoll = {
             ...r,
             isZeroedOut: true,
-            manualZeroedOriginalMeters: r.remainingMeters,
+            // ถ้าม้วนถูกตัดเป็น 0 อยู่แล้ว (กดซ้ำ) ต้องเก็บยอดเดิมไว้ ห้ามเขียนทับเป็น 0
+            manualZeroedOriginalMeters: r.isZeroedOut
+              ? (r.manualZeroedOriginalMeters ?? r.remainingMeters)
+              : r.remainingMeters,
             remainingMeters: 0,
             status: 'depleted' as const,
           };
@@ -954,12 +971,10 @@ export default function App() {
     try {
       const finalRoll = await revertCutRecordInFirestore(recordId, targetRecord.foilId);
 
-      const updatedRecords = records.filter((r) => r.id !== recordId);
-      updateRecordsState(updatedRecords);
+      updateRecordsState((prev) => prev.filter((r) => r.id !== recordId));
 
       if (finalRoll) {
-        const updatedRolls = rolls.map((r) => (r.id === finalRoll.id ? finalRoll : r));
-        updateRollsState(updatedRolls);
+        updateRollsState((prev) => prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)));
         showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
       } else {
         // Roll no longer exists — the orphaned/duplicate record was still
@@ -998,39 +1013,35 @@ export default function App() {
       const { updatedRoll, updatedRecord: finalRec } =
         await updateStockCutRecordInFirestore(updatedRecord, oldRecord);
 
-      let nextRolls = rolls.map((r) =>
-        r.id === updatedRoll.id ? updatedRoll : r
-      );
-      let nextRecords = records.map((r) =>
-        r.id === finalRec.id ? finalRec : r
-      );
+      // เก็บ "สิ่งที่เปลี่ยน" แล้วค่อย apply แบบ prev => next หลัง await ทั้งหมด
+      // เพื่อไม่ทับข้อมูลที่เปลี่ยนระหว่างรอ transaction
+      let rollToApply = updatedRoll;
+      const recordUpdates = new Map<string, StockCutRecord>([[finalRec.id, finalRec]]);
 
       // จัดห่วงโซ่ remainingBefore/After ของทุกใบในม้วนนี้ใหม่หลังแก้เมตร
-      const rollRecordIds = nextRecords
-        .filter((r) => r.foilId === finalRec.foilId)
-        .map((r) => r.id);
-      if (rollRecordIds.length > 0) {
-        try {
-          const { updatedRoll: realignedRoll, updatedRecords: realignedRecs } =
-            await realignRollCutChainInFirestore(finalRec.foilId, rollRecordIds);
-          nextRolls = nextRolls.map((r) =>
-            r.id === realignedRoll.id ? realignedRoll : r
-          );
-          const byId = new Map(realignedRecs.map((r) => [r.id, r]));
-          nextRecords = nextRecords.map((r) => byId.get(r.id) || r);
-        } catch (alignErr: any) {
-          console.warn(
-            'Realign after SO edit failed (ยอดม้วนอัปเดตแล้ว):',
-            alignErr?.message || alignErr
-          );
-        }
+      const rollRecordIds = Array.from(
+        new Set([
+          finalRec.id,
+          ...records.filter((r) => r.foilId === finalRec.foilId).map((r) => r.id),
+        ])
+      );
+      try {
+        const { updatedRoll: realignedRoll, updatedRecords: realignedRecs } =
+          await realignRollCutChainInFirestore(finalRec.foilId, rollRecordIds);
+        rollToApply = realignedRoll;
+        realignedRecs.forEach((r) => recordUpdates.set(r.id, r));
+      } catch (alignErr: any) {
+        console.warn(
+          'Realign after SO edit failed (ยอดม้วนอัปเดตแล้ว):',
+          alignErr?.message || alignErr
+        );
       }
 
-      updateRecordsState(nextRecords);
-      updateRollsState(nextRolls);
+      updateRecordsState((prev) => prev.map((r) => recordUpdates.get(r.id) || r));
+      updateRollsState((prev) => prev.map((r) => (r.id === rollToApply.id ? rollToApply : r)));
 
       setEditingCutRecord(null);
-      const finalRoll = nextRolls.find((r) => r.id === finalRec.foilId) || updatedRoll;
+      const finalRoll = rollToApply;
       showToast(
         `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(finalRoll.remainingMeters)} ม. · จัดห่วงโซ่ประวัติแล้ว`,
         'success'
@@ -1047,8 +1058,7 @@ export default function App() {
 
   // Delete a roll
   const handleDeleteRoll = (rollId: string) => {
-    const updatedRolls = rolls.filter((r) => r.id !== rollId);
-    updateRollsState(updatedRolls);
+    updateRollsState((prev) => prev.filter((r) => r.id !== rollId));
     
     // Delete in Firestore
     deleteFoilRollFromFirestore(rollId).catch((err) => {
