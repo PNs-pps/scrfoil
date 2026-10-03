@@ -1363,7 +1363,7 @@ export default function App() {
   const activeRollsCount = rolls.filter((r) => r.remainingMeters > 0).length;
 
   return (
-    <div className="min-h-screen bg-[#F4F6F9] text-slate-900 flex flex-col antialiased selection:bg-amber-200">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased selection:bg-slate-200">
       {/* External update banner: another device changed data — offer a reload
           so this device doesn't keep working on a stale page. */}
       {externalUpdateAvailable && (
@@ -1484,7 +1484,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 lg:px-10 py-6 sm:py-10 pb-28 md:pb-10">
         {activeTab === 'dashboard' && (
           <DashboardOverview
             rolls={rolls}
