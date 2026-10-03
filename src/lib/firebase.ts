@@ -1957,7 +1957,7 @@ export async function applyCycleCountAdjustments(
         ? `Cycle Count: ของจริงน้อยกว่าระบบ ${Math.abs(deduct)} ม.`
         : `Cycle Count: ของจริงมากกว่าระบบ ${Math.abs(deduct)} ม.`);
 
-    await runTransaction(db, async (tx) => {
+    const result = await runTransaction(db, async (tx) => {
       const snap = await tx.get(rollRef);
       if (!snap.exists()) return;
       const serverRoll = snap.data() as FoilRoll;

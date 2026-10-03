@@ -3,12 +3,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // จำกัดสิทธิ์เฉพาะพนักงาน (อีเมลเดียว)
+    // จำกัดสิทธิ์เฉพาะพนักงาน
     // อีเมลต้องเป็นตัวพิมพ์เล็ก และต้องสมัครบัญชีนี้ในแอปไว้แล้ว
     function isStaff() {
       return request.auth != null &&
         request.auth.token.email != null &&
-        request.auth.token.email.lower() == 'ikuyisad@ikwai.com';
+        request.auth.token.email.lower() in [
+          'ikuyisad@ikwai.com',
+          'sorryco@gmail.com'
+        ];
     }
 
     function isValidId(id) {
@@ -33,7 +36,7 @@ service cloud.firestore {
         data.foilId is string && data.foilId.size() <= 128 &&
         data.soNumber is string && data.soNumber.size() <= 150 &&
         data.usedMeters is number && data.usedMeters >= 0 &&
-        data.totalDeducted is number && data.totalDeducted >= 0 &&
+        data.totalDeducted is number &&
         data.remainingAfter is number && data.remainingAfter >= 0 &&
         data.recordedBy is string && data.recordedBy.size() <= 150;
     }
