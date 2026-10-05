@@ -1,0 +1,887 @@
+import React, { useState, useMemo, useRef } from 'react';
+import { todayLocalISO } from '../utils/formatters';
+import { 
+  StockCutRecord, 
+  FoilRoll,
+  PuSandwichCutRecord
+} from '../types';
+import { 
+  getPatternStyle, 
+  WIDTH_SPECIFICATIONS 
+} from '../utils/patternStyles';
+import { 
+  Workflow, 
+  Calendar, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Layers, 
+  ArrowRight, 
+  TrendingUp, 
+  Copy, 
+  Check, 
+  Clock, 
+  User, 
+  ChevronRight, 
+  Sparkles,
+  Award,
+  Factory
+} from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  ResponsiveContainer, 
+  Legend, 
+  Cell 
+} from 'recharts';
+import { KpiSlideRow } from './KpiSlideRow';
+
+interface DailyProductionFlowProps {
+  records: StockCutRecord[];
+  rolls: FoilRoll[];
+  puRecords?: PuSandwichCutRecord[];
+  onOpenCutModal?: () => void;
+  showToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
+}
+
+export type DailyFlowItem = 
+  | { type: 'foil'; data: StockCutRecord; time: string; so: string }
+  | { type: 'sandwich'; data: PuSandwichCutRecord; time: string; so: string };
+
+export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
+  records,
+  rolls,
+  puRecords = [],
+  showToast,
+}) => {
+  const todayStr = todayLocalISO();
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  const [filterLine, setFilterLine] = useState<'all' | 'foil' | 'sandwich'>('all');
+  const [copiedDaily, setCopiedDaily] = useState<boolean>(false);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const flowContainerRef = useRef<HTMLDivElement>(null);
+
+  const safePuRecords = useMemo(() => Array.isArray(puRecords) ? puRecords : [], [puRecords]);
+
+  // Get available dates from both Foil records and Sandwich records, sorted descending
+  const availableDates = useMemo(() => {
+    const dates = new Set<string>();
+    dates.add(todayStr);
+    records.forEach((r) => {
+      const d = (r.usageDate || r.recordedDate || r.createdAt || '').slice(0, 10);
+      if (d && d.length === 10) dates.add(d);
+    });
+    safePuRecords.forEach((r) => {
+      const d = (r.productionDate || r.createdAt || '').slice(0, 10);
+      if (d && d.length === 10) dates.add(d);
+    });
+    return Array.from(dates).sort((a, b) => b.localeCompare(a));
+  }, [records, safePuRecords, todayStr]);
+
+  // Filter foil records for selected date
+  // ไม่รวมใบปรับยอดนับสต๊อกทุกแบบ — ไม่โชว์ในกราฟ/สถิติผลิตรายวัน
+  const dayRecords = useMemo(() => {
+    return records
+      .filter((r) => {
+        const d = (r.usageDate || r.recordedDate || r.createdAt || '').slice(0, 10);
+        if (d !== selectedDate) return false;
+
+        const so = String(r.soNumber || '').trim();
+        const id = String(r.id || '');
+        const notes = String(r.notes || '').toLowerCase();
+        const reason = String(r.nonSoReason || '').toLowerCase();
+
+        // ใบนับสต๊อก / Cycle Count — ตัดออกจากผลิตรายวันทั้งหมด
+        if (id.startsWith('cc_')) return false;
+        if (so.includes('นับสต๊อก') || so.toLowerCase().includes('cycle count')) return false;
+        if (notes.includes('cycle count') || reason.includes('cycle count')) return false;
+        if (notes.includes('นับสต๊อก') || reason.includes('นับสต๊อก')) return false;
+
+        const td = Number(r.totalDeducted);
+        // คืนสต๊อก (totalDeducted ติดลบ โดยไม่มี used/ng ตัดจริง)
+        if (
+          Number.isFinite(td) &&
+          td < 0 &&
+          Math.abs(Number(r.usedMeters || 0)) < 0.001 &&
+          Math.abs(Number(r.ngMeters || 0)) < 0.001
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = a.createdAt || '';
+        const timeB = b.createdAt || '';
+        return timeA.localeCompare(timeB);
+      });
+  }, [records, selectedDate]);
+
+  // Filter sandwich records for selected date
+  const dayPuRecords = useMemo(() => {
+    return safePuRecords
+      .filter((r) => {
+        const d = (r.productionDate || r.createdAt || '').slice(0, 10);
+        return d === selectedDate;
+      })
+      .sort((a, b) => {
+        const timeA = a.createdAt || '';
+        const timeB = b.createdAt || '';
+        return timeA.localeCompare(timeB);
+      });
+  }, [safePuRecords, selectedDate]);
+
+  // Statistics for foil on this day
+  const stats = useMemo(() => {
+    const totalUsed = dayRecords.reduce((sum, r) => sum + r.usedMeters, 0);
+    const totalNg = dayRecords.reduce((sum, r) => sum + r.ngMeters, 0);
+    const totalDeducted = totalUsed + totalNg;
+    const yieldRate = totalDeducted > 0 ? (totalUsed / totalDeducted) * 100 : 100;
+    const uniqueSo = Array.from(new Set(dayRecords.map((r) => r.soNumber).filter(Boolean)));
+    const uniqueRolls = Array.from(new Set(dayRecords.map((r) => r.foilId).filter(Boolean)));
+
+    // Pattern distribution for this day
+    const patternMap = new Map<string, number>();
+    dayRecords.forEach((r) => {
+      patternMap.set(r.pattern, (patternMap.get(r.pattern) || 0) + r.usedMeters);
+    });
+
+    // Width distribution for this day
+    const widthMap = new Map<number, number>();
+    dayRecords.forEach((r) => {
+      widthMap.set(r.width, (widthMap.get(r.width) || 0) + r.usedMeters);
+    });
+
+    return {
+      totalUsed,
+      totalNg,
+      totalDeducted,
+      yieldRate,
+      soCount: uniqueSo.length,
+      rollCount: uniqueRolls.length,
+      patternMap,
+      widthMap,
+    };
+  }, [dayRecords]);
+
+  // Statistics for sandwich on this day
+  const puStats = useMemo(() => {
+    const totalKg = dayPuRecords.reduce((sum, r) => sum + (Number(r.weightUsed) || 0), 0);
+    const totalNgKg = dayPuRecords.reduce((sum, r) => sum + (Number(r.ngKg) || 0), 0);
+    const totalNgMeters = dayPuRecords.reduce((sum, r) => sum + (Number(r.ngMeters) || 0), 0);
+    const totalSoLength = dayPuRecords.reduce((sum, r) => sum + (Number(r.soLengthMeters) || 0), 0);
+    const uniqueSo = Array.from(new Set(dayPuRecords.map((r) => r.soNumber).filter(Boolean)));
+
+    const ngPercent = totalKg > 0 ? (totalNgKg / totalKg) * 100 : 0;
+
+    return {
+      count: dayPuRecords.length,
+      soCount: uniqueSo.length,
+      totalKg: Math.round(totalKg * 100) / 100,
+      totalTons: Math.round((totalKg / 1000) * 100) / 100,
+      totalNgKg: Math.round(totalNgKg * 100) / 100,
+      totalNgMeters: Math.round(totalNgMeters * 10) / 10,
+      totalSoLength: Math.round(totalSoLength * 10) / 10,
+      ngPercent: Math.round(ngPercent * 100) / 100,
+    };
+  }, [dayPuRecords]);
+
+  // Combined flow items chronologically
+  const combinedFlow = useMemo<DailyFlowItem[]>(() => {
+    const list: DailyFlowItem[] = [];
+    if (filterLine === 'all' || filterLine === 'foil') {
+      dayRecords.forEach((r) => {
+        list.push({
+          type: 'foil',
+          data: r,
+          time: r.createdAt || '',
+          so: r.soNumber || '',
+        });
+      });
+    }
+    if (filterLine === 'all' || filterLine === 'sandwich') {
+      dayPuRecords.forEach((p) => {
+        list.push({
+          type: 'sandwich',
+          data: p,
+          time: p.createdAt || '',
+          so: p.soNumber || '',
+        });
+      });
+    }
+    return list.sort((a, b) => a.time.localeCompare(b.time));
+  }, [dayRecords, dayPuRecords, filterLine]);
+
+  // Distinct SOs across both lines on this day
+  const distinctDailySo = useMemo(() => {
+    const set = new Set<string>();
+    dayRecords.forEach((r) => { if (r.soNumber) set.add(r.soNumber); });
+    dayPuRecords.forEach((p) => { if (p.soNumber) set.add(p.soNumber); });
+    return Array.from(set);
+  }, [dayRecords, dayPuRecords]);
+
+  // Format date display in Thai
+  const displaySelectedDate = useMemo(() => {
+    try {
+      const d = new Date(selectedDate);
+      return d.toLocaleDateString('th-TH', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        weekday: 'long',
+      });
+    } catch {
+      return selectedDate;
+    }
+  }, [selectedDate]);
+
+  // Chart data: แยกทีละใบตัด ไม่รวมยอด SO เดียวกัน
+  const chartData = useMemo(() => {
+    return dayRecords.map((r, idx) => {
+      const so = r.soNumber || 'ไม่ระบุ SO';
+      const round = (r.productionRound || '').trim();
+      const label =
+        dayRecords.filter((x) => x.soNumber === r.soNumber).length > 1
+          ? `${so}${round ? ` (${round})` : ` #${idx + 1}`}`
+          : so;
+      return {
+        so: label,
+        used: Number(r.usedMeters) || 0,
+        ng: Number(r.ngMeters) || 0,
+        pattern: r.pattern,
+        recordId: r.id,
+      };
+    });
+  }, [dayRecords]);
+
+  // Copy daily summary for LINE
+  const handleCopyDailySummary = () => {
+    if (dayRecords.length === 0 && dayPuRecords.length === 0) {
+      if (showToast) showToast('ยังไม่มีรายการผลิตในวันที่เลือก', 'info');
+      return;
+    }
+
+    const lines: string[] = [
+      `📊 ผลการผลิตโรงงานรายวัน (Production Daily Flow)`,
+      `🏢 หลังคาเย็นสยาม (ร่มเกล้า)`,
+      `📅 วันที่: ${displaySelectedDate} (${selectedDate})`,
+      `📦 รวมคำสั่งซื้อทั้งหมด: ${distinctDailySo.length} SO`,
+      `─────────────────────────`,
+    ];
+
+    if (dayRecords.length > 0) {
+      lines.push(
+        `🌀 [สายผลิตติดฟอยล์ PU]:`,
+        `  • ยอดตัดลงแผ่นจริง: ${stats.totalUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ม.`,
+        `  • เศษ NG เสีย: ${stats.totalNg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ม.`,
+        `  • ประสิทธิภาพ (Yield): ${stats.yieldRate.toFixed(2)}%`,
+        `  • จำนวน: ${stats.soCount} SO | เบิกฟอยล์ ${stats.rollCount} ม้วน`,
+        `─────────────────────────`
+      );
+    }
+
+    if (dayPuRecords.length > 0) {
+      lines.push(
+        `🥪 [สายผลิต PU แซนวิช (ไม่ใช้ฟอยล์)]:`,
+        `  • น้ำหนักเหล็กใช้จริง: ${puStats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (${puStats.totalTons} ตัน)`,
+        `  • ยอดงานผลิตตาม SO รวม: ${puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 })} เมตร`,
+        `  • ยอด NG เสีย: ${puStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (${puStats.totalNgMeters} ม.)`,
+        `  • สัดส่วน NG เสีย: ${puStats.ngPercent}%`,
+        `  • จำนวน: ${puStats.soCount} SO (${puStats.count} รายการ)`,
+        `─────────────────────────`
+      );
+    }
+
+    lines.push(`📋 ลำดับเวลาการผลิต (Flow Timeline):`);
+    combinedFlow.forEach((item, idx) => {
+      if (item.type === 'foil') {
+        const r = item.data;
+        const sideText = r.isSilverSide ? ' [ท้องเงิน]' : r.isWhiteSide ? ' [ท้องขาว]' : '';
+        lines.push(
+          `${idx + 1}. [ฟอยล์] SO: ${r.soNumber} | ล็อต ${r.lotNumber} #${r.rollNumber}` +
+          `\n   - ลาย ${r.pattern}${sideText} หน้า ${r.width}มม.` +
+          `\n   - ตัดได้: ${r.usedMeters.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ม.` +
+          (r.ngMeters > 0 ? ` (NG: ${r.ngMeters} ม.)` : '') +
+          ` | โดย: ${r.recordedBy || '-'}`
+        );
+      } else {
+        const p = item.data;
+        lines.push(
+          `${idx + 1}. [PU แซนวิช] SO: ${p.soNumber} | สี ${p.coilColor} #${p.coilNumber} (${p.thickness}มม.)` +
+          `\n   - ชนิด: ${p.steelOrigin}` +
+          `\n   - ใช้จริง: ${p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.` +
+          (p.soLengthMeters ? ` | งาน SO: ${p.soLengthMeters} ม.` : '') +
+          (p.ngKg > 0 ? ` (NG: ${p.ngKg} กก. / ${p.ngMeters} ม.)` : '') +
+          ` | โดย: ${p.recordedBy || '-'}`
+        );
+      }
+    });
+
+    lines.push(`─────────────────────────`);
+    lines.push(`ระบบบันทึกผลการผลิต Realtime`);
+
+    const textToCopy = lines.join('\n');
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopiedDaily(true);
+      setTimeout(() => setCopiedDaily(false), 2500);
+      if (showToast) {
+        showToast('คัดลอกสรุปผลผลิตรายวัน (รวมฟอยล์ + แซนวิช) เรียบร้อยแล้ว!', 'success');
+      }
+    });
+  };
+
+  // ปฏิทินเดือนของ selectedDate — ไฮไลท์วันที่มีผลิต
+  const calendarMonth = useMemo(() => {
+    const base = new Date(selectedDate + 'T12:00:00');
+    const y = base.getFullYear();
+    const m = base.getMonth();
+    const first = new Date(y, m, 1);
+    const startPad = (first.getDay() + 6) % 7; // จันทร์ = 0
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const prodSet = new Set(availableDates);
+    const cells: { day: number | null; iso: string | null; hasProd: boolean }[] = [];
+    for (let i = 0; i < startPad; i++) cells.push({ day: null, iso: null, hasProd: false });
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push({ day: d, iso, hasProd: prodSet.has(iso) });
+    }
+    return { y, m, cells, label: base.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }) };
+  }, [selectedDate, availableDates]);
+
+  const shiftCalendarMonth = (delta: number) => {
+    const base = new Date(selectedDate + 'T12:00:00');
+    base.setMonth(base.getMonth() + delta);
+    const iso = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
+    // ถ้ามีวันผลิตในเดือนนั้น เลือกวันผลิตล่าสุด ไม่งั้นวัน 1
+    const inMonth = availableDates.filter((d) => d.startsWith(iso.slice(0, 7)));
+    setSelectedDate(inMonth[0] || iso);
+  };
+
+  return (
+    <div ref={flowContainerRef} className="space-y-3 animate-in fade-in duration-200">
+      {/* หัวข้อกระชับ + ปฏิทิน */}
+      <div className="bg-white rounded-2xl p-3 border border-slate-200 shadow-xs space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-slate-900 tracking-tight">ผลิตรายวัน</h2>
+            <p className="text-[11px] text-slate-500 truncate">{displaySelectedDate}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyDailySummary}
+            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer shrink-0 ${
+              copiedDaily ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'
+            }`}
+          >
+            {copiedDaily ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
+            {copiedDaily ? 'คัดลอกแล้ว' : 'คัดลอก'}
+          </button>
+        </div>
+
+        {/* ปฏิทิน — ย่อไว้ก่อน; วันผลิต = จุดสี */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowCalendar((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left cursor-pointer hover:bg-white/70"
+          >
+            <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-amber-600" />
+              {showCalendar ? 'ซ่อนปฏิทิน' : 'แสดงปฏิทิน'}
+              <span className="font-mono font-normal text-slate-500">· {selectedDate}</span>
+            </span>
+            <span className="text-[10px] text-slate-500">
+              {showCalendar ? '▴' : '▾'} มีผลิต {availableDates.length} วัน
+            </span>
+          </button>
+          {showCalendar && (
+            <div className="px-2 pb-2 border-t border-slate-200/80">
+              <div className="flex items-center justify-between my-1.5 px-0.5">
+                <button type="button" onClick={() => shiftCalendarMonth(-1)} className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer">‹</button>
+                <span className="text-[11px] font-bold text-slate-800">{calendarMonth.label}</span>
+                <button type="button" onClick={() => shiftCalendarMonth(1)} className="px-2 py-0.5 text-xs font-bold text-slate-600 hover:bg-white rounded-lg cursor-pointer">›</button>
+              </div>
+              <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] text-slate-400 font-medium mb-0.5">
+                {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((d) => (
+                  <div key={d}>{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">
+                {calendarMonth.cells.map((c, i) =>
+                  c.day == null ? (
+                    <div key={`e-${i}`} className="h-8" />
+                  ) : (
+                    <button
+                      key={c.iso!}
+                      type="button"
+                      onClick={() => setSelectedDate(c.iso!)}
+                      className={`h-8 rounded-lg text-[11px] font-semibold cursor-pointer relative flex flex-col items-center justify-center ${
+                        c.iso === selectedDate
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-700 hover:bg-white'
+                      }`}
+                      title={c.hasProd ? 'มีผลิต' : undefined}
+                    >
+                      <span className="leading-none">{c.day}</span>
+                      {c.hasProd && (
+                        <span className={`mt-0.5 w-1.5 h-1.5 rounded-full ${c.iso === selectedDate ? 'bg-slate-900' : 'bg-emerald-500'}`} />
+                      )}
+                    </button>
+                  )
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 px-0.5 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                จุดสี = วันที่มีการผลิต
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* กรองสาย */}
+        <div className="flex flex-wrap items-center gap-1.5">
+
+          {/* Line Filter Tabs */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setFilterLine('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filterLine === 'all'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'bg-white/80 hover:bg-white text-slate-700 border border-amber-200'
+              }`}
+            >
+              ทุกสายผลิต ({distinctDailySo.length} SO)
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterLine('foil')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filterLine === 'foil'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'bg-white/80 hover:bg-white text-slate-700 border border-amber-200'
+              }`}
+            >
+              สายติดฟอยล์ ({dayRecords.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterLine('sandwich')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filterLine === 'sandwich'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'bg-white/80 hover:bg-white text-slate-700 border border-amber-200'
+              }`}
+            >
+              สาย PU แซนวิช ({dayPuRecords.length})
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ขั้นตอนผลิต (Mind Map) */}
+      <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Factory className="w-5 h-5 text-amber-600 shrink-0" />
+            <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+              ขั้นตอนผลิต
+            </h3>
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono shrink-0">ฟอยล์ + แซนวิช</span>
+        </div>
+
+        {/* ศูนย์กลาง */}
+        <div className="flex flex-col items-center gap-3">
+          <div className="px-4 py-2.5 rounded-2xl bg-slate-900 text-amber-300 text-sm font-bold shadow-md text-center">
+            ผลิตวันนี้
+            <div className="text-[11px] font-mono text-slate-300 font-normal mt-0.5">
+              {distinctDailySo.length} SO · ฟอยล์ {stats.totalUsed.toLocaleString()} ม. · แซนวิช{' '}
+              {puStats.totalKg.toLocaleString()} กก.
+            </div>
+          </div>
+
+          {/* ก้านลง */}
+          <div className="w-0.5 h-4 bg-slate-300" />
+
+          {/* 4 โหนดกระจายแบบแผนผัง */}
+          <div className="w-full grid grid-cols-2 gap-2.5 sm:gap-3">
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-slate-50 to-amber-50 border border-amber-200 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-slate-900 text-amber-400 font-mono font-bold text-[10px] flex items-center justify-center">
+                  1
+                </span>
+                <span className="text-[10px] font-mono text-slate-500">Intake</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">รับ SO</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">รับใบ SO</p>
+              <p className="text-[11px] font-mono font-bold text-amber-800">
+                {distinctDailySo.length} คำสั่ง
+              </p>
+            </div>
+
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50 border border-blue-200 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-blue-700 text-white font-mono font-bold text-[10px] flex items-center justify-center">
+                  2
+                </span>
+                <span className="text-[10px] font-mono text-blue-600">เบิก</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">เบิกม้วน / คอยล์</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">เบิกม้วน/คอยล์</p>
+              <p className="text-[11px] font-mono font-bold text-blue-800">
+                ฟอยล์ {stats.rollCount} · แซนวิช {puStats.count}
+              </p>
+            </div>
+
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-300 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-mono font-bold text-[10px] flex items-center justify-center">
+                  3
+                </span>
+                <span className="text-[10px] font-mono text-amber-700">ผลิต</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">เดินเครื่อง</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">ฉีดโฟม / ประกบฟอยล์หรือเหล็ก</p>
+              <p className="text-[11px] font-mono font-bold text-amber-900">
+                {stats.totalUsed.toLocaleString()} ม. · {puStats.totalKg.toLocaleString()} กก.
+              </p>
+            </div>
+
+            <div className="relative p-3 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-mono font-bold text-[10px] flex items-center justify-center">
+                  4
+                </span>
+                <span className="text-[10px] font-mono text-emerald-700">ตัดสต๊อก</span>
+              </div>
+              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">ตรวจรับ & บันทึก</h4>
+              <p className="text-[10px] text-slate-600 leading-snug">คัด NG ตัดสต๊อก Realtime</p>
+              <p className="text-[11px] font-mono font-bold text-emerald-800">
+                NG {stats.totalNg.toLocaleString()} ม. · {puStats.totalNgKg.toLocaleString()} กก.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI สไลด์ — สายฟอยล์ */}
+      {(filterLine === 'all' || filterLine === 'foil') && (
+        <KpiSlideRow
+          title={`สายฟอยล์ · ${stats.soCount} SO · ${dayRecords.length} รายการ`}
+          cards={[
+            {
+              id: 'foil-used',
+              label: 'ผลิตลงแผ่นจริง',
+              value: stats.totalUsed.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'ม.',
+              icon: <CheckCircle2 className="w-4 h-4" />,
+              iconClass: 'bg-emerald-50 text-emerald-600',
+              valueClass: 'text-emerald-700',
+              footer: `${stats.soCount} คำสั่งซื้อ SO`,
+            },
+            {
+              id: 'foil-ng',
+              label: 'NG ฟอยล์',
+              value: stats.totalNg.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'ม.',
+              icon: <AlertTriangle className="w-4 h-4" />,
+              iconClass: 'bg-rose-50 text-rose-600',
+              valueClass: stats.totalNg > 0 ? 'text-rose-600' : 'text-slate-400',
+              footer:
+                stats.totalDeducted > 0
+                  ? `${((stats.totalNg / stats.totalDeducted) * 100).toFixed(1)}% ของการตัด`
+                  : 'ไม่มีของเสีย',
+            },
+            {
+              id: 'foil-yield',
+              label: 'Yield',
+              value: `${stats.yieldRate.toFixed(1)}%`,
+              icon: <Award className="w-4 h-4" />,
+              iconClass: 'bg-amber-50 text-amber-600',
+              footer: `รวมตัด ${stats.totalDeducted.toLocaleString('th-TH', { maximumFractionDigits: 1 })} ม. · ${stats.rollCount} ม้วน`,
+            },
+          ]}
+        />
+      )}
+
+      {/* KPI สไลด์ — สายแซนวิช */}
+      {(filterLine === 'all' || filterLine === 'sandwich') && (
+        <KpiSlideRow
+          title={`สายแซนวิช · ${puStats.soCount} SO · ${dayPuRecords.length} รายการ`}
+          cards={[
+            {
+              id: 'pu-kg',
+              label: 'น้ำหนักเหล็กใช้จริง',
+              value: puStats.totalKg.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'กก.',
+              icon: <CheckCircle2 className="w-4 h-4" />,
+              iconClass: 'bg-emerald-50 text-emerald-600',
+              valueClass: 'text-emerald-700',
+              footer: `≈ ${puStats.totalTons} ตัน`,
+            },
+            {
+              id: 'pu-len',
+              label: 'ความยาวตามงาน SO',
+              value: puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 }),
+              unit: 'ม.',
+              icon: <Layers className="w-4 h-4" />,
+              iconClass: 'bg-teal-50 text-teal-600',
+              valueClass: 'text-teal-700',
+              footer: `${puStats.soCount} คำสั่งซื้อ SO`,
+            },
+            {
+              id: 'pu-ng',
+              label: 'NG แซนวิช',
+              value: puStats.totalNgKg.toLocaleString('th-TH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+              unit: 'กก.',
+              icon: <AlertTriangle className="w-4 h-4" />,
+              iconClass: 'bg-rose-50 text-rose-600',
+              valueClass: puStats.totalNgKg > 0 ? 'text-rose-600' : 'text-slate-400',
+              footer: `${puStats.ngPercent.toFixed(1)}% · ${puStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.`,
+            },
+          ]}
+        />
+      )}
+
+      {/* Production Breakdown Chart by SO (Foil) */}
+      {(filterLine === 'all' || filterLine === 'foil') && chartData.length > 0 ? (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                กราฟยอดผลิตและ NG แยกตามใบตัด (ฟอยล์)
+              </h3>
+              <p className="text-xs text-slate-500">
+                แสดงทีละใบตัด — ไม่รวมยอด SO เดียวกัน · เขียว = ใช้จริง · แดง = NG
+              </p>
+            </div>
+            <span className="text-xs font-mono font-bold text-slate-600">
+              {chartData.length} รายการ
+            </span>
+          </div>
+
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 20 }}>
+                <XAxis 
+                  dataKey="so" 
+                  tick={{ fontSize: 11, fill: '#475569' }} 
+                  interval={0}
+                  angle={-15}
+                  textAnchor="end"
+                />
+                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+                <Tooltip 
+                  formatter={(value: any) => [`${Number(value || 0).toLocaleString()} ม.`, '']}
+                  contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff' }}
+                />
+                <Legend />
+                <Bar dataKey="used" name="ตัดใช้งานจริง (ม.)" fill="#059669" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="ng" name="NG เสีย (ม.)" fill="#e11d48" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Detailed Chronological Production Timeline (Flow Table) */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h3 className="font-bold text-slate-900 text-base">
+              ลำดับเวลาการผลิต (Production Timeline Flow)
+            </h3>
+            <p className="text-xs text-slate-500">
+              แสดงรายการตัดตามลำดับเวลาที่เกิดขึ้นจริงในวันที่ {displaySelectedDate}
+            </p>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-mono font-bold">
+            {combinedFlow.length} รายการ
+          </span>
+        </div>
+
+        {combinedFlow.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 text-sm font-mono space-y-2">
+            <Workflow className="w-10 h-10 text-slate-300 mx-auto stroke-1" />
+            <p>ไม่มีประวัติการผลิตหรือตัดสต๊อกในวันที่ {selectedDate}</p>
+            <p className="text-xs text-slate-400">
+              สามารถเลือกวันที่อื่นจากกล่องเลือกวันที่ด้านบนเพื่อดูย้อนหลังได้
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200 font-semibold">
+                <tr>
+                  <th className="px-4 py-3 text-center w-12">ลำดับ</th>
+                  <th className="px-4 py-3">ประเภท</th>
+                  <th className="px-4 py-3">รหัส SO / ออเดอร์</th>
+                  <th className="px-4 py-3">รายละเอียดวัสดุ (ม้วน/คอล์ย)</th>
+                  <th className="px-4 py-3">หน้ากว้าง / ชนิดเหล็ก</th>
+                  <th className="px-4 py-3">ลายฟอยล์ / ความหนา</th>
+                  <th className="px-4 py-3 text-right">ตัดใช้จริง</th>
+                  <th className="px-4 py-3 text-right">NG เสีย</th>
+                  <th className="px-4 py-3">ผู้บันทึก</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {combinedFlow.map((item, idx) => {
+                  if (item.type === 'foil') {
+                    const r = item.data;
+                    const pStyle = getPatternStyle(r.pattern);
+                    return (
+                      <tr key={`foil-${r.id}`} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-4 py-3 text-center font-mono text-xs text-slate-400">
+                          {idx + 1}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            ติดฟอยล์
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-bold text-amber-900 text-xs bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            {r.soNumber}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          <div className="font-bold text-slate-900">
+                            ล็อต: {r.lotNumber}
+                          </div>
+                          <div className="text-slate-500">
+                            เบอร์: #{r.rollNumber}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
+                            {r.width} มม.
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${pStyle.dotClass}`} />
+                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${pStyle.badgeClass}`}>
+                                {pStyle.name}
+                              </span>
+                            </div>
+                            {r.isSilverSide && (
+                              <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[10px] font-bold border border-slate-300">
+                                เงิน
+                              </span>
+                            )}
+                            {r.isWhiteSide && (
+                              <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-white text-slate-800 text-[10px] font-bold border border-slate-300">
+                                ขาว
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-emerald-700 text-sm">
+                          {r.usedMeters.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ม.
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-rose-600">
+                          {r.ngMeters > 0 ? `${r.ngMeters.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ม.` : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600">
+                          <div className="flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{r.recordedBy || '-'}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  } else {
+                    const p = item.data;
+                    return (
+                      <tr key={`sandwich-${p.id}`} className="hover:bg-emerald-50/40 transition-colors bg-emerald-50/15">
+                        <td className="px-4 py-3 text-center font-mono text-xs text-slate-400">
+                          {idx + 1}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1 w-fit">
+                            <Factory className="w-3 h-3" />
+                            PU แซนวิช
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-bold text-emerald-900 text-xs bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            {p.soNumber}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          <div className="font-bold text-slate-900 font-sans">
+                            สี: {p.coilColor}
+                          </div>
+                          <div className="text-slate-500">
+                            เบอร์คอล์ย: #{p.coilNumber}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-sans text-xs">
+                          <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] border ${
+                            p.steelOrigin === 'เหล็กBlue Scope'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : p.steelOrigin === 'เหล็กนอก'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {p.steelOrigin}
+                            {p.customSteelOrigin ? ` (${p.customSteelOrigin})` : ''}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">
+                          {p.thickness} มม.
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-emerald-800 text-sm">
+                          <div>{p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.</div>
+                          {p.soLengthMeters ? (
+                            <div className="text-[10px] text-teal-700 font-normal">
+                              (งาน {p.soLengthMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })}ม.)
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-rose-600">
+                          {p.ngKg > 0 ? (
+                            <div>
+                              <div>{p.ngKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.</div>
+                              {p.ngMeters > 0 ? (
+                                <div className="text-[10px] text-rose-500 font-normal">
+                                  ({p.ngMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })}ม.)
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600">
+                          <div className="flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{p.recordedBy || '-'}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

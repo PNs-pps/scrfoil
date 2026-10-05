@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* ===== Accessibility & Mobile UX improvements ===== */
+
+/* Clear focus indicator for keyboard users */
+*:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+/* Ensure form inputs scroll into view above mobile keyboard */
+input,
+select,
+textarea {
+  scroll-margin-bottom: 140px;
+  scroll-margin-top: 80px;
+}
+
+/* Critical identifiers: Lot + Roll number — high readability */
+.lot-number-display {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Prevent iOS zoom on input focus (font-size >= 16px) while keeping design */
+@media screen and (max-width: 767px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="password"],
+  input[type="email"],
+  input[type="search"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ===== Screenshot & Print Optimization (ไม่ให้ข้อมูลบังส่วนอื่น) ===== */
+@media print {
+  header,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+  main {
+    padding-bottom: 0 !important;
+    max-width: 100% !important;
+  }
+  table {
+    width: 100% !important;
+  }
+}
+
+/* Sticky SO Column enhancement to prevent overlap bleed-through */
+th.sticky,
+td.sticky {
+  background-clip: padding-box;
+}
+

@@ -1,0 +1,19 @@
+{
+  "name": "หลังคาเย็นสยาม (ร่มเกล้า) - ระบบตัดสต๊อกฟอยล์",
+  "short_name": "หลังคาเย็นสยาม",
+  "description": "หลังคาเย็นสยาม (ร่มเกล้า) ระบบจัดการสต๊อกและตัดยอดฟอยล์สำหรับหลังคา PU Foam เมทัลชีท พร้อม Realtime Cloud Sync",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

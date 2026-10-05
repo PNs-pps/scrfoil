@@ -1,0 +1,93 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== จำกัดสิทธิ์เฉพาะพนักงาน =====
+    // 1) แก้อีเมลด้านล่างเป็นอีเมลที่ใช้ login จริงของทั้ง 2 คน (ตัวพิมพ์เล็กทั้งหมด)
+    // 2) เปลี่ยนชื่อไฟล์นี้เป็น firestore.rules แล้วกด Publish ใน Firebase Console
+    //    (Firestore Database > Rules) ถ้ายังไม่แก้อีเมล ห้าม deploy ไม่งั้นจะ login ไม่ได้
+    function isStaff() {
+      return request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email.lower() in [
+          'EMAIL_1@gmail.com',
+          'EMAIL_2@gmail.com'
+        ];
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidFoilRoll(data) {
+      return data is map &&
+        data.id is string && data.id.size() <= 128 &&
+        data.lotNumber is string && data.lotNumber.size() <= 100 &&
+        data.rollNumber is string && data.rollNumber.size() <= 100 &&
+        data.width is number && data.width > 0 &&
+        data.pattern is string && data.pattern.size() <= 100 &&
+        data.totalMeters is number && data.totalMeters >= 0 &&
+        data.remainingMeters is number && data.remainingMeters >= 0 &&
+        data.status in ['active', 'depleted', 'out_of_stock'];
+    }
+
+    function isValidStockCutRecord(data) {
+      return data is map &&
+        data.id is string && data.id.size() <= 128 &&
+        data.foilId is string && data.foilId.size() <= 128 &&
+        data.soNumber is string && data.soNumber.size() <= 150 &&
+        data.usedMeters is number && data.usedMeters >= 0 &&
+        data.totalDeducted is number && data.totalDeducted >= 0 &&
+        data.remainingAfter is number && data.remainingAfter >= 0 &&
+        data.recordedBy is string && data.recordedBy.size() <= 150;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection test document — readable by any signed-in user for connectivity checks (no real
+    // business data lives here)
+    match /test/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Foil rolls inventory collection — requires a signed-in Google account
+    // (guest/anonymous access has been removed; see AuthGate.tsx on the client)
+    match /foil_rolls/{rollId} {
+      allow read, write: if isStaff();
+
+      // Cuts subcollection per roll
+      match /cuts/{cutId} {
+        allow read, write: if isStaff();
+      }
+
+      // Cut history subcollection per roll (foil_rolls/{rollId}/cut_history)
+      match /cut_history/{cutId} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    // Collection group query for cut_history across all rolls
+    match /{path=**}/cut_history/{cutId} {
+      allow read, write: if isStaff();
+    }
+
+    // Stock cut records collection
+    match /stock_cut_records/{recordId} {
+      allow read, write: if isStaff();
+    }
+
+    // PU Sandwich cut records (no foil) collection
+    match /pu_sandwich_cuts/{recordId} {
+      allow read, write: if isStaff();
+    }
+
+    // Physical Cycle Count sessions (monthly stock count + variance)
+    match /cycle_counts/{sessionId} {
+      allow read, write: if isStaff();
+    }
+  }
+}
