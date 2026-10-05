@@ -187,17 +187,33 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
     }
   };
 
-  // Guard for destructive actions that claim to snapshot first — if the snapshot
-  // didn't land, the user must not be told it's recoverable from there.
-  const snapshotOrWarn = (reason: 'before_reset', blockOnFailure = true): boolean => {
+  // Guard for actions that claim to snapshot first.
+  //
+  // `block` is the important distinction: a destructive action (reset, import that
+  // overwrites everything) should stop when the pre-action snapshot fails, because
+  // that snapshot is the only way back. A *recovery* action must not stop — if
+  // restoring a snapshot is blocked because localStorage happens to be full, the
+  // operator has no way to recover at all, since the recovery path is exactly what
+  // storage pressure breaks. Those paths warn loudly and proceed instead.
+  const snapshotOrWarn = (
+    reason: 'before_reset' | 'before_restore',
+    block = reason === 'before_reset'
+  ): boolean => {
     const { result } = createBackupSnapshot(rolls, records, reason);
-    if (!result.ok) {
+    if (result.ok) return true;
+
+    if (block) {
       showToast(
         'บันทึกจุดสำรองก่อนดำเนินการไม่สำเร็จ (พื้นที่เครื่องเต็ม) — การกู้คืนจากจุดสำรองนี้ไม่ได้ กรุณาสำรองขึ้น D1 ก่อน',
         'error'
       );
-      return !blockOnFailure;
+      return false;
     }
+
+    showToast(
+      'เตือน: บันทึกจุดสำรองของสถานะปัจจุบันไม่สำเร็จ (พื้นที่เครื่องเต็ม) — ดำเนินการต่อ แต่จะย้อนกลับสถานะก่อนหน้านี้ไม่ได้',
+      'error'
+    );
     return true;
   };
 
@@ -211,7 +227,9 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       const confirmMsg = `ยืนยันการกู้คืนข้อมูลกลับไปที่จุดสำรอง:\n\nเวลา: ${dateStr}\nจำนวนฟอยล์: ${snap.rollsCount} ม้วน\nจำนวนตัด: ${snap.recordsCount} รายการ\n\n(ระบบจะสร้างจุดสำรองข้อมูลปัจจุบันไว้ให้อัตโนมัติ)`;
 
       if (window.confirm(confirmMsg)) {
-        if (!snapshotOrWarn('before_reset')) return;
+        // Non-blocking: this IS the recovery path. Blocking it on a full quota would
+        // strand the operator with a snapshot they can see but cannot apply.
+        snapshotOrWarn('before_restore', false);
         const restored = restoreSnapshot(id);
         if (restored) {
           onRestoreData(restored.rolls, restored.records);
@@ -228,9 +246,16 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   const handleDeleteSnapshot = (id: string) => {
     handleActionGuarded(() => {
       if (window.confirm('คุณต้องการลบจุดสำรองนี้ใช่หรือไม่?')) {
-        deleteSnapshot(id);
-        setSnapshots(getBackupSnapshots());
-        showToast('ลบจุดสำรองเรียบร้อย');
+        // deleteSnapshot reports whether the write actually landed. Showing an
+        // unconditional success toast is how "deleted" could be reported for a
+        // snapshot that is still in storage.
+        if (deleteSnapshot(id)) {
+          setSnapshots(getBackupSnapshots());
+          showToast('ลบจุดสำรองเรียบร้อย');
+        } else {
+          setSnapshots(getBackupSnapshots());
+          showToast('ลบจุดสำรองไม่สำเร็จ: เขียน localStorage ไม่ได้ — จุดสำรองยังอยู่', 'error');
+        }
       }
     });
   };
@@ -580,7 +605,9 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                       s.reason === 'double_backup' ? 'สำรอง 2 ชั้น (Double Backup)' :
                       s.reason === 'manual' ? 'สำรองด้วยตนเอง' :
                       s.reason === 'before_cut' ? 'อัตโนมัติก่อนตัดสต๊อก' :
-                      s.reason === 'before_reset' ? 'ก่อนรีเซ็ต/กู้คืน' : 'อัตโนมัติตามรอบเวลา';
+                      s.reason === 'before_restore' ? 'ก่อนกู้คืน/นำเข้า' :
+                      s.reason === 'before_reset' ? 'ก่อนรีเซ็ต' :
+                      s.reason === 'realign_chain' ? 'ปรับยอดต่อเนื่อง' : 'อัตโนมัติตามรอบเวลา';
                     
                     return (
                       <div key={s.id} className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">

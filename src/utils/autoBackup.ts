@@ -19,7 +19,7 @@ export interface AutoBackupSnapshot {
   rollsCount: number;
   recordsCount: number;
   totalRemainingMeters: number;
-  reason: 'scheduled' | 'before_cut' | 'manual' | 'before_reset' | 'cloud_sync' | 'double_backup' | 'realign_chain';
+  reason: 'scheduled' | 'before_cut' | 'manual' | 'before_reset' | 'before_restore' | 'cloud_sync' | 'double_backup' | 'realign_chain';
   data: {
     rolls: FoilRoll[];
     records: StockCutRecord[];
@@ -48,23 +48,23 @@ export type SnapshotWriteResult = {
 
 let lastSnapshotFailure: { at: string; error: 'quota-exceeded' | 'unknown' } | null = null;
 
-/** The most recent snapshot write failure, or null if the last write succeeded. */
+/**
+ * The most recent snapshot write failure, or null if the last write succeeded.
+ *
+ * Falls back to the in-memory copy when localStorage is unreadable. That matters
+ * most in exactly the case this feature exists for: when the quota is full, the
+ * marker written by markSnapshotWriteFailure cannot be persisted either, so
+ * reading only from storage would report "no failure" every time. The in-memory
+ * value is what makes the dedupe stamp unique per failure.
+ */
 export function getLastSnapshotFailure(): { at: string; error: 'quota-exceeded' | 'unknown' } | null {
   try {
     const raw = localStorage.getItem(SNAPSHOT_WRITE_FAILURE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (raw) return JSON.parse(raw);
   } catch {
-    return null;
+    // fall through to the in-memory copy
   }
-}
-
-export function clearLastSnapshotFailure(): void {
-  lastSnapshotFailure = null;
-  try {
-    localStorage.removeItem(SNAPSHOT_WRITE_FAILURE_KEY);
-  } catch {
-    // ignore
-  }
+  return lastSnapshotFailure;
 }
 
 function isQuotaError(err: unknown): boolean {
@@ -92,34 +92,55 @@ function markSnapshotWriteFailure(error: 'quota-exceeded' | 'unknown'): void {
  * Persist a snapshot list, progressively dropping the oldest snapshots until the
  * write fits inside the localStorage quota. Never silently swallows a failure.
  */
-function persistSnapshots(
+export function persistSnapshots(
   snapshots: AutoBackupSnapshot[]
-): { dropped: number; error?: 'quota-exceeded' | 'unknown' } {
-  let attempt = snapshots.slice(0, MAX_SNAPSHOTS);
-  let dropped = 0;
-
-  while (attempt.length > 0) {
+): { ok: boolean; dropped: number; error?: 'quota-exceeded' | 'unknown' } {
+  // An empty list is a legitimate request: deleting the last remaining snapshot.
+  // It must be performed unconditionally rather than falling through the retry
+  // loop, which previously returned an error without writing anything and left
+  // the snapshot in storage while the UI reported success.
+  if (snapshots.length === 0) {
     try {
-      localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(attempt));
-      lastSnapshotFailure = null;
-      try {
-        localStorage.removeItem(SNAPSHOT_WRITE_FAILURE_KEY);
-      } catch {
-        // ignore
-      }
-      return { dropped };
+      localStorage.removeItem(SNAPSHOTS_KEY);
+      clearSnapshotFailure();
+      return { ok: true, dropped: 0 };
     } catch (err) {
-      dropped += 1;
-      // Drop the oldest retained snapshot and retry. We never drop the newest one
-      // (attempt.length > 0 guard) because that's the pre-cut undo point.
-      attempt = attempt.slice(0, -1);
-      if (attempt.length === 0) {
-        return { dropped, error: isQuotaError(err) ? 'quota-exceeded' : 'unknown' };
-      }
+      return { ok: false, dropped: 0, error: isQuotaError(err) ? 'quota-exceeded' : 'unknown' };
     }
   }
 
-  return { dropped, error: 'unknown' };
+  let attempt = snapshots.slice(0, MAX_SNAPSHOTS);
+  let dropped = 0;
+
+  for (;;) {
+    try {
+      localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(attempt));
+      clearSnapshotFailure();
+      return { ok: true, dropped };
+    } catch (err) {
+      // Never trim down to nothing here. Emptying the list would turn a failed
+      // write into a *successful* delete: every existing snapshot would be
+      // destroyed while the caller was told the new snapshot had been saved. If
+      // even the single newest snapshot does not fit, that is a failure and the
+      // stored snapshots must be left untouched.
+      if (attempt.length <= 1) {
+        return { ok: false, dropped, error: isQuotaError(err) ? 'quota-exceeded' : 'unknown' };
+      }
+      // Drop the oldest retained snapshot (the tail) and retry. The newest one is
+      // the pre-cut undo point, so it is never dropped.
+      dropped += 1;
+      attempt = attempt.slice(0, -1);
+    }
+  }
+}
+
+function clearSnapshotFailure(): void {
+  lastSnapshotFailure = null;
+  try {
+    localStorage.removeItem(SNAPSHOT_WRITE_FAILURE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export const DEFAULT_BACKUP_CONFIG: AutoBackupConfig = {
@@ -232,16 +253,19 @@ export function restoreSnapshot(snapshotId: string): { rolls: FoilRoll[]; record
   }
 }
 
-export function deleteSnapshot(snapshotId: string): void {
+export function deleteSnapshot(snapshotId: string): boolean {
   try {
     const snapshots = getBackupSnapshots();
     const updated = snapshots.filter((s) => s.id !== snapshotId);
     const persist = persistSnapshots(updated);
-    if (persist.error) {
+    if (!persist.ok) {
       console.warn('Failed to delete snapshot:', persist.error);
+      return false;
     }
+    return true;
   } catch (err) {
     console.warn('Failed to delete snapshot:', err);
+    return false;
   }
 }
 

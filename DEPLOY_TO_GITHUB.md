@@ -2,7 +2,7 @@
 
 โปรเจกต์นี้ตั้งค่าให้รันบนเว็บ **GitHub Pages** ได้:
 - `vite.config.ts` ตั้งค่า `base: './'` ให้ asset URL เป็นแบบสัมพัทธ์ รองรับการรันบน Sub-path ของ GitHub Pages (`https://<user>.github.io/<repo>/`)
-- `.github/workflows/deploy.yml` สคริปต์ GitHub Actions ที่ Typecheck, Build และ Deploy อัตโนมัติทุกครั้งที่ Push ขึ้น `main`
+- `.github/workflows/deploy.yml` สคริปต์ GitHub Actions ที่ Typecheck, Test, Build และ Deploy อัตโนมัติทุกครั้งที่ Push ขึ้น `main`
 
 > หมายเหตุ: ก่อนหน้านี้เอกสารฉบับเดิมอ้างว่ามีทั้งสองไฟล์นี้อยู่แล้ว ซึ่งไม่เป็นจริง — workflow เพิ่งถูกเพิ่มเข้ามาในรอบนี้
 

@@ -68,6 +68,8 @@ import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, isStaffEmail, hasOperatorPassword, UserMode } from './utils/auth';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON, getAllDueD1ScheduleSlots, markD1ScheduleSlotRun, getLastSnapshotFailure } from './utils/autoBackup';
 import { getD1BackupConfig, uploadBackupToD1 } from './utils/d1Backup';
+import { trackCloudWrite, describeWriteFailure } from './utils/cloudWrite';
+import { summarizeBatch, BatchWriteOutcome } from './utils/batchReconcile';
 import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
 import { playFeedback } from './utils/feedback';
@@ -77,6 +79,7 @@ type AppTab = 'dashboard' | 'rolls' | 'history' | 'settings';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
+  const rollsRef = useRef<FoilRoll[]>([]);
   const [archivedRolls, setArchivedRolls] = useState<FoilRoll[]>([]);
   const [archiveLoaded, setArchiveLoaded] = useState(false);
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
@@ -555,10 +558,29 @@ export default function App() {
   };
 
   // Sync to local storage
+  // `rollsRef` mirrors `rolls` so async handlers can commit from the newest value
+  // instead of the array captured when they started. Handlers that await before
+  // writing (batch import, add/update roll) would otherwise spread a stale array
+  // back over state the realtime listener had already advanced, silently dropping
+  // whatever arrived in between — locally and in localStorage.
+  const commitRolls = (updater: (prev: FoilRoll[]) => FoilRoll[]) => {
+    const next = updater(rollsRef.current);
+    rollsRef.current = next;
+    setRolls(next);
+    saveStoredRolls(next);
+  };
+
   const updateRollsState = (newRolls: FoilRoll[]) => {
+    rollsRef.current = newRolls;
     setRolls(newRolls);
     saveStoredRolls(newRolls);
   };
+
+  // Keep the mirror honest for the paths that bypass the two helpers above
+  // (realtime listener, initial load, integrity/reset fixes).
+  useEffect(() => {
+    rollsRef.current = rolls;
+  }, [rolls]);
 
   const updateRecordsState = (newRecords: StockCutRecord[]) => {
     setRecords(newRecords);
@@ -606,7 +628,7 @@ export default function App() {
       setIsDoubleBackingUp(true);
 
       // Layer 1: Local Snapshot Archive in Browser LocalStorage
-      createBackupSnapshot(rolls, records, 'double_backup');
+      const { result: doubleBackupSnapshot } = createBackupSnapshot(rolls, records, 'double_backup');
 
       // Layer 2: Cloud Firestore Remote Persistence
       let cloudOk = false;
@@ -632,10 +654,22 @@ export default function App() {
       saveAutoBackupConfig({ ...cfg, lastDoubleBackupTime: nowIso });
       setLastDoubleBackupTime(nowIso);
 
-      if (cloudOk) {
+      // Report the snapshot layer honestly. A dropped snapshot means the pre-backup undo
+      // point is degraded, which the operator needs to know about even when the other
+      // two layers succeeded — "สำเร็จสมบูรณ์" would be a lie about local recoverability.
+      const snapshotFailed = !doubleBackupSnapshot.ok;
+      const snapshotNote = snapshotFailed
+        ? doubleBackupSnapshot.error === 'quota-exceeded'
+          ? ` (Local Snapshot เต็มโควตา — ลดจุดสำรองเก่าออก ${doubleBackupSnapshot.dropped} รายการ)`
+          : ' (บันทึก Local Snapshot ไม่สำเร็จ)'
+        : '';
+
+      if (cloudOk && !snapshotFailed) {
         showToast(`สำรองข้อมูล 2 ชั้น (Double Backup) สำเร็จสมบูรณ์! ซิงค์ Cloud Firestore + เก็บ Local Snapshot + ดาวน์โหลดไฟล์สำรองเรียบร้อย`, 'success');
+      } else if (cloudOk && snapshotFailed) {
+        showToast(`สำรองข้อมูลขึ้น Cloud + ดาวน์โหลดไฟล์สำรองเรียบร้อย แต่ Local Snapshot ไม่สมบูรณ์${snapshotNote}`, 'info');
       } else {
-        showToast(`สำรองข้อมูล 2 ชั้นสำเร็จในเครื่อง (Local Snapshot + ดาวน์โหลดไฟล์สำรอง) ส่วน Cloud อยู่ในคิวรอการเชื่อมต่อ`, 'info');
+        showToast(`สำรองข้อมูลสำเร็จในเครื่อง (Local Snapshot + ดาวน์โหลดไฟล์สำรอง) ส่วน Cloud อยู่ในคิวรอการเชื่อมต่อ${snapshotNote}`, 'info');
       }
     } catch (err: any) {
       showToast('เกิดข้อผิดพลาดในการทำ Double Backup กรุณาลองใหม่อีกครั้ง', 'info');
@@ -652,8 +686,24 @@ export default function App() {
       const test = await testFirestoreConnection();
       if (test.error === 'permission-denied') {
         setSyncStatus('permission-denied');
-        setIsRulesModalOpen(true);
-        showToast('ยังไม่ได้เปิดสิทธิ์ Rules ใน Firebase Console', 'info');
+        // permission-denied has two very different causes and they need opposite
+        // advice. A signed-in staff account means the rules are genuinely not
+        // published yet. A non-staff account means the rules are working exactly as
+        // written — the staff allowlist simply does not include this person — so
+        // telling them to go publish rules would send them off to change a working
+        // security config in an attempt to grant themselves access.
+        if (isStaffEmail(currentUserEmail)) {
+          setIsRulesModalOpen(true);
+          showToast('ยังไม่ได้เปิดสิทธิ์ Rules ใน Firebase Console', 'info');
+        } else if (currentUserEmail) {
+          showToast(
+            `บัญชี ${currentUserEmail} ไม่มีสิทธิ์อ่านข้อมูล Cloud (Firestore Rules อนุญาตเฉพาะบัญชีทีมงาน) — ติดต่อผู้ดูแลระบบเพื่อเพิ่มอีเมลใน allowlist`,
+            'error'
+          );
+        } else {
+          setIsRulesModalOpen(true);
+          showToast('ยังไม่ได้เข้าสู่ระบบ — เข้าสู่ระบบด้วยบัญชีทีมงานก่อน หรือตรวจสิทธิ์ Rules ใน Firebase Console', 'info');
+        }
       } else {
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
@@ -663,7 +713,17 @@ export default function App() {
       console.warn('Notice: Could not fetch from Firestore:', err?.message || err);
       if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
         setSyncStatus('permission-denied');
-        setIsRulesModalOpen(true);
+        // Same split as above: only surface the rules modal to an account that could
+        // legitimately pass those rules once published.
+        if (isStaffEmail(currentUserEmail)) {
+          setIsRulesModalOpen(true);
+        }
+        showToast(
+          currentUserEmail && !isStaffEmail(currentUserEmail)
+            ? `บัญชี ${currentUserEmail} ไม่มีสิทธิ์อ่านข้อมูล Cloud — ติดต่อผู้ดูแลระบบ`
+            : 'ยังไม่ได้เปิดสิทธิ์ Rules ใน Firebase Console',
+          'info'
+        );
       } else {
         setSyncStatus('error');
       }
@@ -711,56 +771,74 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    const updated = [newRoll, ...rolls];
+const updated = [newRoll, ...rolls];
     updateRollsState(updated);
 
     // Save to Firestore Realtime
-    saveFoilRollToFirestore(newRoll)
-      .then(() => {
+    void trackCloudWrite(saveFoilRollToFirestore(newRoll)).then((outcome) => {
+      if (outcome.kind === 'committed') {
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
         showToast(
           `เพิ่มฟอยล์รับเข้าสำเร็จ: ล็อต ${newRoll.lotNumber} #${newRoll.rollNumber} (${formatMeters(newRoll.totalMeters)} ม.) [บันทึกลง Cloud]`
         );
-      })
-      .catch((err: any) => {
-        console.warn('Notice: Save new roll to Firestore pending/offline:', err?.message || err);
-        const isPermissionError =
-          err?.code === 'permission-denied' || err?.message?.includes('permission');
-        setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
-        // Cloud write did NOT happen — say so instead of showing a success toast.
-        // The roll is still in this device's localStorage (Firestore persistent cache
-        // will push it once the connection/rules are fixed), so the operator is not
-        // told to re-enter it, just told the truth about where it lives.
+        return;
+      }
+
+      if (outcome.kind === 'queued') {
+        // Offline: Firestore is holding this in its own durable outbox and will
+        // push it when connectivity returns. Keeping the local copy is correct.
+        setSyncStatus('offline');
         showToast(
-          `เพิ่มฟอยล์ ${newRoll.lotNumber} #${newRoll.rollNumber} ในเครื่องแล้ว แต่ยังบันทึกขึ้น Cloud ไม่ได้ (รอซิงค์)` +
-            (isPermissionError ? ' — ตรวจสิทธิ์ Firestore Rules' : ' — ตรวจสัญญาณเน็ต'),
-          isPermissionError ? 'error' : 'info'
+          `เพิ่มฟอยล์ ${newRoll.lotNumber} #${newRoll.rollNumber} ในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud`,
+          'info'
         );
-      });
+        return;
+      }
+
+      // Terminal rejection: nothing will ever push this write, so keeping the
+      // local copy would strand the roll on this device and report a phantom
+      // "waiting to sync" that never resolves. Roll it back instead.
+      console.warn('Save new roll to Firestore rejected permanently:', outcome.message);
+      setSyncStatus('permission-denied');
+      commitRolls((prev) => prev.filter((r) => r.id !== newRoll.id));
+      showToast(`เพิ่มฟอยล์ไม่สำเร็จ — ${describeWriteFailure(outcome)}`, 'error');
+    });
   };
 
   // Update existing foil roll
   const handleUpdateRoll = async (updatedRoll: FoilRoll) => {
+    const previous = rolls.find(r => r.id === updatedRoll.id) ?? null;
     const updated = rolls.map(r => r.id === updatedRoll.id ? updatedRoll : r);
     updateRollsState(updated);
 
-    try {
-      await saveFoilRollToFirestore(updatedRoll);
+    const outcome = await trackCloudWrite(saveFoilRollToFirestore(updatedRoll));
+
+    if (outcome.kind === 'committed') {
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       showToast(`แก้ไขข้อมูลฟอยล์สำเร็จ: ล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber}`);
-    } catch (err: any) {
-      console.warn('Update foil roll in Firestore warning/offline:', err);
-      const isPermissionError =
-        err?.code === 'permission-denied' || err?.message?.includes('permission');
-      setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
-      showToast(
-        `แก้ไขม้วน ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ในเครื่องแล้ว แต่ยังบันทึกขึ้น Cloud ไม่ได้ (รอซิงค์)` +
-          (isPermissionError ? ' — ตรวจสิทธิ์ Firestore Rules' : ' — ตรวจสัญญาณเน็ต'),
-        isPermissionError ? 'error' : 'info'
-      );
+      return;
     }
+
+    if (outcome.kind === 'queued') {
+      setSyncStatus('offline');
+      showToast(
+        `แก้ไขม้วน ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud`,
+        'info'
+      );
+      return;
+    }
+
+    // Terminal rejection — restore the pre-edit values so local state matches what
+    // Cloud actually holds. commitRolls (not updateRollsState) so an edit made on
+    // another device during this write is not clobbered by the rollback.
+    console.warn('Update foil roll in Firestore rejected permanently:', outcome.message);
+    setSyncStatus('permission-denied');
+    if (previous) {
+      commitRolls((prev) => prev.map((r) => (r.id === previous.id ? previous : r)));
+    }
+    showToast(`แก้ไขไม่สำเร็จ — ${describeWriteFailure(outcome)}`, 'error');
   };
 
   // Add multiple incoming rolls batch
@@ -780,63 +858,83 @@ export default function App() {
       createdAt: now,
     }));
 
-    const updated = [...newRolls, ...rolls];
-    updateRollsState(updated);
+    updateRollsState([...newRolls, ...rolls]);
 
-    // Save all new rolls to Firestore, one at a time so a mid-batch failure can be
-    // reported precisely. Firestore has no multi-doc atomic write outside a batch,
-    // so on failure we drop only the rolls that never made it to Cloud from local
-    // state — keeping the ones that did, rather than leaving a half-synced set that
-    // claims to be saved.
-    const savedIds = new Set<string>();
-    let lastError: any = null;
+    // Save all new rolls to Firestore one at a time, so a mid-batch failure can be
+    // reported precisely and attributed to specific rolls. Firestore has no
+    // multi-doc atomic write outside a batch, so each roll is independent and a
+    // failure does not need to abort the rest.
+    const outcomes: BatchWriteOutcome[] = [];
 
     for (const r of newRolls) {
-      try {
-        await saveFoilRollToFirestore(r);
-        savedIds.add(r.id);
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Batch add roll ${r.lotNumber} #${r.rollNumber} failed:`, err?.message || err);
-        break;
+      const outcome = await trackCloudWrite(saveFoilRollToFirestore(r));
+
+      if (outcome.kind === 'rejected') {
+        console.warn(
+          `Batch add roll ${r.lotNumber} #${r.rollNumber} rejected permanently:`,
+          outcome.message
+        );
+        outcomes.push('rejected');
+        continue;
       }
+
+      // 'queued' means the write is sitting in Firestore's durable outbox and will
+      // land by itself. It is not a failure, and dropping the roll here would
+      // delete something Cloud is about to accept.
+      outcomes.push(outcome.kind);
     }
 
-    if (savedIds.size === newRolls.length) {
+    const { committed, queued, dropped } = summarizeBatch(newRolls, outcomes);
+
+    // Reconcile against current state, never against the array captured at the top:
+    // this loop awaited a network round trip per roll, so `rolls` is stale and
+    // rebuilding from it would discard whatever the realtime listener delivered.
+    if (dropped.length > 0) {
+      const droppedIds = new Set(dropped.map((r) => r.id));
+      commitRolls((prev) => prev.filter((r) => !droppedIds.has(r.id)));
+    }
+
+    const numbers = (list: FoilRoll[]) => list.map((r) => r.rollNumber).join(', ');
+
+    if (committed.length === newRolls.length) {
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       showToast(
-        `เพิ่มฟอยล์หลายม้วนสำเร็จ: ${newRolls.length} ม้วน (ล็อต ${newRolls[0]?.lotNumber} เบอร์ ${newRolls.map((r) => r.rollNumber).join(', ')}) [บันทึกลง Cloud]`
+        `เพิ่มฟอยล์หลายม้วนสำเร็จ: ${newRolls.length} ม้วน (ล็อต ${newRolls[0]?.lotNumber} เบอร์ ${numbers(newRolls)}) [บันทึกลง Cloud]`
       );
       return;
     }
 
-    // Partial or total failure — reconcile local state with what Cloud actually has.
-    const keptRolls = newRolls.filter((r) => savedIds.has(r.id));
-    const droppedRolls = newRolls.filter((r) => !savedIds.has(r.id));
-    updateRollsState([...keptRolls, ...rolls]);
+    if (dropped.length === 0) {
+      // Nothing was rejected; the remainder is queued. Not a failure.
+      setSyncStatus('offline');
+      showToast(
+        `เพิ่มฟอยล์ ${newRolls.length} ม้วนในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud` +
+          (committed.length > 0 ? ` (ขึ้น Cloud แล้ว ${committed.length} ม้วน)` : ''),
+        'info'
+      );
+      return;
+    }
 
-    const isPermissionError =
-      lastError?.code === 'permission-denied' || lastError?.message?.includes('permission');
-    setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
+    setSyncStatus('permission-denied');
 
-    if (keptRolls.length === 0) {
-      // Nothing reached Cloud: roll the whole batch back out of local state so the
-      // operator can retry without ending up with phantom rolls on this device.
+    if (committed.length === 0 && queued.length === 0) {
+      // Every roll was rejected outright, so the whole batch is already out of local
+      // state and the operator can retry cleanly.
       showToast(
         `เพิ่มฟอยล์ไม่สำเร็จ: บันทึกขึ้น Cloud ไม่ได้ทั้ง ${newRolls.length} ม้วน ` +
-          `(${newRolls.map((r) => r.rollNumber).join(', ')}) — ยกเลิกการเพิ่มแล้ว ` +
-          (isPermissionError ? 'ตรวจสิทธิ์ Firestore Rules แล้วลองใหม่' : 'ตรวจสัญญาณเน็ตแล้วลองใหม่'),
+          `(${numbers(dropped)}) — ยกเลิกการเพิ่มแล้ว ` +
+          'ไม่มีสิทธิ์เขียนลง Cloud (Firestore Rules) — ตรวจสิทธิ์แล้วลองใหม่',
         'error'
       );
       return;
     }
 
     showToast(
-      `เพิ่มฟอยล์บางส่วน: บันทึกขึ้น Cloud ได้ ${keptRolls.length} ม้วน ` +
-        `(${keptRolls.map((r) => r.rollNumber).join(', ')}) · ไม่สำเร็จ ${droppedRolls.length} ม้วน ` +
-        `(${droppedRolls.map((r) => r.rollNumber).join(', ')}) ถูกยกเลิกออกจากเครื่องแล้ว` +
-        (isPermissionError ? ' — ตรวจสิทธิ์ Firestore Rules' : ' — ตรวจสัญญาณเน็ต'),
+      `เพิ่มฟอยล์บางส่วน: ขึ้น Cloud แล้ว ${committed.length} ม้วน` +
+        (committed.length > 0 ? ` (${numbers(committed)})` : '') +
+        (queued.length > 0 ? ` · รอซิงค์ ${queued.length} ม้วน (${numbers(queued)})` : '') +
+        ` · ยกเลิก ${dropped.length} ม้วน (${numbers(dropped)}) — ไม่มีสิทธิ์เขียนลง Cloud (Firestore Rules)`,
       'error'
     );
   };
@@ -1030,6 +1128,10 @@ export default function App() {
   // Toggle zero out for low stock rolls (<= 50m)
   const handleToggleZeroOut = (rollId: string, zeroOut: boolean) => {
     const targetRoll = rolls.find(r => r.id === rollId);
+    if (!targetRoll) {
+      showToast('ไม่พบม้วนฟอยล์ที่เลือก — รีเฟรชหน้าแล้วลองใหม่', 'error');
+      return;
+    }
     let updatedTargetRoll: FoilRoll | null = null;
     const updatedRolls = rolls.map((r) => {
       if (r.id === rollId) {
@@ -1059,33 +1161,40 @@ export default function App() {
     });
 
     updateRollsState(updatedRolls);
-    const rollLabel = `${targetRoll?.lotNumber || ''} #${targetRoll?.rollNumber || ''}`;
-    const pendingText = updatedTargetRoll
-      ? saveFoilRollToFirestore(updatedTargetRoll)
-      : Promise.resolve();
+    const rollLabel = `${targetRoll.lotNumber || ''} #${targetRoll.rollNumber || ''}`;
 
-    pendingText
-      .then(() => {
+    if (!updatedTargetRoll) {
+      return;
+    }
+
+    void trackCloudWrite(saveFoilRollToFirestore(updatedTargetRoll)).then((outcome) => {
+      const action = zeroOut ? 'ตัดยอด' : 'คืนค่ายอด';
+
+      if (outcome.kind === 'committed') {
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
         showToast(
           zeroOut
             ? `ตัดยอดคงเหลือสล็อต ${rollLabel} เป็น 0 เมตรเรียบร้อย [ซิงค์ Cloud]`
-            : `คืนค่ายอดคงเหลือเดิม ${targetRoll?.manualZeroedOriginalMeters ?? 0} เมตร เรียบร้อยแล้ว [ซิงค์ Cloud]`,
+            : `คืนค่ายอดคงเหลือเดิม ${targetRoll.manualZeroedOriginalMeters ?? 0} เมตร เรียบร้อยแล้ว [ซิงค์ Cloud]`,
           'info'
         );
-      })
-      .catch((err: any) => {
-        console.warn('Notice: Update zero-out in Firestore pending/offline:', err?.message || err);
-        const isPermissionError =
-          err?.code === 'permission-denied' || err?.message?.includes('permission');
-        setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
-        showToast(
-          `${zeroOut ? 'ตัดยอด' : 'คืนค่ายอด'}สล็อต ${rollLabel} ในเครื่องแล้ว แต่ยังซิงค์ Cloud ไม่ได้ (รอซิงค์)` +
-            (isPermissionError ? ' — ตรวจสิทธิ์ Firestore Rules' : ' — ตรวจสัญญาณเน็ต'),
-          isPermissionError ? 'error' : 'info'
-        );
-      });
+        return;
+      }
+
+      if (outcome.kind === 'queued') {
+        setSyncStatus('offline');
+        showToast(`${action}สล็อต ${rollLabel} ในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud`, 'info');
+        return;
+      }
+
+      // Terminal rejection: restore the pre-zero-out values. Restoring the meters is
+      // the safe direction — it puts stock back that Cloud still counts as available.
+      console.warn('Zero-out update rejected permanently:', outcome.message);
+      setSyncStatus('permission-denied');
+      commitRolls((prev) => prev.map((r) => (r.id === targetRoll.id ? targetRoll : r)));
+      showToast(`${action}ไม่สำเร็จ — ${describeWriteFailure(outcome)}`, 'error');
+    });
   };
 
   // Delete / Void a cutting record and restore stock
@@ -1338,14 +1447,20 @@ export default function App() {
 
       updateRollsState(nextRolls);
       updateRecordsState(nextRecords);
-      createBackupSnapshot(nextRolls, nextRecords, 'realign_chain');
+      const { result: realignSnapshot } = createBackupSnapshot(nextRolls, nextRecords, 'realign_chain');
 
       const newIssues = checkStockIntegrity(nextRolls, nextRecords);
       setStockIntegrityIssues(newIssues);
 
+      const snapshotSuffix = realignSnapshot.ok
+        ? ''
+        : realignSnapshot.error === 'quota-exceeded'
+          ? ' (เตือน: เก็บ Local Snapshot ไม่ได้ — พื้นที่จัดเก็บเต็ม)'
+          : ' (เตือน: เก็บ Local Snapshot ไม่สำเร็จ)';
+
       showToast(
-        `ปรับยอดก่อนตัด–หลังตัดของล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ให้ต่อเนื่องแล้ว (คงเหลือ ${formatMeters(updatedRoll.remainingMeters)} ม.)`,
-        'success'
+        `ปรับยอดก่อนตัด–หลังตัดของล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ให้ต่อเนื่องแล้ว (คงเหลือ ${formatMeters(updatedRoll.remainingMeters)} ม.)${snapshotSuffix}`,
+        realignSnapshot.ok ? 'success' : 'info'
       );
       // คืนค่าให้ modal ประวัติม้วนอัปเดตตารางทันที (ไม่รอ snapshot)
       return { updatedRecords };

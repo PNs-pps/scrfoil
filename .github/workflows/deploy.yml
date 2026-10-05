@@ -53,6 +53,11 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      - name: Test
+        # Covers the snapshot-persistence and batch-reconcile paths that broke
+        # silently before. Cheap enough to always run.
+        run: npm test
+
       - name: Build
         run: npm run build
         env:
