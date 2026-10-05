@@ -341,10 +341,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="min-w-0 flex items-center gap-2">
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 tracking-wide shrink-0">
-              ร่มเกล้า
+              SCRFOIL
             </span>
             <h2 className="text-sm font-bold tracking-tight text-white truncate">
-              ภาพรวมสต๊อก
+              Dashboard Overview
               {todayTotalCuts > 0 && (
                 <span className="ml-1.5 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   วันนี้ {todayTotalCuts}
