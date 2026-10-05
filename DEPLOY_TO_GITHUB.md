@@ -1,8 +1,10 @@
 # คำแนะนำการอัปโหลดโค้ดขึ้น GitHub และเปิดให้รันเป็นเว็บไซต์ (GitHub Pages)
 
-โปรเจกต์นี้ได้รับการตั้งค่าพร้อมให้รันบนเว็บ **GitHub Pages** ได้ทันที โดยมีการเพิ่มไฟล์อัตโนมัติไว้แล้ว:
-- `vite.config.ts` ตั้งค่า `base: './'` รองรับการรันบน Sub-path ของ GitHub Pages
-- `.github/workflows/deploy.yml` สคริปต์ GitHub Actions ที่จะ Build และ Deploy เว็บให้อัตโนมัติทุกครั้งที่ Push โค้ด
+โปรเจกต์นี้ตั้งค่าให้รันบนเว็บ **GitHub Pages** ได้:
+- `vite.config.ts` ตั้งค่า `base: './'` ให้ asset URL เป็นแบบสัมพัทธ์ รองรับการรันบน Sub-path ของ GitHub Pages (`https://<user>.github.io/<repo>/`)
+- `.github/workflows/deploy.yml` สคริปต์ GitHub Actions ที่ Typecheck, Build และ Deploy อัตโนมัติทุกครั้งที่ Push ขึ้น `main`
+
+> หมายเหตุ: ก่อนหน้านี้เอกสารฉบับเดิมอ้างว่ามีทั้งสองไฟล์นี้อยู่แล้ว ซึ่งไม่เป็นจริง — workflow เพิ่งถูกเพิ่มเข้ามาในรอบนี้
 
 ---
 
@@ -44,6 +46,21 @@ git push -u origin main
 
 ## ขั้นตอนเปิดให้เว็บไซต์รันบนอินเทอร์เน็ต (GitHub Pages)
 
+### หมายเหตุสำคัญ: Firebase Authorized Domains
+
+แอปบังคับให้ล็อกอินด้วย Firebase Auth ก่อนเข้าถึงข้อมูล ถ้า deploy บน GitHub Pages ต้องเพิ่มโดเมนใหม่ใน Firebase Console มิฉะนั้นจะขึ้น `auth/unauthorized-domain` และล็อกอินไม่ได้:
+
+1. เปิด [Firebase Console > Authentication > Settings > Authorized domains](https://console.firebase.google.com/project/_/auth/settings)
+2. กด **Add domain** แล้วใส่โดเมนของ GitHub Pages เช่น `username.github.io`
+
+ถ้าใช้ Vercel ค่าที่ตั้งไว้อยู่แล้ว
+
+### หมายเหตุ: โหมดคีย์ข้อมูล
+
+รหัสผ่านสำหรับโหมดคีย์ข้อมูลอ่านจาก `VITE_OPERATOR_PASSWORD` ซึ่งเป็น build-time variable ถ้าไม่ตั้งไว้ ระบบจะยังใช้งานได้ปกติสำหรับอีเมลพนักงานที่ล็อกอินผ่าน Firebase Auth เพราะสิทธิ์จริงมาจาก Firestore Rules ไม่ใช่จากรหัสผ่าน
+
+---
+
 เมื่อโค้ดอยู่บน GitHub แล้ว ให้เปิดการทำงานเพียงครั้งเดียวดังนี้:
 
 1. เปิดหน้า Repository ของคุณบน GitHub
@@ -51,8 +68,11 @@ git push -u origin main
 3. ที่เมนูด้านซ้าย เลือก **Pages**
 4. ในหัวข้อ **Build and deployment**:
    - ตรงช่อง **Source** ให้คลิกเลือกเป็น **GitHub Actions**
-5. รอประมาณ 1-2 นาที ระบบจะ Build และ Deploy อัตโนมัติ (สามารถดูความคืบหน้าได้ที่แท็บ **Actions**)
-6. เมื่อเสร็จแล้ว คุณจะได้รับลิงก์เว็บไซต์ เช่น:
+   - ถ้ายังไม่มีส่วน Environment ให้สร้าง environment ชื่อ `github-pages` (workflow ระบุไว้)
+5. กด **Save**
+6. เข้าแท็บ **Actions** แล้วกด **Deploy to GitHub Pages** > **Run workflow** เพื่อ deploy ครั้งแรก (หลังจากนั้น push ขึ้น `main` จะ deploy เองอัตโนมัติ)
+7. รอประมาณ 2-3 นาที
+8. เมื่อเสร็จแล้ว คุณจะได้รับลิงก์เว็บไซต์ เช่น:
    ```
    https://<your-username>.github.io/<repo-name>/
    ```

@@ -10,6 +10,16 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    // Relative asset URLs. GitHub Pages serves the site from a sub-path
+    // (https://<user>.github.io/<repo>/), so absolute "/assets/..." URLs would
+    // 404. Relative "./assets/..." also works at a domain root, so this stays
+    // compatible with the Vercel deploy.
+    base: './',
+    build: {
+      // The bundle is one large app shell; the default 500 kB warning is just
+      // noise here since there is no route to split on.
+      chunkSizeWarningLimit: 2500,
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
