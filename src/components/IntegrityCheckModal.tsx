@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { 
   AlertTriangle, 
   CheckCircle2, 
@@ -110,9 +111,13 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
     }
   };
 
+  const panelRef = useModalA11y(true, onClose, 'ตรวจสอบความสมบูรณ์ของข้อมูล');
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+      <div
+        ref={panelRef}
+        tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90dvh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
         
         {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 bg-slate-900 text-white">
@@ -144,6 +149,7 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
             onClick={onClose} 
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -369,7 +375,7 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
                     ยืนยันความยินยอมในการปรับยอดสต๊อกอัตโนมัติ
                   </h4>
                   <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                    คุณกำลังจะปรับยอดคงเหลือของฟอยล์จำนวน <strong>{selectedRollIds.length} ม้วน</strong> ให้ตรงกับผลรวมของใบสั่งตัด SO ทั้งหมดในฐานข้อมูลกลาง Firebase (ทำงานผ่าน Transaction เพื่อความปลอดภัย ข้อมูลจะซิงค์ตรงกันทุกเครื่อง)
+                    คุณกำลังจะปรับยอดคงเหลือของฟอยล์จำนวน <strong>{selectedRollIds.length} ม้วน</strong> ให้ตรงกับผลรวมของใบสั่งตัด SO ทั้งหมดในฐานข้อมูลกลาง (ทำงานผ่าน Transaction เพื่อความปลอดภัย ข้อมูลจะซิงค์ตรงกันทุกเครื่อง)
                   </p>
                 </div>
               </div>
@@ -435,6 +441,7 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold transition-colors text-xs cursor-pointer"
             >
+            aria-label="ปิดหน้าต่าง"
               ปิดหน้าต่าง
             </button>
 

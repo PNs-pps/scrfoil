@@ -11,6 +11,17 @@ service cloud.firestore {
         request.auth.token.email.lower() == 'ikuyisad@ikwai.com';
     }
 
+    // NOTE: isValidId / isValidFoilRoll / isValidStockCutRecord below are
+    // currently NOT referenced by any match block — every collection below is
+    // gated on isStaff() alone. They are kept as the shape a future
+    // field-validation pass should adopt.
+    //
+    // Do NOT wire isValidStockCutRecord in as-is: it requires
+    // `totalDeducted >= 0`, but cycle-count adjustments legitimately write a
+    // negative totalDeducted (physical stock > system stock = restock), so
+    // enabling it would reject those writes. See StockCutRecord.totalDeducted
+    // in src/types.ts — the field is signed by design.
+
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }

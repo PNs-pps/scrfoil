@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { confirmAction } from '../utils/confirmAction';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { StockCutRecord, FoilRoll, WIDTH_SPECIFICATIONS } from '../types';
 import { 
   X, 
@@ -90,13 +92,17 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   const currentRollTotal = matchedRoll ? matchedRoll.totalMeters : (record.remainingBefore || record.remainingAfter + record.totalDeducted);
   const rollPercentLeft = currentRollTotal > 0 ? Math.round((currentRollRemaining / currentRollTotal) * 100) : 0;
 
+  const panelRef = useModalA11y(true, onClose, 'รายละเอียด SO');
+
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
+        ref={panelRef}
+        tabIndex={-1}
+        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header: ปุ้มย้อนกลับเหลือไว้แค่ซ้ายบนของหน้าต่าง */}
@@ -120,6 +126,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
                 title="ย้อนกลับ / ปิดหน้าต่าง"
               >
+            aria-label="ปิดหน้าต่าง"
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>ย้อนกลับ</span>
               </button>
@@ -157,6 +164,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="ปิด"
             >
+            aria-label="ปิดหน้าต่าง"
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -302,15 +310,17 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 <div className="pt-2 flex items-center justify-end">
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       if (userMode === 'visitor') {
                         onRequestUnlock?.();
                         return;
                       }
                       if (
-                        confirm(
-                          `ต้องการยกเลิกรายการตัดสต๊อก SO: ${record.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${record.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วนฟอยล์อัตโนมัติ)`
-                        )
+                        await confirmAction({
+                          title: 'ยกเลิกรายการตัดสต๊อก',
+                          message: `ต้องการยกเลิกรายการตัดสต๊อก SO: ${record.soNumber} หรือไม่?\n(ระบบจะคืนยอด ${record.totalDeducted.toLocaleString()} เมตร กลับเข้าม้วนฟอยล์อัตโนมัติ)`,
+                          confirmLabel: 'ยกเลิกรายการ',
+                        })
                       ) {
                         onDeleteRecord(record.id);
                         onClose();
@@ -473,7 +483,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                                 {cut.soNumber}
                               </span>
                               {isCurrentCut && (
-                                <span className="text-[9px] font-bold text-amber-800 bg-amber-200/90 px-1.5 py-0.2 rounded">
+                                <span className="text-[11px] font-bold text-amber-800 bg-amber-200/90 px-1.5 py-0.2 rounded">
                                   ใบงานปัจจุบัน
                                 </span>
                               )}

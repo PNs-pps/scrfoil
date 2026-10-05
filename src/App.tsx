@@ -65,7 +65,8 @@ import { SOBugInspectorModal } from './components/SOBugInspectorModal';
 import { CycleCountModal } from './components/CycleCountModal';
 import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
-import { getUserMode, setUserMode as saveUserMode, isStaffEmail, hasOperatorPassword, UserMode } from './utils/auth';
+import { getUserMode, setUserMode as saveUserMode, isStaffEmail, hasOperatorPassword, resetToVisitorMode, UserMode } from './utils/auth';
+import { confirmAction } from './utils/confirmAction';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON, getAllDueD1ScheduleSlots, markD1ScheduleSlotRun, getLastSnapshotFailure } from './utils/autoBackup';
 import { getD1BackupConfig, uploadBackupToD1 } from './utils/d1Backup';
 import { trackCloudWrite, describeWriteFailure } from './utils/cloudWrite';
@@ -124,6 +125,13 @@ export default function App() {
     setCurrentUserEmail(auth.currentUser?.email || null);
   }, []);
   const handleSignOut = async () => {
+    // Drop editor mode first. Otherwise signing out on a shared tablet leaves the
+    // next person to pick it up still in editor mode, with the cut-stock button
+    // live — which is exactly the state the password gate exists to prevent.
+    resetToVisitorMode();
+    setUserMode('visitor');
+    setPendingGuardedAction(null);
+    setIsPasswordModalOpen(false);
     try {
       await signOutUser();
     } catch (err) {
@@ -532,7 +540,7 @@ export default function App() {
   //   2. firestore.rules in this repo is only deployed to the production
   //      database. The managed database needs its own rules deployed (same
   //      deny-by-default + isStaff) or it is effectively unprotected.
-  const handleSwitchCloud = () => {
+  const handleSwitchCloud = async () => {
     if (userMode !== 'editor' && !isStaffEmail(currentUserEmail)) {
       showToast('เฉพาะผู้ดูแลระบบเท่านั้นที่สลับ Cloud ได้ — กรุณาเข้าสู่โหมดคีย์ข้อมูลก่อน', 'error');
       return;
@@ -549,7 +557,12 @@ export default function App() {
         ? '⚠️ ข้อมูลสต๊อกทั้งหมดจะถูกเขียนไปยังฐานข้อมูลอีกชุดหนึ่ง (ไม่ใช่ฐานข้อมูลหลักของโรงงาน)'
         : '⚠️ ข้อมูลสต๊อกทั้งหมดจะถูกเขียนไปยังฐานข้อมูลหลักของโรงงาน';
 
-    if (!window.confirm(`สลับไปใช้:\n${nextLabel}\n\n${warn}\n\nยืนยันการสลับ?`)) {
+    const ok = await confirmAction({
+      title: 'สลับฐานข้อมูล',
+      message: `สลับไปใช้:\n${nextLabel}\n\n${warn}`,
+      confirmLabel: 'สลับฐานข้อมูล',
+    });
+    if (!ok) {
       return;
     }
 
@@ -941,31 +954,24 @@ const updated = [newRoll, ...rolls];
 
   // Auth Guard helper.
   //
-  // Editor mode requires a staff account. Firestore Rules already reject every
-  // write from a non-staff email, so this is the matching UI gate — a visitor on
-  // a shared tablet shouldn't be one tap away from cutting stock.
+  // Editor mode requires the shared operator password. Signing in with a staff
+  // account is NOT enough on its own: the shop floor shares one tablet, and the
+  // whole point of this gate is that opening the app must not put the cut-stock
+  // button one tap away from whoever happens to pick up the device. Signing in
+  // only proves an account is attached to the tablet, not that the person
+  // holding it is the operator.
   //
-  // - Staff signed in via Firebase Auth: unlocked silently, no shared password
-  //   needed (they already proved who they are).
-  // - Non-staff: falls back to the shared operator password, but only if this
-  //   build actually has one configured. Without a password there is no way to
-  //   unlock from the UI, and we say so rather than silently allowing the action.
+  // Real authorization still belongs to Firestore Rules (see the header comment
+  // in src/utils/auth.ts) — this gate is the UI layer on top of it.
   const requireEditorPermission = (action: () => void) => {
     if (userMode === 'editor') {
       action();
       return;
     }
 
-    if (isStaffEmail(currentUserEmail)) {
-      setUserMode('editor');
-      saveUserMode('editor');
-      action();
-      return;
-    }
-
     if (!hasOperatorPassword()) {
       showToast(
-        'บัญชีนี้ไม่มีสิทธิ์แก้ไขข้อมูล และเวอร์ชันนี้ไม่ได้ตั้งรหัสผ่านสำหรับผู้ปฏิบัติการ — กรุณาให้ผู้ดูแลระบบตั้งค่า VITE_OPERATOR_PASSWORD',
+        'เวอร์ชันนี้ยังไม่ได้ตั้งรหัสผ่านสำหรับผู้ปฏิบัติการ จึงเข้าโหมดคีย์ข้อมูลไม่ได้ — กรุณาแจ้งผู้ดูแลระบบ',
         'error'
       );
       return;
@@ -1090,15 +1096,21 @@ const updated = [newRoll, ...rolls];
 
   // PU Sandwich Cut Handlers (ไม่ใช้ฟอยล์)
   const handleSavePuSandwichCut = async (record: PuSandwichCutRecord) => {
-    const exists = puSandwichRecords.some((r) => r.id === record.id);
+    const previous = puSandwichRecords;
+    const exists = previous.some((r) => r.id === record.id);
     const updated = exists
-      ? puSandwichRecords.map((r) => (r.id === record.id ? record : r))
-      : [record, ...puSandwichRecords];
+      ? previous.map((r) => (r.id === record.id ? record : r))
+      : [record, ...previous];
     setPuSandwichRecords(updated);
     saveStoredPuSandwichRecords(updated);
 
-    try {
-      await savePuSandwichCutToFirestore(record);
+    // Firestore does not retry `permission-denied` — the record would sit in
+    // localStorage forever while the UI claimed it was merely "pending". Route
+    // through trackCloudWrite so a terminal rejection is reported as such and
+    // the local copy is rolled back.
+    const outcome = await trackCloudWrite(savePuSandwichCutToFirestore(record));
+
+    if (outcome.kind === 'committed') {
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       const metersTxt = record.soLengthMeters ? ` · ${record.soLengthMeters} ม.` : '';
@@ -1106,23 +1118,52 @@ const updated = [newRoll, ...rolls];
         `${exists ? 'แก้ไข' : 'บันทึก'} SO แซนวิช ${record.soNumber}${metersTxt} สำเร็จ [Cloud]`,
         'success'
       );
-    } catch (err: any) {
-      console.warn('Notice: PU Sandwich cloud sync pending/offline:', err?.message || err);
-      showToast(`บันทึก SO แซนวิช ${record.soNumber} ในเครื่องแล้ว (รอซิงค์ Cloud)`, 'info');
+      return;
     }
+
+    if (outcome.kind === 'rejected') {
+      setPuSandwichRecords(previous);
+      saveStoredPuSandwichRecords(previous);
+      setSyncStatus(outcome.reason === 'rules' ? 'permission-denied' : 'error');
+      showToast(
+        `บันทึก SO แซนวิช ${record.soNumber} ไม่สำเร็จ — ${describeWriteFailure(outcome)}`,
+        'error'
+      );
+      return;
+    }
+
+    setSyncStatus('offline');
+    showToast(`บันทึก SO แซนวิช ${record.soNumber} ในเครื่องแล้ว (รอซิงค์ Cloud)`, 'info');
   };
 
   const handleDeletePuSandwichCut = async (id: string) => {
-    const updated = puSandwichRecords.filter((r) => r.id !== id);
+    const previous = puSandwichRecords;
+    const updated = previous.filter((r) => r.id !== id);
     setPuSandwichRecords(updated);
     saveStoredPuSandwichRecords(updated);
 
-    try {
-      await deletePuSandwichCutFromFirestore(id);
+    const outcome = await trackCloudWrite(deletePuSandwichCutFromFirestore(id));
+
+    if (outcome.kind === 'committed') {
       showToast('ลบรายการตัด SO แซนวิชเรียบร้อย');
-    } catch (err: any) {
-      console.warn('Notice: PU Sandwich deletion pending in cloud:', err?.message || err);
+      return;
     }
+
+    // A rejected delete is worse than a failed save: the row is gone on this
+    // device and reappears on the next sync. Put it back and say why.
+    if (outcome.kind === 'rejected') {
+      setPuSandwichRecords(previous);
+      saveStoredPuSandwichRecords(previous);
+      setSyncStatus(outcome.reason === 'rules' ? 'permission-denied' : 'error');
+      showToast(
+        `ลบรายการแซนวิชไม่สำเร็จ — ${describeWriteFailure(outcome)} (คืนรายการไว้ในเครื่องแล้ว)`,
+        'error'
+      );
+      return;
+    }
+
+    setSyncStatus('offline');
+    showToast('ลบรายการแซนวิชในเครื่องแล้ว (รอซิงค์ Cloud)', 'info');
   };
 
   // Toggle zero out for low stock rolls (<= 50m)
@@ -1479,8 +1520,15 @@ const updated = [newRoll, ...rolls];
   };
 
   // Reset to default sample
-  const handleResetData = () => {
-    if (confirm('คุณต้องการรีเซ็ตข้อมูลเป็นตัวอย่างเริ่มต้นของโรงงานหรือไม่? (คิดดีๆ)')) {
+  const handleResetData = async () => {
+    if (
+      await confirmAction({
+        title: 'รีเซ็ตข้อมูลทั้งหมด',
+        message:
+          'ข้อมูลสต๊อกทั้งหมดจะถูกลบและแทนที่ด้วยชุดตัวอย่างเริ่มต้นของโรงงาน\nระบบจะบันทึกจุดสำรองไว้ก่อนลบ\n\nต้องการดำเนินการต่อหรือไม่?',
+        confirmLabel: 'รีเซ็ตข้อมูล',
+      })
+    ) {
       const { result: snapshotResult } = createBackupSnapshot(rolls, records, 'before_reset');
       const { rolls: initR, records: initC } = resetAllDataToDefault();
       setRolls(initR);
@@ -1631,7 +1679,12 @@ const updated = [newRoll, ...rolls];
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] w-[min(92vw,28rem)] animate-in fade-in slide-in-from-bottom-4 duration-200">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] w-[min(92vw,28rem)] animate-in fade-in slide-in-from-bottom-4 duration-200"
+        >
           <div
             className={`px-4 py-3 rounded-2xl shadow-2xl border text-sm font-medium flex items-start gap-2.5 ${
               toastMessage.type === 'success'
@@ -1702,7 +1755,12 @@ const updated = [newRoll, ...rolls];
             setIsCutModalOpen(true);
           });
         }}
-        onOpenPuSandwichModal={() => requireEditorPermission(() => setIsPuSandwichModalOpen(true))}
+        onOpenPuSandwichModal={() => requireEditorPermission(() => {
+          // Clear any record left over from a previous edit so this button always
+          // opens an empty form instead of silently overwriting that record.
+          setEditingPuSandwich(null);
+          setIsPuSandwichModalOpen(true);
+        })}
         puSandwichCount={puSandwichRecords.length}
         totalRemainingMeters={totalRemainingMeters}
         activeRollsCount={activeRollsCount}
@@ -1749,6 +1807,10 @@ const updated = [newRoll, ...rolls];
               });
             }}
             onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
+            onOpenPuSandwichModal={() => requireEditorPermission(() => {
+              setEditingPuSandwich(null);
+              setIsPuSandwichModalOpen(true);
+            })}
             onOpenDailyFlow={() => setIsDailyFlowOpen(true)}
             onViewAllRolls={() => setActiveTab('rolls')}
             onViewAllHistory={(category) => {
@@ -1928,7 +1990,7 @@ const updated = [newRoll, ...rolls];
       {/* Daily Production Flow Modal (กดจากแดชบอร์ดแล้วแสดงเป็นป๊อปอัพ) */}
       {isDailyFlowOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-5xl w-full max-h-[92dvh] flex flex-col overflow-hidden animate-in zoom-in-95">
             <div className="px-5 py-3.5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-900 text-white flex items-center justify-between shrink-0 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-bold">

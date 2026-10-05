@@ -284,7 +284,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-foil-title"
-        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
@@ -746,6 +746,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
                 disabled={isSubmitting}
                 className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
               >
+            aria-label="ปิดหน้าต่าง"
                 ยกเลิก
               </button>
               <button

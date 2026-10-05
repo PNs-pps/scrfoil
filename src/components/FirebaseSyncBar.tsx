@@ -103,7 +103,7 @@ export const FirebaseSyncBar: React.FC<FirebaseSyncBarProps> = ({
                 className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[10px] flex items-center gap-1 transition-colors cursor-pointer"
               >
                 <Code className="w-3 h-3" />
-                <span className="hidden xs:inline">ตั้งค่า Rules</span>
+                <span className="hidden sm:inline">ตั้งค่า Rules</span>
               </button>
             ) : onOpenRulesModal ? (
               <button

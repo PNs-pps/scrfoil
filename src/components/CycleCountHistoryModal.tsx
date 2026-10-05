@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { confirmAction } from '../utils/confirmAction';
+import { useModalA11y } from '../hooks/useModalA11y';
 import {
   X,
   History,
@@ -90,11 +92,14 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
     const adjustedCount = (session.lines || []).filter(
       (l) => l.adjusted && Math.abs(l.variance) > 0.001
     ).length;
-    const ok = window.confirm(
-      adjustedCount > 0
-        ? `ลบประวัติ Cycle Count งวด ${label} ใช่หรือไม่?\n\nระบบจะ:\n• คืนยอดม้วนกลับค่าก่อนปรับ (${adjustedCount} ม้วน)\n• ลบใบ «นับสต๊อก» ออกจากประวัติตัด\n• ลบเอกสารงวดนี้ออก`
-        : `ลบประวัติ Cycle Count งวด ${label} ใช่หรือไม่?`
-    );
+    const ok = await confirmAction({
+      title: 'ลบประวัติการนับสต๊อก',
+      message:
+        adjustedCount > 0
+          ? `งวด ${label}\n\nระบบจะ:\n• คืนยอดม้วนกลับค่าก่อนปรับ (${adjustedCount} ม้วน)\n• ลบใบ «นับสต๊อก» ออกจากประวัติตัด\n• ลบเอกสารงวดนี้ออก`
+          : `ลบประวัติการนับสต๊อก งวด ${label} ใช่หรือไม่?`,
+      confirmLabel: 'ลบประวัติ',
+    });
     if (!ok) return;
     if (!onDeleteSession) {
       showToast?.('ยังไม่ได้เชื่อมฟังก์ชันลบประวัติ', 'info');
@@ -212,9 +217,13 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
     return { varCount, adjusted, total: s.lines.length };
   };
 
+  const panelRef = useModalA11y(true, onClose, 'ประวัติการนับสต๊อก');
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[94vh] flex flex-col overflow-hidden border border-slate-200">
+      <div
+        ref={panelRef}
+        tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[94dvh] flex flex-col overflow-hidden border border-slate-200">
         {/* Header */}
         <div className="px-4 sm:px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -245,6 +254,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
               onClick={onClose}
               className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer"
             >
+            aria-label="ปิดหน้าต่าง"
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -671,6 +681,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
             onClick={onClose}
             className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 cursor-pointer"
           >
+            aria-label="ปิดหน้าต่าง"
             ปิด
           </button>
         </div>

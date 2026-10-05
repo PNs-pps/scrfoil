@@ -37,7 +37,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               onClick={() => setActiveTab(tab.id)}
               aria-current={isActive ? 'page' : undefined}
               aria-label={tab.label}
-              className={`flex flex-col items-center justify-center min-h-[40px] py-1 px-0.5 rounded-lg transition-all duration-200 cursor-pointer active:scale-95 ${
+              className={`flex flex-col items-center justify-center min-h-[44px] py-1 px-0.5 rounded-lg transition-all duration-200 cursor-pointer active:scale-95 ${
                 isActive
                   ? 'text-amber-700 font-bold bg-amber-50/80'
                   : 'text-slate-600 hover:text-slate-900'

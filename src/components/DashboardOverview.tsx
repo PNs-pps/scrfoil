@@ -29,6 +29,7 @@ interface DashboardOverviewProps {
   onLoadArchive?: () => void | Promise<void>;
   onOpenCutModal: (rollId?: string) => void;
   onOpenAddModal: () => void;
+  onOpenPuSandwichModal?: () => void;
   onOpenDailyFlow?: () => void;
   onViewAllRolls: () => void;
   onViewAllHistory?: (category?: 'all' | 'foil' | 'sandwich') => void;
@@ -50,6 +51,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onLoadArchive,
   onOpenCutModal,
   onOpenAddModal,
+  onOpenPuSandwichModal,
   onOpenDailyFlow,
   onViewAllRolls,
   onViewAllHistory,
@@ -340,7 +342,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       <div className="rounded-xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-900 text-white px-3 py-2.5 shadow-sm border border-slate-800">
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="min-w-0 flex items-center gap-2">
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 tracking-wide shrink-0">
+            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 tracking-wide shrink-0">
               SCRFOIL
             </span>
             <h2 className="text-sm font-bold tracking-tight text-white truncate">
@@ -363,7 +365,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 text-[11px] font-bold shadow-sm transition-all duration-200 active:scale-95 cursor-pointer"
               >
                 <Workflow className="w-3.5 h-3.5 stroke-[2.4]" />
-                <span className="hidden xs:inline">Flow</span>
+                <span className="hidden sm:inline">Flow</span>
               </button>
             )}
             {onOpenMonthlySummary && (
@@ -536,7 +538,18 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
             </div>
 
-            {/* ปุ่มบันทึกผลิตแซนวิชถูกลบตามคำขอ (เข้าถึงได้จากเมนูอื่น) */}
+            {/* Quick entry to the sandwich cut form */}
+            {onOpenPuSandwichModal && (
+              <button
+                type="button"
+                id="btn-cut-pu-sandwich-dashboard"
+                onClick={onOpenPuSandwichModal}
+                className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 min-h-[40px]"
+              >
+                <Factory className="w-4 h-4 stroke-[2.5] shrink-0" aria-hidden="true" />
+                <span>บันทึกผลิตแซนวิช</span>
+              </button>
+            )}
           </div>
 
           {/* Sandwich Summary Grid */}

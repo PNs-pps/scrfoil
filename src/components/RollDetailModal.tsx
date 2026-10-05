@@ -1,4 +1,5 @@
 import React from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord } from '../types';
 import { X, ArrowLeft, Layers, Scissors, Calendar, User, FileText, CheckCircle2 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
@@ -21,11 +22,15 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
   const rollRecords = records.filter(r => r.foilId === roll.id);
   const percentLeft = roll.totalMeters > 0 ? Math.round((roll.remainingMeters / roll.totalMeters) * 100) : 0;
 
+  const panelRef = useModalA11y(true, onClose, 'รายละเอียดม้วนฟอยล์');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
-      <div 
+      <div
+        ref={panelRef}
+        tabIndex={-1} 
         id="modal-roll-detail"
-        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90dvh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-2.5">
@@ -36,6 +41,7 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
               title="ย้อนกลับ / ปิด"
             >
+            aria-label="ปิดหน้าต่าง"
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>ย้อนกลับ</span>
             </button>
@@ -53,6 +59,7 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
             title="ปิด"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>

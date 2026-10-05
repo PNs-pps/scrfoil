@@ -20,13 +20,20 @@
  *    be a hardcoded string literal, which leaked to anyone with the bundle, the
  *    git history, or this file. (The old value has been removed rather than
  *    quoted here — a comment is still source, and it was a live credential.)
- *    It is now read from a
- *    build-time env var and, if unset, the shared-password gate is disabled
- *    entirely rather than falling back to a guessable default.
+ *    It is now supplied at build time and, if neither build var is set, editor
+ *    mode is unreachable rather than falling back to a guessable default.
  *
  * The password gate exists for a narrow UX reason: the shop floor shares one
  * tablet, and we don't want a worker who opens the app to be one tap away from
  * cutting stock. Real authorization stays with Firebase Auth + Firestore Rules.
+ *
+ * BUILD CONFIGURATION — both are optional, `VITE_OPERATOR_PASSWORD_HASH` wins:
+ *   VITE_OPERATOR_PASSWORD_HASH  SHA-256 hex of the password. Preferred: the
+ *                                plaintext never enters the bundle. Produced by
+ *                                `npm run hash-password -- "<password>"`.
+ *   VITE_OPERATOR_PASSWORD      Plaintext. Only for local `npm run dev`.
+ * On GitHub Pages both come from repository secrets of the same name (see
+ * DEPLOY_TO_GITHUB.md). If neither is present the build is READ-ONLY and says so.
  */
 
 const MODE_STORAGE_KEY = 'siampuufoam_user_mode';
@@ -38,14 +45,32 @@ const MODE_STORAGE_KEY = 'siampuufoam_user_mode';
 const STAFF_EMAILS = ['ikuyisad@ikwai.com'];
 
 /**
- * Shared operator password, supplied at build time via VITE_OPERATOR_PASSWORD.
- * Empty string means "no shared password configured" — see note 2 above.
+ * Shared operator password, supplied at build time.
+ * `VITE_OPERATOR_PASSWORD_HASH` (SHA-256 hex) is preferred because the plaintext
+ * then never exists inside the published bundle. `VITE_OPERATOR_PASSWORD` is the
+ * plaintext fallback, used for local dev.
  */
 const OPERATOR_PASSWORD = (import.meta.env?.VITE_OPERATOR_PASSWORD as string | undefined) ?? '';
+const OPERATOR_PASSWORD_HASH = ((import.meta.env?.VITE_OPERATOR_PASSWORD_HASH as string | undefined) ?? '').trim().toLowerCase();
 
 /** True when a build-time shared password was provided. */
 export function hasOperatorPassword(): boolean {
-  return OPERATOR_PASSWORD.length > 0;
+  return OPERATOR_PASSWORD_HASH.length > 0 || OPERATOR_PASSWORD.length > 0;
+}
+
+/** SHA-256 hex of a UTF-8 string. Used to compare against the hash build var. */
+async function sha256Hex(text: string): Promise<string> {
+  // WebCrypto is only exposed in a secure context (https, or localhost). Opening
+  // the site over a plain-http LAN address would otherwise fail with an opaque
+  // TypeError, so surface an explanation instead.
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    throw new Error('insecure-context');
+  }
+  const bytes = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 /**
@@ -103,14 +128,21 @@ export function resetToVisitorMode(): void {
 /**
  * Check the input against the shared operator password.
  *
- * Returns false when no password is configured — callers must then fall back to
- * the Firebase Auth staff-email check (see `isStaffEmail`) rather than treating
- * an empty config as "everyone passes".
+ * Async because the hashed build config needs SHA-256, which is only available
+ * through WebCrypto. Returns false when no password is configured — callers must
+ * then refuse the action rather than treating an empty config as "everyone
+ * passes" (see `requireEditorPermission` in App.tsx).
  */
-export function verifyPassword(password: string): boolean {
-  if (!password) return false;
+export async function verifyPassword(password: string): Promise<boolean> {
+  const input = password.trim();
+  if (!input) return false;
+
+  if (OPERATOR_PASSWORD_HASH) {
+    return (await sha256Hex(input)) === OPERATOR_PASSWORD_HASH;
+  }
+
   if (!OPERATOR_PASSWORD) return false;
-  return password.trim() === OPERATOR_PASSWORD;
+  return input === OPERATOR_PASSWORD.trim();
 }
 
 /**

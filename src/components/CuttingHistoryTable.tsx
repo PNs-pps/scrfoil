@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { confirmAction } from '../utils/confirmAction';
 import { StockCutRecord, FoilRoll, PuSandwichCutRecord } from '../types';
 import { 
   Search, 
@@ -659,13 +660,25 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              handleActionGuarded(() => {
+                              handleActionGuarded(async () => {
                                 if (isFoil && item.rawFoil) {
-                                  if (confirm(`ต้องการยกเลิกรายการตัดฟอยล์ SO ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอดเข้าม้วนเดิมอัตโนมัติ)`)) {
+                                  if (
+                                    await confirmAction({
+                                      title: 'ยกเลิกรายการตัดฟอยล์',
+                                      message: `ต้องการยกเลิกรายการตัดฟอยล์ SO ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอดเข้าม้วนเดิมอัตโนมัติ)`,
+                                      confirmLabel: 'ยกเลิกรายการ',
+                                    })
+                                  ) {
                                     onDeleteRecord(item.rawFoil.id);
                                   }
                                 } else if (!isFoil && item.rawSandwich && onDeleteSandwichRecord) {
-                                  if (confirm(`ต้องการลบรายการตัด SO แซนวิช ${item.soNumber} หรือไม่?`)) {
+                                  if (
+                                    await confirmAction({
+                                      title: 'ลบรายการตัด SO แซนวิช',
+                                      message: `ต้องการลบรายการตัด SO แซนวิช ${item.soNumber} หรือไม่?`,
+                                      confirmLabel: 'ลบรายการ',
+                                    })
+                                  ) {
                                     onDeleteSandwichRecord(item.rawSandwich.id);
                                   }
                                 }

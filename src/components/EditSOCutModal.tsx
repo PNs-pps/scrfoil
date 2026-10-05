@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { StockCutRecord, FoilRoll, FoilWidth } from '../types';
 import { 
   X, 
@@ -113,6 +114,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
             onClick={onClose}
             className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl cursor-pointer"
           >
+            aria-label="ปิดหน้าต่าง"
             ปิด
           </button>
         </div>
@@ -180,9 +182,13 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
     }
   };
 
+  const panelRef = useModalA11y(true, onClose, 'แก้ไขรายการตัด SO');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden my-6">
+      <div
+        ref={panelRef}
+        tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden my-6">
         {/* Header */}
         <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -206,6 +212,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -480,6 +487,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
               disabled={isSubmitting}
               className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer transition-colors"
             >
+            aria-label="ปิดหน้าต่าง"
               ยกเลิก
             </button>
             <button

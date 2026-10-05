@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { confirmAction } from '../utils/confirmAction';
 import { 
   ShieldCheck, 
   Database, 
@@ -219,14 +220,19 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
 
   // Restore snapshot
   const handleRestoreSnapshot = (id: string) => {
-    handleActionGuarded(() => {
+    handleActionGuarded(async () => {
       const snap = snapshots.find((s) => s.id === id);
       if (!snap) return;
 
       const dateStr = new Date(snap.timestamp).toLocaleString('th-TH');
-      const confirmMsg = `ยืนยันการกู้คืนข้อมูลกลับไปที่จุดสำรอง:\n\nเวลา: ${dateStr}\nจำนวนฟอยล์: ${snap.rollsCount} ม้วน\nจำนวนตัด: ${snap.recordsCount} รายการ\n\n(ระบบจะสร้างจุดสำรองข้อมูลปัจจุบันไว้ให้อัตโนมัติ)`;
 
-      if (window.confirm(confirmMsg)) {
+      if (
+        await confirmAction({
+          title: 'กู้คืนข้อมูลจากจุดสำรอง',
+          message: `กู้คืนข้อมูลกลับไปที่จุดสำรอง\n\nเวลา: ${dateStr}\nจำนวนฟอยล์: ${snap.rollsCount} ม้วน\nจำนวนตัด: ${snap.recordsCount} รายการ\n\n(ระบบจะสร้างจุดสำรองข้อมูลปัจจุบันไว้ให้อัตโนมัติ)`,
+          confirmLabel: 'กู้คืนข้อมูล',
+        })
+      ) {
         // Non-blocking: this IS the recovery path. Blocking it on a full quota would
         // strand the operator with a snapshot they can see but cannot apply.
         snapshotOrWarn('before_restore', false);
@@ -244,8 +250,8 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
 
   // Delete snapshot
   const handleDeleteSnapshot = (id: string) => {
-    handleActionGuarded(() => {
-      if (window.confirm('คุณต้องการลบจุดสำรองนี้ใช่หรือไม่?')) {
+    handleActionGuarded(async () => {
+      if (await confirmAction({ title: 'ลบจุดสำรอง', message: 'คุณต้องการลบจุดสำรองนี้ใช่หรือไม่?', confirmLabel: 'ลบจุดสำรอง' })) {
         // deleteSnapshot reports whether the write actually landed. Showing an
         // unconditional success toast is how "deleted" could be reported for a
         // snapshot that is still in storage.
@@ -267,26 +273,30 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
           const text = event.target?.result as string;
           const res = parseAndValidateBackupJSON(text);
 
           if (!res.rolls.length && !res.records.length) {
-            alert('ไม่พบข้อมูลม้วนฟอยล์หรือรายการตัดที่ถูกต้องในไฟล์นี้');
+            showToast('ไม่พบข้อมูลม้วนฟอยล์หรือรายการตัดที่ถูกต้องในไฟล์นี้', 'error');
             return;
           }
 
-          const confirmMsg = `ตรวจพบข้อมูลสำรอง:\n- ม้วนฟอยล์: ${res.rolls.length} ม้วน\n- ประวัติการตัด: ${res.records.length} รายการ\n\nคุณต้องการนำเข้าเพื่อแทนที่ข้อมูลปัจจุบันใช่หรือไม่? (ระบบจะสร้างจุดสำรองก่อนหน้าไว้ให้)`;
-
-          if (window.confirm(confirmMsg)) {
+          if (
+            await confirmAction({
+              title: 'นำเข้าข้อมูลสำรอง',
+              message: `ตรวจพบข้อมูลสำรอง:\n- ม้วนฟอยล์: ${res.rolls.length} ม้วน\n- ประวัติการตัด: ${res.records.length} รายการ\n\nคุณต้องการนำเข้าเพื่อแทนที่ข้อมูลปัจจุบันใช่หรือไม่?\n(ระบบจะสร้างจุดสำรองก่อนหน้าไว้ให้)`,
+              confirmLabel: 'นำเข้าข้อมูล',
+            })
+          ) {
             if (!snapshotOrWarn('before_reset')) return;
             onRestoreData(res.rolls, res.records);
             setSnapshots(getBackupSnapshots());
             showToast('นำเข้าไฟล์และกู้คืนข้อมูลสำเร็จ');
           }
         } catch (err: any) {
-          alert(`ไฟล์ไม่ถูกต้อง: ${err?.message || err}`);
+          showToast(`ไฟล์ไม่ถูกต้อง: ${err?.message || err}`, 'error');
         }
       };
       reader.readAsText(file);
@@ -400,7 +410,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
             }`}
           >
             <Database className="w-4 h-4 text-emerald-500" />
-            <span>คลาวด์ & D1</span>
+            <span>คลาวด์</span>
             {syncStatus === 'permission-denied' && (
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
             )}
@@ -483,7 +493,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                 <div className="space-y-2.5 pt-2">
                   <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
                     <div className="text-xs">
-                      <span className="font-bold text-slate-800 block">สำรองลงคลาวด์ Firebase</span>
+                      <span className="font-bold text-slate-800 block">สำรองลงคลาวด์กลาง</span>
                       <span className="text-slate-500">ซิงค์ฐานข้อมูลกลางอัตโนมัติ</span>
                     </div>
                     <input
@@ -900,11 +910,11 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                     <Database className="w-5 h-5 stroke-[2.2]" />
                   </div>
                   <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                    ฐานข้อมูลคลาวด์ & สำรอง Cloudflare D1
+                    ฐานข้อมูลคลาวด์ & คลาวด์สำรอง
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  จัดการการเชื่อมต่อ Firebase Cloud, สำรองข้อมูลขึ้น Cloudflare D1 และดึงประวัติสต๊อกทั้งหมด
+                  จัดการการเชื่อมต่อคลาวด์กลาง สำรองข้อมูลขึ้นคลาวด์สำรอง (Cloudflare D1) และดึงประวัติสต๊อกทั้งหมด
                 </p>
               </div>
 
@@ -939,10 +949,10 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                   </div>
                   <div>
                     <h4 className="font-bold text-slate-900 text-sm">
-                      สำรอง snapshot ขึ้น Cloudflare D1
+                      สำรอง snapshot ขึ้นคลาวด์สำรอง (Cloudflare D1)
                     </h4>
                     <p className="text-[11px] text-sky-900/80">
-                      ฐานข้อมูลสำรองระยะไกลอีกหนึ่งชั้น (นอกเหนือจาก Firebase)
+                      ฐานข้อมูลสำรองระยะไกลอีกหนึ่งชั้น (นอกเหนือจากคลาวด์กลาง)
                     </p>
                   </div>
                 </div>
@@ -951,7 +961,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
               <div className="space-y-3 text-xs">
                 <label className="flex items-center justify-between p-3 rounded-xl bg-white border border-sky-200 cursor-pointer">
                   <div>
-                    <span className="font-bold text-slate-800 block">สำรองอัตโนมัติขึ้น D1</span>
+                    <span className="font-bold text-slate-800 block">สำรองอัตโนมัติขึ้นคลาวด์สำรอง</span>
                     <span className="text-[11px] text-slate-500">
                       รอบเวลา 12:30 น. และ 17:30 น. ของทุกวัน
                     </span>
@@ -966,7 +976,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
 
                 {backupConfig.autoSyncD1 && backupConfig.lastD1AutoBackupTime && (
                   <p className="text-[10px] text-sky-800 font-mono">
-                    สำรองอัตโนมัติขึ้น D1 ล่าสุด: {new Date(backupConfig.lastD1AutoBackupTime).toLocaleString('th-TH')}
+                    สำรองอัตโนมัติขึ้นคลาวด์สำรอง ล่าสุด: {new Date(backupConfig.lastD1AutoBackupTime).toLocaleString('th-TH')}
                   </p>
                 )}
 
@@ -1062,7 +1072,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                         });
                         setD1Config(getD1BackupConfig());
                         setD1Status(`สำรองสำเร็จ · id ${result.id}`);
-                        showToast('สำรอง snapshot ขึ้น Cloudflare D1 สำเร็จ');
+                        showToast('สำรอง snapshot ขึ้นคลาวด์สำรอง (Cloudflare D1) สำเร็จ');
                         const list = await listD1Backups(15);
                         setD1List(list);
                       } catch (err: any) {
@@ -1075,7 +1085,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                     className="py-2 px-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1"
                   >
                     {d1Busy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    <span>สำรองขึ้น D1</span>
+                    <span>สำรองขึ้นคลาวด์สำรอง</span>
                   </button>
                 </div>
 
@@ -1106,9 +1116,11 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                                 return;
                               }
                               if (
-                                !confirm(
-                                  `กู้คืนจาก D1?\n${new Date(item.created_at).toLocaleString('th-TH')}\n${item.rolls_count} ม้วน · ${item.records_count} รายการตัด\n\nระบบจะสร้างจุดสำรองฉุกเฉินในเครื่องก่อน`
-                                )
+                                !(await confirmAction({
+                                  title: 'กู้คืนจาก Cloudflare D1',
+                                  message: `กู้คืนข้อมูลจาก D1?\n${new Date(item.created_at).toLocaleString('th-TH')}\n${item.rolls_count} ม้วน · ${item.records_count} รายการตัด\n\nระบบจะสร้างจุดสำรองฉุกเฉินในเครื่องก่อน`,
+                                  confirmLabel: 'กู้คืนข้อมูล',
+                                }))
                               ) {
                                 return;
                               }
@@ -1144,12 +1156,19 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                                 onRequestUnlock?.();
                                 return;
                               }
-                              if (!confirm('ลบ snapshot นี้บน D1?')) return;
+                              if (
+                                !(await confirmAction({
+                                  title: 'ลบ snapshot บน D1',
+                                  message: 'ลบ snapshot นี้บน D1?',
+                                  confirmLabel: 'ลบ snapshot',
+                                }))
+                              )
+                                return;
                               setD1Busy(true);
                               try {
                                 await deleteD1Backup(item.id);
                                 setD1List((prev) => prev.filter((x) => x.id !== item.id));
-                                showToast('ลบ snapshot บน D1 แล้ว');
+                                showToast('ลบ snapshot บนคลาวด์สำรองแล้ว');
                               } catch (err: any) {
                                 showToast(String(err?.message || err), 'info');
                               } finally {
@@ -1214,7 +1233,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                 </div>
 
                 <div className="text-xs space-y-1">
-                  <span className="text-slate-500 block">Firebase Project ID:</span>
+                  <span className="text-slate-500 block">รหัสโปรเจกต์ Firebase:</span>
                   <span className="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-2 py-1 rounded block">
                     {projectId}
                   </span>

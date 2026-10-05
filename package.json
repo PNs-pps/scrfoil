@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "hash-password": "node -e \"const c=require('node:crypto');const p=process.argv[1];if(!p){console.error('usage: npm run hash-password -- \\\"<password>\\\"');process.exit(1)}console.log(c.createHash('sha256').update(p.trim()).digest('hex'))\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

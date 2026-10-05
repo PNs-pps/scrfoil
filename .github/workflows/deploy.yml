@@ -23,6 +23,11 @@ permissions:
   pages: write
   id-token: write
 
+# Every `uses:` below is pinned to a full commit SHA with the tag in a trailing
+# comment. A bare `@v4` is a mutable ref — anyone who can push a tag to the
+# action repo changes what runs here with the repo's Pages write token. Bump
+# deliberately: replace the SHA and update the comment together.
+
 # Never run two deploys at once, and let a running deploy finish rather than
 # cancelling it mid-publish.
 concurrency:
@@ -33,9 +38,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
@@ -58,16 +63,33 @@ jobs:
         # silently before. Cheap enough to always run.
         run: npm test
 
+      - name: Verify the editor-mode gate is armed
+        # Fail BEFORE building if the secret was never set. Without it the site
+        # goes live with every edit button permanently disabled, which looks like
+        # a bug to the operators rather than a missing secret.
+        run: |
+          if [ -z "${{ secrets.VITE_OPERATOR_PASSWORD_HASH }}" ]; then
+            echo "::error::VITE_OPERATOR_PASSWORD_HASH secret is not set — the deployed build cannot enter editor mode. Generate one with: npm run hash-password -- \"<password>\""
+            exit 1
+          fi
+          echo "Operator password gate is armed."
+
       - name: Build
         run: npm run build
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          # Operator password gate. `VITE_OPERATOR_PASSWORD_HASH` is a SHA-256
+          # hex digest of the shared operator password, so the plaintext never
+          # enters the bundle. Without it the build is read-only: nobody can
+          # enter editor mode because there is no password to check against.
+          # Set it in Settings > Secrets > Actions.
+          VITE_OPERATOR_PASSWORD_HASH: ${{ secrets.VITE_OPERATOR_PASSWORD_HASH }}
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: dist
 
@@ -80,4 +102,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

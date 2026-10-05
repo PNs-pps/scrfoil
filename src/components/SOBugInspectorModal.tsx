@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord } from '../types';
 import { 
   X, 
@@ -192,9 +193,13 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
 
   const eligibleForFixCount = auditResults.filter((r) => r.canAutoAdjust && !r.isZeroedOut).length;
 
+  const panelRef = useModalA11y(true, onClose, 'ตรวจสอบปัญหา SO');
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+      <div
+        ref={panelRef}
+        tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92dvh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
         
         {/* Header */}
         <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
@@ -220,6 +225,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -790,6 +796,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold text-xs transition-colors cursor-pointer"
             >
+            aria-label="ปิดหน้าต่าง"
               ปิดหน้าต่าง
             </button>
 

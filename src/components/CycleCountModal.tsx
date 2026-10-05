@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { confirmAction } from '../utils/confirmAction';
+import { useModalA11y } from '../hooks/useModalA11y';
 import {
   X,
   ClipboardList,
@@ -335,9 +337,13 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
     }
   };
 
+  const panelRef = useModalA11y(true, onClose, 'ตั้งค่าการนับสต๊อกประจำเดือน');
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94vh] flex flex-col overflow-hidden border border-slate-200">
+      <div
+        ref={panelRef}
+        tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94dvh] flex flex-col overflow-hidden border border-slate-200">
         {/* Header — โทนเดียวกับแอป */}
         <div className="px-4 sm:px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -359,6 +365,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             disabled={isSubmitting}
             className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-white/10 disabled:opacity-40 cursor-pointer shrink-0"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -429,11 +436,15 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (
-                      window.confirm(
-                        'เริ่มนับใหม่ทั้งงวด? ค่าที่กรอกในหน้านี้จะถูกล้าง (แบบร่างเดิมใน Cloud ยังอยู่จนกว่าจะบันทึกทับ)'
-                      )
+                      await confirmAction({
+                        title: 'เริ่มนับใหม่ทั้งงวด',
+                        message:
+                          'ค่าที่กรอกในหน้านี้จะถูกล้างทั้งหมด\n(แบบร่างเดิมใน Cloud ยังอยู่จนกว่าจะบันทึกทับ)',
+                        confirmLabel: 'เริ่มนับใหม่',
+                        tone: 'primary',
+                      })
                     ) {
                       startFresh();
                     }
@@ -732,6 +743,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             disabled={isSubmitting}
             className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40 cursor-pointer transition-colors"
           >
+            aria-label="ปิดหน้าต่าง"
             ปิด
           </button>
           <button

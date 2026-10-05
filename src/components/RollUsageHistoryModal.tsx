@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord, CutHistoryItem } from '../types';
 import { 
   X, 
@@ -316,11 +317,15 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
 
   if (!roll) return null;
 
+  const panelRef = useModalA11y(true, onClose, 'ประวัติการใช้งานม้วนฟอยล์');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
-      <div 
+      <div
+        ref={panelRef}
+        tabIndex={-1} 
         id="modal-roll-usage-history"
-        className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
@@ -346,6 +351,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -798,7 +804,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <div className="text-xs text-slate-500 flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-slate-400" />
-            <span>ซิงค์ข้อมูลกับ Cloud Firestore กลางอัตโนมัติ</span>
+            <span>ซิงค์ข้อมูลกับคลาวด์กลางอัตโนมัติ</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -806,6 +812,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
             >
+            aria-label="ปิดหน้าต่าง"
               ปิดหน้าต่าง
             </button>
           </div>

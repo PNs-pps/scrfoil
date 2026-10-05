@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
 import { round2, formatMeters, todayLocalISO } from '../utils/formatters';
@@ -135,11 +136,15 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
 
   if (!isOpen || !roll) return null;
 
+  const panelRef = useModalA11y(true, onClose, 'แก้ไขข้อมูลม้วนฟอยล์');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs animate-in fade-in duration-150">
       <div
+        ref={panelRef}
+        tabIndex={-1}
         id="modal-edit-foil"
-        className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] animate-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
@@ -165,6 +170,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -378,6 +384,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
             >
+            aria-label="ปิดหน้าต่าง"
               ยกเลิก
             </button>
             <button

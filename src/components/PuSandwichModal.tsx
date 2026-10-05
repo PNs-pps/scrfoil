@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { confirmAction } from '../utils/confirmAction';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { todayLocalISO } from '../utils/formatters';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
@@ -347,10 +349,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const totalNgKgAll = safeRecords.reduce((sum, r) => sum + (r.ngKg || 0), 0);
   const totalNgMetersAll = safeRecords.reduce((sum, r) => sum + (r.ngMeters || 0), 0);
 
+  const panelRef = useModalA11y(true, onClose, 'บันทึกการตัดสต๊อกแซนวิช');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
-      <div 
-        className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
+      <div
+        ref={panelRef}
+        tabIndex={-1} 
+        className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92dvh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -408,6 +414,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
               onClick={onClose}
               className="p-1.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             >
+            aria-label="ปิดหน้าต่าง"
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -723,7 +730,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <button
                             type="button"
                             onClick={() => setShowCustomFactor(!showCustomFactor)}
-                            className="text-[9px] text-emerald-700 hover:underline cursor-pointer font-sans"
+                            className="text-[11px] text-emerald-700 hover:underline cursor-pointer font-sans"
                             title="คลิกเพื่อตรวจสอบหรือปรับอัตรา กก./ม."
                           >
                             {effectiveKgPerMeter.toFixed(2)} กก./ม.
@@ -1030,6 +1037,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   onClick={onClose}
                   className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
                 >
+            aria-label="ปิดหน้าต่าง"
                   ยกเลิก
                 </button>
                 <button
@@ -1198,8 +1206,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                               {onDeleteRecord && (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    if (window.confirm(`ยืนยันการลบรายการตัด SO ${rec.soNumber}?`)) {
+                                  onClick={async () => {
+                                    if (
+                                      await confirmAction({
+                                        title: 'ลบรายการตัด SO',
+                                        message: `ยืนยันการลบรายการตัด SO ${rec.soNumber}?`,
+                                        confirmLabel: 'ลบรายการ',
+                                      })
+                                    ) {
                                       onDeleteRecord(rec.id);
                                     }
                                   }}
@@ -1225,7 +1239,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       {/* ========== ยืนยันก่อนตัด SO แซนวิช ========== */}
       {showConfirmSummary && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-emerald-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-emerald-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90dvh] overflow-y-auto">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center justify-center shrink-0">
                 <Factory className="w-5 h-5 text-emerald-800" />

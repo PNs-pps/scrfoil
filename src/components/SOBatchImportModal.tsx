@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord } from '../types';
 import { 
   X, 
@@ -264,11 +265,15 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
     }
   };
 
+  const panelRef = useModalA11y(true, onClose, 'นำเข้าข้อมูล SO ทีละชุด');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs">
-      <div 
+      <div
+        ref={panelRef}
+        tabIndex={-1} 
         id="modal-so-batch-import"
-        className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
@@ -295,6 +300,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -523,6 +529,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
           >
+            aria-label="ปิดหน้าต่าง"
             ยกเลิก
           </button>
 
@@ -535,7 +542,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
             {isProcessing ? (
               <>
                 <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
-                <span>กำลังบันทึกลง Firebase...</span>
+                <span>กำลังบันทึกลงคลาวด์กลาง...</span>
               </>
             ) : (
               <>

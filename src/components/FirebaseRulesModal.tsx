@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { ShieldAlert, Copy, Check, ExternalLink, RefreshCw, Database, X, Terminal } from 'lucide-react';
 // Import the real rules file rather than keeping a second copy inline. An
 // out-of-date copy in this modal is a security problem: the previous inline
@@ -35,9 +36,13 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
     setTimeout(() => setCopied(false), 2500);
   };
 
+  const panelRef = useModalA11y(true, onClose, 'ตั้งค่า Firestore Rules');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden text-slate-800 flex flex-col max-h-[90vh]">
+      <div
+        ref={panelRef}
+        tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden text-slate-800 flex flex-col max-h-[90dvh]">
         {/* Header */}
         <div className="px-6 py-4 bg-gradient-to-r from-amber-500 to-amber-600 text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -53,6 +58,7 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-white/20 transition-colors text-white"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -162,6 +168,7 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-medium"
           >
+            aria-label="ปิดหน้าต่าง"
             ปิดหน้าต่างนี้ (ใช้งานออฟไลน์/Local ชั่วคราว)
           </button>
           <div className="flex items-center gap-2">

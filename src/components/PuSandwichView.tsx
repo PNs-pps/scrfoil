@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { confirmAction } from '../utils/confirmAction';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { 
   Factory, 
@@ -309,6 +311,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
     align: 'left' | 'right' | 'center' = 'left'
   ) => {
     const isActive = sortField === field;
+
     return (
       <th
         className={`py-3 px-3.5 cursor-pointer select-none hover:bg-slate-100/80 transition-colors ${
@@ -332,6 +335,12 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       </th>
     );
   };
+
+  const monthlyPanelRef = useModalA11y(
+    isMonthlyModalOpen,
+    () => setIsMonthlyModalOpen(false),
+    'สรุปรายเดือนแซนวิช'
+  );
 
   return (
     <div className="space-y-3 animate-in fade-in duration-200">
@@ -703,15 +712,17 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                         {onDeleteRecord && (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                               if (userMode === 'visitor' && onUnlockEditor) {
                                 onUnlockEditor();
                                 return;
                               }
                               if (
-                                window.confirm(
-                                  `ยืนยันการลบรายการตัด SO ${r.soNumber} (คอล์ย ${r.coilNumber})?`
-                                )
+                                await confirmAction({
+                                  title: 'ลบรายการตัด SO',
+                                  message: `ยืนยันการลบรายการตัด SO ${r.soNumber} (คอล์ย ${r.coilNumber})?`,
+                                  confirmLabel: 'ลบรายการ',
+                                })
                               ) {
                                 onDeleteRecord(r.id);
                               }
@@ -735,7 +746,10 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       {/* Monthly Summary Modal */}
       {isMonthlyModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+          <div
+            ref={monthlyPanelRef}
+            tabIndex={-1}
+            className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[90dvh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="px-6 py-5 bg-linear-to-r from-emerald-800 via-teal-800 to-slate-900 text-white flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">

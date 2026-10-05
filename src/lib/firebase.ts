@@ -1589,7 +1589,12 @@ export function subscribeToPuSandwichCuts(
 export async function savePuSandwichCutToFirestore(record: PuSandwichCutRecord): Promise<void> {
   try {
     const docRef = doc(db, PU_SANDWICH_COLLECTION, record.id);
-    await setDoc(docRef, record, { merge: true });
+    // Every optional field on this record (soLengthMeters, ngKg, notes, …) is
+    // simply absent rather than undefined when the operator leaves it blank, but
+    // a hand-built payload can still carry one. Firestore rejects undefined with
+    // `invalid-argument`, so route it through the same scrubber the roll writes
+    // use.
+    await setDoc(docRef, sanitizeForFirestore(record), { merge: true });
   } catch (err: any) {
     console.warn('Notice: Failed to save PU sandwich cut to Firestore:', err?.message || err);
     throw err;

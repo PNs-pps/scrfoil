@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
 import { 
   X, 
@@ -431,11 +432,15 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
 
   if (!isOpen) return null;
 
+  const panelRef = useModalA11y(true, onClose, 'สรุปรายเดือน');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs">
-      <div 
+      <div
+        ref={panelRef}
+        tabIndex={-1} 
         id="modal-monthly-summary"
-        className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Modal Header */}
         <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-2">
@@ -459,6 +464,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
           >
+            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -998,6 +1004,7 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
             onClick={onClose}
             className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer ml-auto"
           >
+            aria-label="ปิดหน้าต่าง"
             ปิดหน้าต่าง
           </button>
         </div>

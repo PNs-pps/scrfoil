@@ -553,7 +553,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="cut-stock-title"
-        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94dvh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
         <div className="px-6 py-4 bg-amber-500 text-slate-950 flex items-center justify-between">
@@ -1146,6 +1146,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               disabled={isSubmitting}
               className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
+            aria-label="ปิดหน้าต่าง"
               ยกเลิก
             </button>
 
@@ -1179,14 +1180,14 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       {/* ========== ยืนยันก่อนตัด (สรุป) ========== */}
       {showConfirmSummary && currentRoll && !cutResult && (
         <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-amber-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-amber-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90dvh] overflow-y-auto">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0">
                 <Scissors className="w-5 h-5 text-amber-800" />
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900 leading-tight">ยืนยันก่อนตัดสต๊อก</h3>
-                <p className="text-xs text-slate-500 mt-0.5">ตรวจสอบสรุปด้านล่างก่อนบันทึกลง Firebase</p>
+                <p className="text-xs text-slate-500 mt-0.5">ตรวจสอบสรุปด้านล่างก่อนบันทึกลงคลาวด์กลาง</p>
               </div>
             </div>
 
@@ -1202,11 +1203,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 <span className="text-slate-500 text-xs shrink-0">ล็อต / เบอร์ม้วน</span>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2 py-1 rounded-md">
-                    <span className="text-[9px] font-bold uppercase text-amber-200/90">ล็อต</span>
+                    <span className="text-[11px] font-bold uppercase text-amber-200/90">ล็อต</span>
                     <span className="lot-number-display text-sm font-bold text-white">{currentRoll.lotNumber}</span>
                   </span>
                   <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2 py-1 rounded-md">
-                    <span className="text-[9px] font-bold uppercase text-amber-700">เบอร์</span>
+                    <span className="text-[11px] font-bold uppercase text-amber-700">เบอร์</span>
                     <span className="lot-number-display text-sm font-bold">#{currentRoll.rollNumber}</span>
                   </span>
                 </div>

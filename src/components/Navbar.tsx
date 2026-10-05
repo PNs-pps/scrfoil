@@ -1,5 +1,5 @@
-import React from 'react';
-import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Bug, LogOut } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Layers, Plus, Scissors, BarChart3, Package, History, Download, Settings, Lock, Unlock, Key, Workflow, Bug, LogOut, Factory, User, Check } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
@@ -45,8 +45,32 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUserEmail,
   onSignOut,
 }) => {
+  // Account menu. This used to be a single button that signed you out on click,
+  // which was both undiscoverable on phones (hidden below `sm`) and a
+  // one-tap destructive action with no confirmation.
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isAccountOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
+        setIsAccountOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsAccountOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAccountOpen]);
+
   return (
-    <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30 shadow-sm">
+    <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30 shadow-sm pt-[env(safe-area-inset-top)]">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between py-1.5 sm:py-2 gap-1.5">
           
@@ -59,10 +83,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-900 text-amber-400 tracking-wide">
+                  <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-md bg-slate-900 text-amber-400 tracking-wide">
                     หลังคาเย็นสยาม
                   </span>
-                  <span className="text-[9px] text-slate-400 hidden sm:inline font-mono">
+                  <span className="text-[11px] text-slate-400 hidden sm:inline font-mono">
                     คลังฟอยล์ PU FOAM
                   </span>
                 </div>
@@ -116,7 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Bug className={`w-4 h-4 ${soBugCount && soBugCount > 0 ? 'text-amber-600' : 'text-slate-500'}`} />
                   {Boolean(soBugCount && soBugCount > 0) && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-rose-600 text-white text-[9px] font-bold leading-[14px] text-center">
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 rounded-full bg-rose-600 text-white text-[11px] font-bold leading-[14px] text-center">
                       {soBugCount > 9 ? '9+' : soBugCount}
                     </span>
                   )}
@@ -133,20 +157,61 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Download className="w-4 h-4" />
               </button>
 
-              {/* Signed-in Google account chip + sign out */}
+              {/* Signed-in account chip — opens a menu showing who is signed in */}
               {currentUserEmail && (
-                <button
-                  type="button"
-                  onClick={onSignOut}
-                  title={`เข้าสู่ระบบด้วย ${currentUserEmail} — คลิกเพื่อออกจากระบบ`}
-                  className="hidden sm:flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-slate-600 hover:text-rose-700 transition-colors cursor-pointer group"
-                >
-                  <span className="w-6 h-6 rounded-full bg-slate-900 text-amber-400 text-[11px] font-bold flex items-center justify-center shrink-0">
-                    {currentUserEmail.charAt(0).toUpperCase()}
-                  </span>
-                  <span className="text-[11px] font-medium max-w-[140px] truncate">{currentUserEmail}</span>
-                  <LogOut className="w-3.5 h-3.5 shrink-0 text-slate-400 group-hover:text-rose-600" />
-                </button>
+                <div className="relative" ref={accountRef}>
+                  <button
+                    type="button"
+                    id="btn-account"
+                    onClick={() => setIsAccountOpen((v) => !v)}
+                    aria-expanded={isAccountOpen}
+                    aria-haspopup="menu"
+                    aria-label={`บัญชีที่เข้าสู่ระบบ: ${currentUserEmail}`}
+                    title={currentUserEmail}
+                    className="flex items-center gap-1.5 pl-1 pr-1.5 py-1 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer min-w-[44px] min-h-[44px] sm:min-h-0"
+                  >
+                    <span className="w-6 h-6 rounded-full bg-slate-900 text-amber-400 text-[11px] font-bold flex items-center justify-center shrink-0">
+                      {currentUserEmail.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="hidden sm:inline text-[11px] font-medium max-w-[140px] truncate">
+                      {currentUserEmail}
+                    </span>
+                  </button>
+
+                  {isAccountOpen && (
+                    <div
+                      role="menu"
+                      aria-label="บัญชีผู้ใช้"
+                      className="absolute right-0 top-full mt-1.5 z-50 w-[260px] rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden"
+                    >
+                      <div className="px-3 py-2.5 bg-slate-50 border-b border-slate-200">
+                        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                          เข้าสู่ระบบด้วย
+                        </p>
+                        <p className="text-xs font-bold text-slate-900 break-all mt-0.5">
+                          {currentUserEmail}
+                        </p>
+                        <p className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                          <Check className="w-3 h-3" aria-hidden="true" />
+                          {userMode === 'editor' ? 'โหมดคีย์ข้อมูล' : 'โหมดผู้เข้าชม'}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsAccountOpen(false);
+                          onSignOut?.();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer min-h-[44px]"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span>ออกจากระบบ</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -169,8 +234,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons: Compact 2-column (removed sandwich cut button as requested) */}
-            <div className="grid grid-cols-2 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
+{/* Action Buttons: three primary commands */}
+            <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
               <button
                 id="btn-add-foil"
                 onClick={onOpenAddModal}
@@ -195,7 +260,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ) : (
                   <Scissors className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                 )}
-                <span className="whitespace-nowrap">ตัดสต็อกฟอยล์</span>
+                <span className="whitespace-nowrap">ตัดสต๊อกฟอยล์</span>
+              </button>
+
+              {/* PU sandwich cut — records a steel-coil SO (weight before/after).
+                  This does not touch foil rolls; see PuSandwichModal. */}
+              <button
+                id="btn-cut-pu-sandwich"
+                onClick={onOpenPuSandwichModal}
+                title="ตัดสต๊อกแซนวิช (บันทึก SO ผลิต PU Sandwich ไม่ใช้ฟอยล์)"
+                className="h-9 px-2 sm:px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all duration-200 shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-700/30"
+              >
+                {userMode === 'visitor' ? (
+                  <Lock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                ) : (
+                  <Factory className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                )}
+                <span className="whitespace-nowrap">ตัดสต๊อกแซนวิช</span>
+                {puSandwichCount > 0 && (
+                  <span className="min-w-[16px] px-1 h-4 rounded-full bg-white/25 text-[10px] font-mono font-bold leading-4 text-center">
+                    {puSandwichCount > 99 ? '99+' : puSandwichCount}
+                  </span>
+                )}
               </button>
             </div>
           </div>

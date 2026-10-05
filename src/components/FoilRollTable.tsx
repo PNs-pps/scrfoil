@@ -280,17 +280,17 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
               #{highlightMatch(roll.rollNumber, searchQuery)}
             </span>
             {isRollUnused(roll) && (
-              <span className="text-[9px] font-bold text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 shrink-0">
+              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 shrink-0">
                 เต็ม
               </span>
             )}
             {highlightLevel === 'red' && (
-              <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 shrink-0">
+              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 shrink-0">
                 ≤50ม.
               </span>
             )}
             {highlightLevel === 'yellow' && (
-              <span className="text-[9px] font-bold text-amber-800 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 shrink-0">
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 shrink-0">
                 ≤200ม.
               </span>
             )}
@@ -315,7 +315,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             </span>
             <span className="text-[10px] text-slate-400">ม.</span>
             {isZeroed && (
-              <span className="text-[9px] text-rose-600 font-bold ml-0.5 shrink-0">
+              <span className="text-[11px] text-rose-600 font-bold ml-0.5 shrink-0">
                 (ตัด 0)
               </span>
             )}
@@ -362,7 +362,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
               <label
                 onClick={(e) => e.stopPropagation()}
                 htmlFor={`zero-toggle-mob-${roll.id}`}
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold border cursor-pointer ${
                   isZeroed
                     ? 'bg-rose-600 text-white border-rose-700'
                     : 'bg-white text-rose-700 border-rose-300'
@@ -382,11 +382,13 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             <button
               type="button"
               onClick={toggleSwipe}
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-sans text-[10px] font-medium cursor-pointer active:scale-95 transition-transform"
-              title="สไลด์เปิดเมนูจัดการ"
+              aria-expanded={isSwiped}
+              aria-label={`${isSwiped ? 'ปิด' : 'เปิด'}เมนูจัดการม้วน ${roll.lotNumber} เบอร์ ${roll.rollNumber}`}
+              className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-sans text-[10px] font-medium cursor-pointer active:scale-95 transition-transform min-h-[28px]"
+              title="เปิด/ปิดเมนูจัดการ (หรือสไลด์การ์ดไปทางซ้าย)"
             >
               <span>{isSwiped ? 'ปิด' : 'เมนู'}</span>
-              <SlidersHorizontal className="w-2.5 h-2.5 text-slate-500" />
+              <SlidersHorizontal className="w-2.5 h-2.5 text-slate-500" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -798,13 +800,13 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         <td className={`px-4 py-3.5 ${borderCellClass}`}>
           <div className="flex flex-wrap items-center gap-1.5 mb-1">
             <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2 py-1 rounded-md">
-              <span className="text-[9px] font-bold uppercase text-amber-200/90">ล็อต</span>
+              <span className="text-[11px] font-bold uppercase text-amber-200/90">ล็อต</span>
               <span className="lot-number-display text-sm sm:text-base font-bold text-white leading-none">
                 {highlightMatch(roll.lotNumber, searchQuery)}
               </span>
             </span>
             <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2 py-1 rounded-md">
-              <span className="text-[9px] font-bold uppercase text-amber-700">เบอร์</span>
+              <span className="text-[11px] font-bold uppercase text-amber-700">เบอร์</span>
               <span className="lot-number-display text-sm sm:text-base font-bold leading-none">
                 #{highlightMatch(roll.rollNumber, searchQuery)}
               </span>
@@ -1280,7 +1282,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 </>
               )}
               {isLoadingArchive && (
-                <span className="text-[11px] text-amber-700 font-medium">กำลังดึงม้วนที่หมดแล้วจาก Firestore...</span>
+                <span className="text-[11px] text-amber-700 font-medium">กำลังดึงม้วนที่หมดแล้วจากคลาวด์กลาง...</span>
               )}
             </div>
           )}
@@ -1674,7 +1676,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           onClick={() => setActionMenuRoll(null)}
         >
           <div 
-            className="bg-white rounded-t-3xl sm:rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-t-3xl sm:rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-200 max-h-[90dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between pb-3 border-b border-slate-100">
@@ -1684,11 +1686,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5 mt-1">
                   <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2.5 py-1 rounded-md">
-                    <span className="text-[9px] font-bold uppercase text-amber-200/90">ล็อต</span>
+                    <span className="text-[11px] font-bold uppercase text-amber-200/90">ล็อต</span>
                     <span className="lot-number-display text-base font-bold text-white">{actionMenuRoll.lotNumber}</span>
                   </span>
                   <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2.5 py-1 rounded-md">
-                    <span className="text-[9px] font-bold uppercase text-amber-700">เบอร์</span>
+                    <span className="text-[11px] font-bold uppercase text-amber-700">เบอร์</span>
                     <span className="lot-number-display text-base font-bold">#{actionMenuRoll.rollNumber}</span>
                   </span>
                 </div>
