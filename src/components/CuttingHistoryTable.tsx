@@ -70,6 +70,7 @@ interface CuttingHistoryTableProps {
   onDeleteSandwichRecord?: (recordId: string) => void;
   onEditSandwichRecord?: (record: PuSandwichCutRecord) => void;
   onOpenCutModal: () => void;
+  onOpenPuSandwichModal?: () => void;
   initialCategory?: HistoryCategory;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
@@ -84,6 +85,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   onDeleteSandwichRecord,
   onEditSandwichRecord,
   onOpenCutModal,
+  onOpenPuSandwichModal,
   initialCategory = 'all',
   userMode = 'visitor',
   onRequestUnlock,
@@ -410,14 +412,25 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
               <span>ส่งออก CSV</span>
             </button>
 
-            <button
-              type="button"
-              onClick={onOpenCutModal}
-              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <Scissors className="w-3.5 h-3.5 text-amber-400" />
-              <span>ตัดสต็อกใหม่</span>
-            </button>
+            {categoryFilter === 'sandwich' && onOpenPuSandwichModal ? (
+              <button
+                type="button"
+                onClick={onOpenPuSandwichModal}
+                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Factory className="w-3.5 h-3.5 text-emerald-200" />
+                <span>ตัด SO แซนวิชใหม่</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenCutModal}
+                className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                <span>ตัดสต็อกฟอยล์ใหม่</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -575,14 +588,29 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
 
                       {/* Details / Lot / Coil */}
                       <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5 max-w-[280px] truncate" title={item.detailsSummary}>
-                          {patternStyle && (
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${patternStyle.dotClass}`} />
-                          )}
-                          <span className="font-medium text-slate-900 truncate">
-                            {item.detailsSummary}
-                          </span>
-                        </div>
+                        {isFoil && item.rawFoil ? (
+                          <div className="flex items-center gap-1.5 max-w-[320px]">
+                            <div className="inline-flex items-center gap-1 bg-black text-white px-2 py-0.5 rounded-md border border-slate-800 shadow-2xs shrink-0">
+                              <span className="text-[10px] font-black uppercase text-amber-400">LOT.</span>
+                              <span className="lot-number-display text-xs font-black text-white">{item.rawFoil.lotNumber}</span>
+                              <span className="text-slate-600 font-bold">|</span>
+                              <span className="text-[10px] font-black uppercase text-amber-400">NO.</span>
+                              <span className="lot-number-display text-xs font-black text-amber-300">#{item.rawFoil.rollNumber}</span>
+                            </div>
+                            <span className="text-slate-600 text-xs truncate">
+                              {item.rawFoil.pattern} ({item.rawFoil.width}มม.)
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 max-w-[280px] truncate" title={item.detailsSummary}>
+                            {patternStyle && (
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                            )}
+                            <span className="font-medium text-slate-900 truncate">
+                              {item.detailsSummary}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Used Amount */}

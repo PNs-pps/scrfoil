@@ -277,11 +277,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Factory className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                 )}
                 <span className="whitespace-nowrap">ตัดสต๊อกแซนวิช</span>
-                {puSandwichCount > 0 && (
-                  <span className="min-w-[16px] px-1 h-4 rounded-full bg-white/25 text-[10px] font-mono font-bold leading-4 text-center">
-                    {puSandwichCount > 99 ? '99+' : puSandwichCount}
-                  </span>
-                )}
               </button>
             </div>
           </div>

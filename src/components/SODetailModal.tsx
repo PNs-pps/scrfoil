@@ -265,11 +265,17 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-1.5 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-slate-900 text-base">
-                          ล็อต {record.lotNumber}
+                        <span className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
+                          <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">LOT.</span>
+                          <span className="lot-number-display text-base font-black text-white leading-none">
+                            {record.lotNumber}
+                          </span>
                         </span>
-                        <span className="font-mono text-xs font-bold text-slate-950 bg-amber-400 px-2 py-0.5 rounded-md border border-amber-500 shadow-2xs">
-                          #{record.rollNumber}
+                        <span className="inline-flex items-center gap-1.5 bg-black text-amber-300 px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
+                          <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">NO.</span>
+                          <span className="lot-number-display text-base font-black leading-none">
+                            #{record.rollNumber}
+                          </span>
                         </span>
                       </div>
 
@@ -341,11 +347,17 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
               <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-slate-900 text-lg">
-                      ล็อต {record.lotNumber}
+                    <span className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
+                      <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">LOT.</span>
+                      <span className="lot-number-display text-base sm:text-lg font-black text-white leading-none">
+                        {record.lotNumber}
+                      </span>
                     </span>
-                    <span className="font-mono text-xs font-bold text-slate-950 bg-amber-400 px-2 py-0.5 rounded-md border border-amber-500 shadow-2xs">
-                      #{record.rollNumber}
+                    <span className="inline-flex items-center gap-1.5 bg-black text-amber-300 px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
+                      <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">NO.</span>
+                      <span className="lot-number-display text-base sm:text-lg font-black leading-none">
+                        #{record.rollNumber}
+                      </span>
                     </span>
                   </div>
 

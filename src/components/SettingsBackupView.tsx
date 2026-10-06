@@ -644,7 +644,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                               <span>•</span>
                               <span>ตัดไป <strong>{s.recordsCount}</strong> รายการ</span>
                               <span>•</span>
-                              <span>คงเหลือรวม <strong>{s.totalRemainingMeters.toLocaleString()}</strong> ม.</span>
+                              <span>คงเหลือรวม <strong>{formatMeters(s.totalRemainingMeters)}</strong> ม.</span>
                             </div>
                           </div>
                         </div>

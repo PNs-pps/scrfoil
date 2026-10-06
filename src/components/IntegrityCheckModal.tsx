@@ -57,8 +57,7 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
   const [isConsentChecked, setIsConsentChecked] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fixingSingleId, setFixingSingleId] = useState<string | null>(null);
-
-  if (!isOpen) return null;
+  const panelRef = useModalA11y(isOpen, onClose, 'ตรวจสอบความสมบูรณ์ของข้อมูล');
 
   const isAllGood = mismatches.length === 0;
 
@@ -111,7 +110,7 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
     }
   };
 
-  const panelRef = useModalA11y(true, onClose, 'ตรวจสอบความสมบูรณ์ของข้อมูล');
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-3 sm:p-4">

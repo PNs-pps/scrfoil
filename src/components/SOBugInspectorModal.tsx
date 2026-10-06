@@ -153,7 +153,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
     });
   }, [auditResults, searchQuery, activeFilter]);
 
-  if (!isOpen) return null;
+  const panelRef = useModalA11y(isOpen, onClose, 'ตรวจสอบปัญหา SO');
 
   // Single roll fix handler
   const handleFixSingleRoll = async (res: RollSOAuditResult) => {
@@ -193,7 +193,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
 
   const eligibleForFixCount = auditResults.filter((r) => r.canAutoAdjust && !r.isZeroedOut).length;
 
-  const panelRef = useModalA11y(true, onClose, 'ตรวจสอบปัญหา SO');
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-3 sm:p-4">

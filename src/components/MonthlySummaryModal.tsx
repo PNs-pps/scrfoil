@@ -53,6 +53,8 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   initialScope = 'all',
   onOpenRollHistory,
 }) => {
+  const panelRef = useModalA11y(isOpen, onClose, 'สรุปรายเดือน');
+
   // Default to current month and year
   const now = new Date();
   const currentYearAD = now.getFullYear();
@@ -431,8 +433,6 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   };
 
   if (!isOpen) return null;
-
-  const panelRef = useModalA11y(true, onClose, 'สรุปรายเดือน');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs">

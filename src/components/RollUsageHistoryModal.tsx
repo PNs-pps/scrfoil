@@ -55,6 +55,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   canEdit = true,
   onOpenFullAudit,
 }) => {
+  const panelRef = useModalA11y(Boolean(roll), onClose, 'ประวัติการใช้งานม้วนฟอยล์');
+
   // Initialize with in-memory or embedded data first for instant render
   const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
     if (!roll) return [];
@@ -317,8 +319,6 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
 
   if (!roll) return null;
 
-  const panelRef = useModalA11y(true, onClose, 'ประวัติการใช้งานม้วนฟอยล์');
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
       <div
@@ -366,11 +366,17 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               {/* Basic Roll Specs */}
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-base font-bold font-mono text-slate-900">
-                    ล็อต: {roll.lotNumber}
+                  <span className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
+                    <span className="text-xs font-black uppercase text-amber-400 tracking-wider">LOT.</span>
+                    <span className="lot-number-display text-base sm:text-lg font-black text-white leading-none">
+                      {roll.lotNumber}
+                    </span>
                   </span>
-                  <span className="px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-mono font-bold text-xs rounded-md">
-                    เบอร์ #{roll.rollNumber}
+                  <span className="inline-flex items-center gap-1.5 bg-black text-amber-300 px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
+                    <span className="text-xs font-black uppercase text-amber-400 tracking-wider">NO.</span>
+                    <span className="lot-number-display text-base sm:text-lg font-black leading-none">
+                      #{roll.rollNumber}
+                    </span>
                   </span>
                   <span className="px-2 py-0.5 bg-white text-slate-700 border border-slate-200 text-xs rounded-md font-medium">
                     ลาย {roll.pattern}

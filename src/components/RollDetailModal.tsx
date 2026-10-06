@@ -17,12 +17,12 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
   onClose,
   onOpenCutForThisRoll,
 }) => {
+  const panelRef = useModalA11y(Boolean(roll), onClose, 'รายละเอียดม้วนฟอยล์');
+
   if (!roll) return null;
 
   const rollRecords = records.filter(r => r.foilId === roll.id);
   const percentLeft = roll.totalMeters > 0 ? Math.round((roll.remainingMeters / roll.totalMeters) * 100) : 0;
-
-  const panelRef = useModalA11y(true, onClose, 'รายละเอียดม้วนฟอยล์');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">

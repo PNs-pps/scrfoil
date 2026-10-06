@@ -54,8 +54,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  if (!isOpen) return null;
+  const panelRef = useModalA11y(isOpen, onClose, 'นำเข้าข้อมูล SO ทีละชุด');
 
   // Download CSV template
   const handleDownloadTemplate = () => {
@@ -265,7 +264,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
     }
   };
 
-  const panelRef = useModalA11y(true, onClose, 'นำเข้าข้อมูล SO ทีละชุด');
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs">

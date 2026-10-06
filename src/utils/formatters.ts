@@ -15,11 +15,11 @@ export const todayLocalISO = (d: Date = new Date()): string => {
 };
 
 export const formatMeters = (val: number | string | undefined | null): string => {
-  if (val === undefined || val === null || val === '') return '0';
+  if (val === undefined || val === null || val === '') return '0.00';
   const num = typeof val === 'string' ? parseFloat(val) : val;
-  if (isNaN(num)) return '0';
+  if (isNaN(num)) return '0.00';
   return num.toLocaleString('th-TH', {
-    minimumFractionDigits: 0,
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 };

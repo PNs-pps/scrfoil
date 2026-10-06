@@ -57,6 +57,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   editingRecord = null,
 }) => {
   const [activeTab, setActiveTab] = useState<'create' | 'history'>(initialMode);
+  const panelRef = useModalA11y(isOpen, onClose, 'บันทึกการตัดสต๊อกแซนวิช');
   const recentOperators = getRecentOperators();
 
   // Form State
@@ -146,19 +147,29 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   }, [isOpen, initialMode, editingRecord]);
 
+  // Helper function to safely parse numbers with comma support (e.g. "2,450.50")
+  const parseCleanNum = (val: string | number | undefined | null): number => {
+    if (val == null) return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    const cleaned = String(val).replace(/,/g, '').trim();
+    const n = parseFloat(cleaned);
+    return isNaN(n) ? 0 : n;
+  };
+
   // Weight per meter from thickness according to factory standards:
   // 0.30 -> 2.1 kg/m, 0.35 -> 2.3 kg/m, 0.40 -> 2.7 kg/m, 0.47 -> 3.1 kg/m, 0.51 -> 3.2 kg/m
   const standardKgPerMeter = getSteelKgPerMeter(thickness || '0.35');
 
-  const effectiveKgPerMeter = parseFloat(customKgPerMeter) > 0
-    ? parseFloat(customKgPerMeter)
+  const customRateNum = parseCleanNum(customKgPerMeter);
+  const effectiveKgPerMeter = customRateNum > 0
+    ? customRateNum
     : standardKgPerMeter;
 
-  const numSoLength = parseFloat(soLengthMeters) || 0;
+  const numSoLength = parseCleanNum(soLengthMeters);
 
   // Real-time calculation of used weight (น้ำหนักขึ้น - ลง)
-  const numBefore = parseFloat(weightBefore) || 0;
-  const numAfter = parseFloat(weightAfter) || 0;
+  const numBefore = parseCleanNum(weightBefore);
+  const numAfter = parseCleanNum(weightAfter);
   const calculatedUsed = (weightBefore !== '' && weightAfter !== '')
     ? Math.max(0, Math.round((numBefore - numAfter) * 100) / 100)
     : 0;
@@ -168,12 +179,12 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     ? Math.round(numSoLength * effectiveKgPerMeter * 100) / 100
     : 0;
 
-  // Auto-calculated NG (กก.) = น้ำหนักขึ้น-ลง - น้ำหนักงาน SO
+  // Auto-calculated ตัดตก / NG (กก.) = น้ำหนักขึ้น-ลง - น้ำหนักงาน SO
   const autoCalculatedNgKg = (calculatedUsed > 0 && numSoLength > 0)
     ? Math.max(0, Math.round((calculatedUsed - theoreticalSoWeight) * 100) / 100)
     : 0;
 
-  // Auto-calculated NG (เมตร) = autoCalculatedNgKg / effectiveKgPerMeter
+  // Auto-calculated ตัดตก / NG (เมตร) = autoCalculatedNgKg / effectiveKgPerMeter
   const autoCalculatedNgMeters = (effectiveKgPerMeter > 0 && autoCalculatedNgKg > 0)
     ? Math.max(0, Math.round((autoCalculatedNgKg / effectiveKgPerMeter) * 10) / 10)
     : 0;
@@ -181,12 +192,42 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   // Automatically update ngKg & ngMeters fields when weight or SO length changes unless manually overridden
   useEffect(() => {
     if (!isNgManuallyEdited && calculatedUsed > 0 && numSoLength > 0) {
-      setNgKg(autoCalculatedNgKg.toFixed(2));
-      setNgMeters(autoCalculatedNgMeters.toFixed(1));
+      setNgKg(autoCalculatedNgKg > 0 ? autoCalculatedNgKg.toFixed(2) : '0.00');
+      setNgMeters(autoCalculatedNgMeters > 0 ? autoCalculatedNgMeters.toFixed(1) : '0.0');
     }
   }, [calculatedUsed, numSoLength, effectiveKgPerMeter, autoCalculatedNgKg, autoCalculatedNgMeters, isNgManuallyEdited]);
 
-  if (!isOpen) return null;
+  // Two-way synchronized setters for ตัดตก / NG กก. <-> เมตร
+  const handleNgKgChange = (val: string) => {
+    setNgKg(val);
+    setIsNgManuallyEdited(true);
+    const n = parseCleanNum(val);
+    if (effectiveKgPerMeter > 0 && n >= 0) {
+      const m = n > 0 ? Math.round((n / effectiveKgPerMeter) * 10) / 10 : 0;
+      setNgMeters(m > 0 ? m.toFixed(1) : '0.0');
+    }
+  };
+
+  const handleNgMetersChange = (val: string) => {
+    setNgMeters(val);
+    setIsNgManuallyEdited(true);
+    const m = parseCleanNum(val);
+    if (effectiveKgPerMeter > 0 && m >= 0) {
+      const kg = m > 0 ? Math.round(m * effectiveKgPerMeter * 100) / 100 : 0;
+      setNgKg(kg > 0 ? kg.toFixed(2) : '0.00');
+    }
+  };
+
+  const handleResetToAutoNg = () => {
+    setIsNgManuallyEdited(false);
+    if (calculatedUsed > 0 && numSoLength > 0) {
+      setNgKg(autoCalculatedNgKg > 0 ? autoCalculatedNgKg.toFixed(2) : '0.00');
+      setNgMeters(autoCalculatedNgMeters > 0 ? autoCalculatedNgMeters.toFixed(1) : '0.0');
+    } else {
+      setNgKg('0.00');
+      setNgMeters('0.0');
+    }
+  };
 
   const validateSandwichForm = (): boolean => {
     setError(null);
@@ -194,8 +235,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setError('กรุณาระบุรหัส SO');
       return false;
     }
-    if (soLengthMeters === '' || numSoLength <= 0) {
-      setError('กรุณาระบุความยาวตามใบงาน SO (เมตร) ให้ถูกต้องมากกว่า 0');
+    if (soLengthMeters !== '' && numSoLength < 0) {
+      setError('ความยาวตามใบงาน SO (เมตร) ต้องไม่ติดลบ');
       return false;
     }
     if (!coilColor.trim()) {
@@ -210,16 +251,12 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setError('กรุณาระบุเบอร์คอล์ย');
       return false;
     }
-    if (weightBefore === '' || numBefore <= 0) {
-      setError('กรุณาระบุน้ำหนักก่อนใช้ (กก.) ให้ถูกต้องมากกว่า 0');
+    if ((weightBefore === '' || numBefore <= 0) && numSoLength <= 0) {
+      setError('กรุณาระบุน้ำหนักคอล์ยก่อนใช้ (กก.) หรือความยาวตามใบงาน SO (เมตร)');
       return false;
     }
-    if (weightAfter === '' || numAfter < 0) {
-      setError('กรุณาระบุน้ำหนักหลังใช้ (กก.) ให้ถูกต้อง');
-      return false;
-    }
-    if (numAfter > numBefore) {
-      setError('น้ำหนักหลังใช้ไม่สามารถมากกว่าน้ำหนักก่อนใช้ได้');
+    if (numBefore > 0 && weightAfter !== '' && numAfter > numBefore) {
+      setError('น้ำหนักหลังใช้ (กก.) ไม่สามารถมากกว่าน้ำหนักก่อนใช้ได้');
       return false;
     }
     if (steelOrigin === 'อื่นๆ' && !customSteelOrigin.trim()) {
@@ -227,26 +264,26 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       return false;
     }
 
-    const numNgKg = parseFloat(ngKg) || 0;
-    const numNgMeters = parseFloat(ngMeters) || 0;
+    const numNgKg = parseCleanNum(ngKg);
+    const numNgMeters = parseCleanNum(ngMeters);
     if (numNgKg < 0) {
-      setError('ยอด NG (กก.) ต้องไม่ติดลบ');
+      setError('ยอดตัดตก / NG (กก.) ต้องไม่ติดลบ');
       return false;
     }
     if (numNgMeters < 0) {
-      setError('ยอด NG (เมตร) ต้องไม่ติดลบ');
+      setError('ยอดตัดตก / NG (เมตร) ต้องไม่ติดลบ');
       return false;
     }
-    if (numNgKg > calculatedUsed && calculatedUsed > 0) {
-      setError('ยอด NG (กก.) ต้องไม่เกินน้ำหนักเหล็กที่ใช้จริง');
+    if (calculatedUsed > 0 && numNgKg > calculatedUsed + 0.05) {
+      setError('ยอดตัดตก / NG (กก.) ต้องไม่เกินน้ำหนักเหล็กที่ใช้จริง');
       return false;
     }
     return true;
   };
 
   const executeSandwichSave = async () => {
-    const numNgKg = parseFloat(ngKg) || 0;
-    const numNgMeters = parseFloat(ngMeters) || 0;
+    const numNgKg = parseCleanNum(ngKg);
+    const numNgMeters = parseCleanNum(ngMeters);
 
     // ป้องกันกรณีไม่มีฟังก์ชันบันทึก: แจ้งเตือนแทนการปิดหน้าต่างเงียบๆ โดยไม่บันทึก
     const canSave = editingRecord ? !!onSaveCut : !!(onSaveRecord || onSaveCut);
@@ -263,15 +300,21 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         saveRecentOperator(recordedBy.trim());
       }
 
+      const finalWeightUsed = calculatedUsed > 0
+        ? calculatedUsed
+        : numSoLength > 0
+          ? theoreticalSoWeight
+          : 0;
+
       const cleanPayload: any = {
         soNumber: soNumber.trim(),
         productionDate,
         coilColor: coilColor.trim(),
         thickness: thickness.trim(),
         coilNumber: coilNumber.trim(),
-        weightBefore: numBefore,
-        weightAfter: numAfter,
-        weightUsed: calculatedUsed,
+        weightBefore: numBefore > 0 ? numBefore : theoreticalSoWeight,
+        weightAfter: weightAfter !== '' && numAfter >= 0 ? numAfter : 0,
+        weightUsed: finalWeightUsed,
         ngKg: numNgKg,
         ngMeters: numNgMeters,
         steelOrigin,
@@ -349,7 +392,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const totalNgKgAll = safeRecords.reduce((sum, r) => sum + (r.ngKg || 0), 0);
   const totalNgMetersAll = safeRecords.reduce((sum, r) => sum + (r.ngMeters || 0), 0);
 
-  const panelRef = useModalA11y(true, onClose, 'บันทึกการตัดสต๊อกแซนวิช');
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
@@ -668,7 +711,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   </div>
                 </div>
 
-                {/* ยอด NG ของ PU Sandwich: คำนวณอัตโนมัติจาก (น้ำหนักขึ้น-ลง ลบงาน SO เป็นเมตร) */}
+                {/* ยอดตัดตก / NG ของ PU Sandwich: คำนวณอัตโนมัติจาก (น้ำหนักขึ้น-ลง ลบงาน SO เป็นเมตร) */}
                 <div className="p-4 bg-rose-50/80 rounded-2xl border border-rose-200 mt-3 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-200/80 pb-2.5">
                     <div className="flex items-center gap-2">
@@ -678,10 +721,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       <div>
                         <h4 className="text-xs sm:text-sm font-bold text-rose-950 flex items-center gap-1.5">
                           <AlertTriangle className="w-4 h-4 text-rose-600" />
-                          ยอด NG ของ PU Sandwich (คำนวณอัตโนมัติ)
+                          ยอดตัดตก / NG ของ PU Sandwich (คำนวณอัตโนมัติ)
                         </h4>
                         <span className="text-[11px] text-rose-700">
-                          คำนวณจาก: น้ำหนักขึ้น-ลง (กก.) ลบงาน SO เป็นเมตร
+                          คำนวณจาก: น้ำหนักขึ้น-ลง (กก.) ลบงาน SO เป็นเมตร (ตัดตกเศษหัวท้าย / แผ่นเสีย)
                         </span>
                       </div>
                     </div>
@@ -696,11 +739,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       {isNgManuallyEdited && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setIsNgManuallyEdited(false);
-                            setNgKg(autoCalculatedNgKg.toFixed(2));
-                            setNgMeters(autoCalculatedNgMeters.toFixed(1));
-                          }}
+                          onClick={handleResetToAutoNg}
                           className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 cursor-pointer shadow-2xs flex items-center gap-1 transition-colors"
                           title="คลิกเพื่อนำค่าคำนวณอัตโนมัติกลับมาใส่"
                         >
@@ -745,13 +784,13 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       </div>
 
                       <div className="bg-rose-50/90 p-2.5 rounded-xl border border-rose-300">
-                        <span className="text-[10px] font-bold text-rose-900 block">3. ยอด NG คำนวณได้</span>
+                        <span className="text-[10px] font-bold text-rose-900 block">3. ยอดตัดตก / NG คำนวณได้</span>
                         <div className="font-mono font-black text-rose-700 text-base">
                           {autoCalculatedNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
                           <span className="text-xs font-bold text-rose-600">กก.</span>
                         </div>
                         <span className="text-[10px] text-rose-800 font-mono block truncate">
-                          ≈ {autoCalculatedNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} เมตรของเสีย
+                          ≈ {autoCalculatedNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} เมตรตัดตก/เสีย
                         </span>
                       </div>
                     </div>
@@ -794,30 +833,26 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     {numSoLength === 0 && (
                       <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
-                        <span>กรุณาระบุ <strong>ความยาวตามใบงาน SO (เมตร)</strong> ด้านบนเพื่อเปิดใช้งานการคำนวณอัตโนมัติ</span>
+                        <span>กรุณาระบุ <strong>ความยาวตามใบงาน SO (เมตร)</strong> ด้านบนเพื่อเปิดใช้งานการคำนวณอัตโนมัติ (หรือระบุยอดตัดตกด้านล่างได้โดยตรง)</span>
                       </p>
                     )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                    {/* ยอด NG (กก.) */}
+                    {/* ยอดตัดตก / NG (กก.) */}
                     <div>
                       <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                          ยอด NG (กก.) <span className="text-emerald-700 text-[10px] font-bold">[คำนวณอัตโนมัติ]</span>
+                          ยอดตัดตก / NG (กก.) <span className="text-emerald-700 text-[10px] font-bold">[เชื่อมโยง 2 ทาง]</span>
                         </span>
                         <span className="text-[10px] text-slate-500 font-normal">แก้ไขเพิ่มเติมได้</span>
                       </label>
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0"
+                        type="text"
+                        inputMode="decimal"
                         value={ngKg}
-                        onChange={(e) => {
-                          setNgKg(e.target.value);
-                          setIsNgManuallyEdited(true);
-                        }}
+                        onChange={(e) => handleNgKgChange(e.target.value)}
                         placeholder="0.00"
                         className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs"
                       />
@@ -827,10 +862,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <button
                             key={chip}
                             type="button"
-                            onClick={() => {
-                              setNgKg(chip);
-                              setIsNgManuallyEdited(true);
-                            }}
+                            onClick={() => handleNgKgChange(chip)}
                             className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
                               ngKg === chip
                                 ? 'bg-rose-600 text-white border-rose-600 font-bold'
@@ -843,24 +875,20 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       </div>
                     </div>
 
-                    {/* ยอด NG (เมตร) */}
+                    {/* ยอดตัดตก / NG (เมตร) */}
                     <div>
                       <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                          ยอด NG (เมตร) <span className="text-emerald-700 text-[10px] font-bold">[คำนวณอัตโนมัติ]</span>
+                          ยอดตัดตก / NG (เมตร) <span className="text-emerald-700 text-[10px] font-bold">[เชื่อมโยง 2 ทาง]</span>
                         </span>
-                        <span className="text-[10px] text-slate-500 font-normal">ความยาวแผ่นที่เสีย</span>
+                        <span className="text-[10px] text-slate-500 font-normal">ความยาวแผ่นตัดตก</span>
                       </label>
                       <input
-                        type="number"
-                        step="0.1"
-                        min="0"
+                        type="text"
+                        inputMode="decimal"
                         value={ngMeters}
-                        onChange={(e) => {
-                          setNgMeters(e.target.value);
-                          setIsNgManuallyEdited(true);
-                        }}
+                        onChange={(e) => handleNgMetersChange(e.target.value)}
                         placeholder="0.0"
                         className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs"
                       />
@@ -870,10 +898,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <button
                             key={chip}
                             type="button"
-                            onClick={() => {
-                              setNgMeters(chip);
-                              setIsNgManuallyEdited(true);
-                            }}
+                            onClick={() => handleNgMetersChange(chip)}
                             className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
                               ngMeters === chip
                                 ? 'bg-rose-600 text-white border-rose-600 font-bold'
@@ -1035,9 +1060,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
+                  aria-label="ปิดหน้าต่าง"
                   className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
                 >
-            aria-label="ปิดหน้าต่าง"
                   ยกเลิก
                 </button>
                 <button

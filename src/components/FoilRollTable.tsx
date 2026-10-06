@@ -271,14 +271,19 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
       >
         {/* Row 1: Lot + No. (Left) & ยอดคงเหลือ (Right) - Key Primary Elements */}
         <div className="flex items-center justify-between gap-2">
-          {/* Left: Lot & No. */}
+          {/* Left: Lot & No. with solid black background and increased font size */}
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="font-mono font-bold text-sm text-slate-900 tracking-tight truncate">
-              {highlightMatch(roll.lotNumber, searchQuery)}
-            </span>
-            <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-slate-900 text-amber-300 shrink-0">
-              #{highlightMatch(roll.rollNumber, searchQuery)}
-            </span>
+            <div className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs shrink-0">
+              <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">LOT.</span>
+              <span className="lot-number-display text-base font-black text-white leading-none tracking-wide">
+                {highlightMatch(roll.lotNumber, searchQuery)}
+              </span>
+              <span className="text-slate-600 font-bold text-xs">|</span>
+              <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">NO.</span>
+              <span className="lot-number-display text-base font-black text-amber-300 leading-none">
+                #{highlightMatch(roll.rollNumber, searchQuery)}
+              </span>
+            </div>
             {isRollUnused(roll) && (
               <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 shrink-0">
                 เต็ม
@@ -798,16 +803,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       >
         {/* Lot & เบอร์ม้วน — เด่นชัดทั้งคู่ */}
         <td className={`px-4 py-3.5 ${borderCellClass}`}>
-          <div className="flex flex-wrap items-center gap-1.5 mb-1">
-            <span className="inline-flex items-center gap-1 bg-slate-900 text-amber-300 px-2 py-1 rounded-md">
-              <span className="text-[11px] font-bold uppercase text-amber-200/90">ล็อต</span>
-              <span className="lot-number-display text-sm sm:text-base font-bold text-white leading-none">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <span className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1.5 rounded-lg border border-slate-800 shadow-2xs">
+              <span className="text-xs font-black uppercase text-amber-400 tracking-wider">LOT.</span>
+              <span className="lot-number-display text-base sm:text-lg font-black text-white leading-none">
                 {highlightMatch(roll.lotNumber, searchQuery)}
               </span>
             </span>
-            <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2 py-1 rounded-md">
-              <span className="text-[11px] font-bold uppercase text-amber-700">เบอร์</span>
-              <span className="lot-number-display text-sm sm:text-base font-bold leading-none">
+            <span className="inline-flex items-center gap-1.5 bg-black text-amber-300 px-2.5 py-1.5 rounded-lg border border-slate-800 shadow-2xs">
+              <span className="text-xs font-black uppercase text-amber-400 tracking-wider">NO.</span>
+              <span className="lot-number-display text-base sm:text-lg font-black leading-none">
                 #{highlightMatch(roll.rollNumber, searchQuery)}
               </span>
             </span>

@@ -520,7 +520,8 @@ export async function deleteFoilRollFromFirestore(rollId: string): Promise<void>
  */
 export async function executeCutBatchInFirestore(
   batchRecords: StockCutRecord[],
-  rollId: string
+  rollId: string,
+  fallbackRoll?: FoilRoll
 ): Promise<FoilRoll> {
   const rollRef = doc(db, ROLLS_COLLECTION, rollId);
 
@@ -528,10 +529,16 @@ export async function executeCutBatchInFirestore(
     // 1. Read the roll fresh from the server — this is the "read the SO sheet's
     //    real value before showing/saving" requirement.
     const rollSnap = await tx.get(rollRef);
+    let serverRoll: FoilRoll;
     if (!rollSnap.exists()) {
-      throw new Error('ไม่พบม้วนฟอยล์นี้ในระบบ (อาจถูกลบไปแล้วจากเครื่องอื่น)');
+      if (fallbackRoll) {
+        serverRoll = fallbackRoll;
+      } else {
+        throw new Error('ไม่พบม้วนฟอยล์นี้ในระบบ (อาจถูกลบไปแล้วจากเครื่องอื่น)');
+      }
+    } else {
+      serverRoll = rollSnap.data() as FoilRoll;
     }
-    const serverRoll = rollSnap.data() as FoilRoll;
 
     // 2. Duplicate-write guard: check which of these record ids already exist
     //    (idempotency — a retried/duplicated submit must not double-deduct).
@@ -664,7 +671,8 @@ export async function executeCutBatchInFirestore(
  * for the same concurrency-safety reasons as executeCutBatchInFirestore above.
  */
 export async function executeMultiRollCutBatchInFirestore(
-  batchRecords: StockCutRecord[]
+  batchRecords: StockCutRecord[],
+  fallbackRollsById?: Map<string, FoilRoll>
 ): Promise<FoilRoll[]> {
   const recordsByRoll = new Map<string, StockCutRecord[]>();
   batchRecords.forEach((r) => {
@@ -691,10 +699,17 @@ export async function executeMultiRollCutBatchInFirestore(
 
     rollIds.forEach((rollId, idx) => {
       const snap = rollSnaps[idx];
+      let serverRoll: FoilRoll;
       if (!snap.exists()) {
-        throw new Error(`ไม่พบม้วนฟอยล์ ${rollId} ในระบบ (อาจถูกลบไปแล้ว)`);
+        const fallback = fallbackRollsById?.get(rollId);
+        if (fallback) {
+          serverRoll = fallback;
+        } else {
+          throw new Error(`ไม่พบม้วนฟอยล์ ${rollId} ในระบบ (อาจถูกลบไปแล้ว)`);
+        }
+      } else {
+        serverRoll = snap.data() as FoilRoll;
       }
-      const serverRoll = snap.data() as FoilRoll;
       const newRecordsForRoll = (recordsByRoll.get(rollId) || []).filter((r) => !alreadyWrittenIds.has(r.id));
       if (newRecordsForRoll.length === 0) {
         updatedRolls.push(serverRoll);

@@ -760,11 +760,12 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
                           </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">
-                          <div className="font-bold text-slate-900">
-                            ล็อต: {r.lotNumber}
-                          </div>
-                          <div className="text-slate-500">
-                            เบอร์: #{r.rollNumber}
+                          <div className="inline-flex items-center gap-1.5 bg-black text-white px-2 py-1 rounded-lg border border-slate-800 shadow-2xs">
+                            <span className="text-[10px] font-black uppercase text-amber-400">LOT.</span>
+                            <span className="lot-number-display text-xs sm:text-sm font-black text-white">{r.lotNumber}</span>
+                            <span className="text-slate-600 font-bold">|</span>
+                            <span className="text-[10px] font-black uppercase text-amber-400">NO.</span>
+                            <span className="lot-number-display text-xs sm:text-sm font-black text-amber-300">#{r.rollNumber}</span>
                           </div>
                         </td>
                         <td className="px-4 py-3">

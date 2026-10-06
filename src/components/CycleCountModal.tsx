@@ -267,7 +267,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
       }));
   }, [displayLines]);
 
-  if (!isOpen) return null;
+  const panelRef = useModalA11y(isOpen, onClose, 'ตั้งค่าการนับสต๊อกประจำเดือน');
 
   const handlePhysicalChange = (rollId: string, value: string) => {
     setPhysicalMap((prev) => ({ ...prev, [rollId]: value }));
@@ -337,7 +337,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
     }
   };
 
-  const panelRef = useModalA11y(true, onClose, 'ตั้งค่าการนับสต๊อกประจำเดือน');
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4">

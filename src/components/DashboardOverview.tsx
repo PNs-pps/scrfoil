@@ -537,19 +537,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </h3>
               </div>
             </div>
-
-            {/* Quick entry to the sandwich cut form */}
-            {onOpenPuSandwichModal && (
-              <button
-                type="button"
-                id="btn-cut-pu-sandwich-dashboard"
-                onClick={onOpenPuSandwichModal}
-                className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 min-h-[40px]"
-              >
-                <Factory className="w-4 h-4 stroke-[2.5] shrink-0" aria-hidden="true" />
-                <span>บันทึกผลิตแซนวิช</span>
-              </button>
-            )}
           </div>
 
           {/* Sandwich Summary Grid */}

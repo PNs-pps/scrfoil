@@ -18,6 +18,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
   roll,
   onSave,
 }) => {
+  const panelRef = useModalA11y(Boolean(isOpen && roll), onClose, 'แก้ไขข้อมูลม้วนฟอยล์');
   const [lotNumber, setLotNumber] = useState('');
   const [rollNumber, setRollNumber] = useState('');
   const [width, setWidth] = useState<FoilWidth>(850);
@@ -135,8 +136,6 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
   };
 
   if (!isOpen || !roll) return null;
-
-  const panelRef = useModalA11y(true, onClose, 'แก้ไขข้อมูลม้วนฟอยล์');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs animate-in fade-in duration-150">

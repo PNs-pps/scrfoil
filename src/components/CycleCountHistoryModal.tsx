@@ -198,8 +198,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
     () => compareRows.filter((r) => Math.abs(r.physicalDiff) > 0.001 || Math.abs(r.varianceDiff) > 0.001).length,
     [compareRows]
   );
-
-  if (!isOpen) return null;
+  const panelRef = useModalA11y(isOpen, onClose, 'ประวัติการนับสต๊อก');
 
   const formatPeriod = (p: string) => {
     const [y, m] = p.split('-');
@@ -217,7 +216,7 @@ export const CycleCountHistoryModal: React.FC<CycleCountHistoryModalProps> = ({
     return { varCount, adjusted, total: s.lines.length };
   };
 
-  const panelRef = useModalA11y(true, onClose, 'ประวัติการนับสต๊อก');
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-2 sm:p-4">

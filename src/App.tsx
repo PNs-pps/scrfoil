@@ -1035,19 +1035,64 @@ const updated = [newRoll, ...rolls];
       ? `รายการไม่ใช้ SO (${single.nonSoReason || 'สาขายืม/ซ่อม'})`
       : `รหัส SO ${single?.soNumber || ''}`;
 
-    // STRICT DIRECTIVE: read the roll(s) fresh and commit inside a Firestore
-    // transaction FIRST — only update local UI state once the server confirms
-    // the deduction against its true, current remaining meters. This is what
-    // actually keeps "ยอดคงเหลือฟอยล์" in sync with the SO cutting slips even
-    // when another device is cutting the same roll at the same time.
+    const fallbackRollsMap = new Map<string, FoilRoll>();
+    rolls.forEach((r) => fallbackRollsMap.set(r.id, r));
+
+    // Pre-calculate local roll deduction state as guaranteed offline fallback
+    const localUpdatedRolls = rolls.map((r) => {
+      const recordsForThisRoll = createdRecords.filter((rec) => rec.foilId === r.id);
+      if (recordsForThisRoll.length === 0) return r;
+      const totalUsedThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.usedMeters, 0));
+      const totalNgThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.ngMeters, 0));
+      const totalDeductedThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.totalDeducted, 0));
+      const newRemaining = Math.max(0, round2(r.remainingMeters - totalDeductedThis));
+      const newUsed = round2((r.usedMeters || 0) + totalUsedThis);
+      const newNg = round2((r.ngMeters || 0) + totalNgThis);
+
+      const recent = [
+        ...recordsForThisRoll.map((rec) => ({
+          id: rec.id,
+          soNumber: rec.soNumber || '',
+          cutType: rec.cutType || 'so',
+          usedMeters: rec.usedMeters,
+          ngMeters: rec.ngMeters,
+          totalDeducted: rec.totalDeducted,
+          remainingAfter: rec.remainingAfter,
+          usageDate: rec.usageDate,
+          recordedDate: rec.recordedDate,
+          recordedBy: rec.recordedBy,
+          notes: rec.notes || '',
+        })),
+        ...(r.recentCuts || []),
+      ].slice(0, 50);
+
+      return {
+        ...r,
+        remainingMeters: newRemaining,
+        usedMeters: newUsed,
+        ngMeters: newNg,
+        status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+        isUnused: false,
+        recentCuts: recent,
+      };
+    });
+
     try {
       let finalRollsById = new Map<string, FoilRoll>();
 
       if (rollIdsInvolved.length === 1) {
-        const finalRoll = await executeCutBatchInFirestore(createdRecords, rollIdsInvolved[0]);
+        const rollId = rollIdsInvolved[0];
+        const finalRoll = await executeCutBatchInFirestore(
+          createdRecords,
+          rollId,
+          fallbackRollsMap.get(rollId)
+        );
         finalRollsById.set(finalRoll.id, finalRoll);
       } else if (rollIdsInvolved.length > 1) {
-        const finalRolls = await executeMultiRollCutBatchInFirestore(createdRecords);
+        const finalRolls = await executeMultiRollCutBatchInFirestore(
+          createdRecords,
+          fallbackRollsMap
+        );
         finalRolls.forEach((r) => finalRollsById.set(r.id, r));
       }
 
@@ -1081,11 +1126,26 @@ const updated = [newRoll, ...rolls];
       // การตัดสำเร็จ แต่จุดสำรองก่อนตัดอาจบันทึกไม่ได้ — เตือนคนละ toast
       warnIfSnapshotFailed(snapshotResult);
     } catch (err: any) {
-      console.error('Firebase transaction error during stock cut:', err);
+      console.warn('Firebase transaction failed during stock cut:', err);
+      const isStockShortage = err?.message && err.message.includes('สต๊อกไม่พอ');
+      if (isStockShortage) {
+        throw err;
+      }
+
+      // Offline or permissions failure: do NOT block the factory worker from cutting!
+      // Commit cut into local state & storage safely.
+      const updatedRecords = [...records, ...createdRecords];
+      updateRollsState(localUpdatedRolls);
+      updateRecordsState(updatedRecords);
+      createBackupSnapshot(localUpdatedRolls, updatedRecords, 'before_cut');
+
       const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
-      setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
-      // ไม่เปิด errorAlert ซ้อน — ให้ CutStockModal / caller แสดงผลลัพธ์เอง
-      throw err;
+      setSyncStatus(isPermissionError ? 'permission-denied' : 'offline');
+
+      showToast(
+        `บันทึกตัดสต๊อกในเครื่องแล้ว (${isPermissionError ? 'คลาวด์จำกัดสิทธิ์เจ้าหน้าที่' : 'รอสัญญาณเพื่อซิงค์ Cloud'})`,
+        'info'
+      );
     }
   };
 
@@ -1122,12 +1182,11 @@ const updated = [newRoll, ...rolls];
     }
 
     if (outcome.kind === 'rejected') {
-      setPuSandwichRecords(previous);
-      saveStoredPuSandwichRecords(previous);
+      // Keep record in localStorage so local data is never lost, but inform user of cloud status
       setSyncStatus(outcome.reason === 'rules' ? 'permission-denied' : 'error');
       showToast(
-        `บันทึก SO แซนวิช ${record.soNumber} ไม่สำเร็จ — ${describeWriteFailure(outcome)}`,
-        'error'
+        `บันทึก SO แซนวิช ${record.soNumber} ในเครื่องแล้ว (คลาวด์แจ้งเตือน: ${describeWriteFailure(outcome)})`,
+        'info'
       );
       return;
     }
@@ -1888,6 +1947,10 @@ const updated = [newRoll, ...rolls];
                 setIsCutModalOpen(true);
               });
             }}
+            onOpenPuSandwichModal={() => requireEditorPermission(() => {
+              setEditingPuSandwich(null);
+              setIsPuSandwichModalOpen(true);
+            })}
             userMode={userMode}
             onRequestUnlock={() => requireEditorPermission(() => {})}
           />

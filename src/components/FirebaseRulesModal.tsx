@@ -27,8 +27,7 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
   currentIsManaged,
 }) => {
   const [copied, setCopied] = useState(false);
-
-  if (!isOpen) return null;
+  const panelRef = useModalA11y(isOpen, onClose, 'ตั้งค่า Firestore Rules');
 
   const handleCopyRules = () => {
     navigator.clipboard.writeText(rulesCode);
@@ -36,7 +35,7 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const panelRef = useModalA11y(true, onClose, 'ตั้งค่า Firestore Rules');
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
