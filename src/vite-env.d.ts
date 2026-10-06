@@ -4,8 +4,11 @@
 // vars are included, and they are inlined into the client bundle at build time —
 // so anything placed here is PUBLIC, not a secret, and should never hold a
 // credential that matters. The operator password is a shared-device UX gate
-// (see OPERATOR_PASSWORD in src/utils/auth.ts) and lives in source by choice.
-interface ImportMetaEnv {}
+// (see src/utils/auth.ts). Prefer VITE_OPERATOR_PASSWORD at build time; the
+// code falls back to a hardcoded default when this is unset.
+interface ImportMetaEnv {
+  readonly VITE_OPERATOR_PASSWORD?: string;
+}
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;
