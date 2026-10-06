@@ -9,10 +9,9 @@
  * SECURITY MODEL — read this before changing anything here.
  *
  * This file is client-side code, so it ships to the browser in plaintext, and
- * so does OPERATOR_PASSWORD below. That is a deliberate, accepted trade-off:
- * the operator wanted the gate usable without a CI secret to configure, so the
- * password lives here instead of in build config. Anyone who opens the app can
- * read it out of the bundle.
+ * so does the operator password. That is a deliberate, accepted trade-off:
+ * the operator wanted the gate usable without a CI secret to configure.
+ * Anyone who opens the app can read it out of the bundle.
  *
  * What this gate actually buys you is therefore narrow: it stops the next
  * person to pick up the shared shop-floor tablet from being one tap away from
@@ -21,8 +20,9 @@
  * staff list, and it is enforced by Google, not by this file. Anyone with the
  * bundle can bypass this prompt entirely and still be stopped by the rules.
  *
- * To change the password: edit OPERATOR_PASSWORD below and redeploy. There is
- * exactly one copy; nothing else needs to change.
+ * To change the password without editing source: set VITE_OPERATOR_PASSWORD
+ * in .env.local (local) or as a build-time env var (CI), then rebuild.
+ * If unset, falls back to the hardcoded default below.
  */
 
 const MODE_STORAGE_KEY = 'siampuufoam_user_mode';
@@ -30,10 +30,15 @@ const MODE_STORAGE_KEY = 'siampuufoam_user_mode';
 const DEFAULT_STAFF_EMAILS = ['ikuyisad@ikwai.com'];
 
 /**
- * Shared operator password. See the security note at the top of this file:
- * this is plaintext in source and in the published bundle by design.
+ * Shared operator password.
+ * Prefer VITE_OPERATOR_PASSWORD (build-time) so the value can be changed
+ * without editing source. Falls back to the hardcoded default when unset.
+ * Still plaintext in the published bundle by design — see security note above.
  */
-const OPERATOR_PASSWORD = 'Scrromklao';
+const OPERATOR_PASSWORD =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta.env?.VITE_OPERATOR_PASSWORD as string | undefined)?.trim()) ||
+  'Scrromklao';
 
 /** True when an operator password is present. */
 export function hasOperatorPassword(): boolean {
