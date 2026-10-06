@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "database": "ai-studio-pufoam-71a418bb-90c8-4b79-a26d-8ebaf2f93bb4",
+    "rules": "firestore.rules"
+  }
+}
