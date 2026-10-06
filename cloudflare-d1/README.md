@@ -17,9 +17,8 @@ npx wrangler d1 create foil-stock-backups
 # สร้างตาราง
 npx wrangler d1 execute foil-stock-backups --file=./schema.sql
 
-# ตั้งรหัสลับ (จำไว้ใส่ในแอป)
-npx wrangler secret put BACKUP_SECRET
-# พิมพ์รหัสยาว ๆ เช่น foil-backup-xxxx
+# แก้ [vars] ใน wrangler.toml: STAFF_EMAILS, ALLOWED_ORIGINS (ไม่ต้องตั้ง secret แล้ว)
+# ถ้าเคยตั้ง BACKUP_SECRET เดิมไว้ ให้ลบทิ้ง: npx wrangler secret delete BACKUP_SECRET
 
 # Deploy
 npx wrangler deploy
@@ -33,7 +32,7 @@ npx wrangler deploy
 
 1. เปิดแท็บ **สำรองข้อมูล**
 2. ช่อง **Cloudflare D1**
-3. ใส่ Worker URL + รหัสลับ (BACKUP_SECRET)
+3. ใส่ Worker URL (ระบบแนบ Firebase ID token ของบัญชีที่ล็อกอินให้อัตโนมัติ)
 4. กด **ทดสอบการเชื่อมต่อ** → **สำรองขึ้น D1**
 
 ## API สั้น ๆ
@@ -48,4 +47,4 @@ npx wrangler deploy
 
 ทุกเส้นทาง (ยกเว้น `/health`) ต้องมี header:
 
-`X-Backup-Secret: <secret>`
+`Authorization: Bearer <Firebase ID token>`
