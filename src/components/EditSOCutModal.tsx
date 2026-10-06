@@ -63,6 +63,11 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
     }
   }, [isOpen, record]);
 
+  // MUST be called every render (Rules of Hooks). Calling this after
+  // `if (!isOpen || !record) return null` caused React error #310 when
+  // opening the edit pencil (hook count changed between closed/open).
+  const panelRef = useModalA11y(Boolean(isOpen && record), onClose, 'แก้ไขรายการตัด SO');
+
   if (!isOpen || !record) return null;
 
   const signedTotal = Number(record.totalDeducted);
@@ -182,8 +187,6 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
       setIsSubmitting(false);
     }
   };
-
-  const panelRef = useModalA11y(true, onClose, 'แก้ไขรายการตัด SO');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs overflow-y-auto">

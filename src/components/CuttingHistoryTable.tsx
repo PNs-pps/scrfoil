@@ -650,13 +650,25 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                             )}
                           </button>
 
-                          {/* Full detail pop-up */}
+                          {/* Full detail pop-up — foil */}
                           {isFoil && item.rawFoil && (
                             <button
                               type="button"
                               onClick={() => setSelectedDetailRecord(item.rawFoil!)}
                               title="ดูรายละเอียดใบ SO ฟอยล์แบบเต็ม"
                               className="p-1 rounded text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Full detail pop-up — sandwich */}
+                          {!isFoil && item.rawSandwich && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSandwichDetail(item.rawSandwich!)}
+                              title="ดูรายละเอียดใบ SO แซนวิชแบบเต็ม"
+                              className="p-1 rounded text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
                             >
                               <FileText className="w-3.5 h-3.5" />
                             </button>
@@ -739,6 +751,169 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         userMode={userMode}
         onRequestUnlock={onRequestUnlock}
       />
+
+      {/* Pop-up Modal: Sandwich SO Cut Details */}
+      {selectedSandwichDetail && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs overflow-y-auto"
+          onClick={() => setSelectedSandwichDetail(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="รายละเอียดใบ SO แซนวิช"
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden my-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 text-white px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                  <Factory className="w-5 h-5 text-emerald-100" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold">รายละเอียดใบ SO แซนวิช</h2>
+                  <p className="text-xs text-emerald-100/90 font-mono mt-0.5">
+                    {selectedSandwichDetail.soNumber || '-'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSandwichDetail(null)}
+                aria-label="ปิด"
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-sm text-slate-800">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">วันที่ผลิต</div>
+                  <div className="font-mono font-bold mt-0.5">{selectedSandwichDetail.productionDate || '-'}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">ผู้บันทึก</div>
+                  <div className="font-bold mt-0.5">{selectedSandwichDetail.recordedBy || '-'}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">สีคอยล์</div>
+                  <div className="font-bold mt-0.5">{selectedSandwichDetail.coilColor || '-'}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">ความหนา</div>
+                  <div className="font-mono font-bold mt-0.5">{selectedSandwichDetail.thickness || '-'}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">เบอร์คอยล์</div>
+                  <div className="font-mono font-bold mt-0.5">{selectedSandwichDetail.coilNumber || '-'}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">แหล่งเหล็ก</div>
+                  <div className="font-bold mt-0.5">
+                    {selectedSandwichDetail.steelOrigin === 'อื่นๆ'
+                      ? selectedSandwichDetail.customSteelOrigin || 'อื่นๆ'
+                      : selectedSandwichDetail.steelOrigin || '-'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 text-center">
+                  <div className="text-[10px] font-bold text-emerald-700">ก่อนใช้ (กก.)</div>
+                  <div className="font-mono font-bold text-emerald-900 text-base mt-0.5">
+                    {Number(selectedSandwichDetail.weightBefore || 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 text-center">
+                  <div className="text-[10px] font-bold text-slate-600">หลังใช้ (กก.)</div>
+                  <div className="font-mono font-bold text-slate-900 text-base mt-0.5">
+                    {Number(selectedSandwichDetail.weightAfter || 0).toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-center">
+                  <div className="text-[10px] font-bold text-amber-700">ใช้ไป (กก.)</div>
+                  <div className="font-mono font-bold text-amber-900 text-base mt-0.5">
+                    {Number(selectedSandwichDetail.weightUsed || 0).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {(selectedSandwichDetail.soLengthMeters != null ||
+                selectedSandwichDetail.lengthMeters != null ||
+                selectedSandwichDetail.ngKg != null ||
+                selectedSandwichDetail.ngMeters != null) && (
+                <div className="grid grid-cols-2 gap-2">
+                  {selectedSandwichDetail.soLengthMeters != null && (
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                      <div className="text-[10px] font-bold text-slate-500">ความยาวตาม SO (ม.)</div>
+                      <div className="font-mono font-bold mt-0.5">
+                        {Number(selectedSandwichDetail.soLengthMeters).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                  {selectedSandwichDetail.lengthMeters != null && (
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                      <div className="text-[10px] font-bold text-slate-500">ความยาวที่ผลิต (ม.)</div>
+                      <div className="font-mono font-bold mt-0.5">
+                        {Number(selectedSandwichDetail.lengthMeters).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                  {selectedSandwichDetail.ngKg != null && Number(selectedSandwichDetail.ngKg) > 0 && (
+                    <div className="rounded-xl bg-rose-50 border border-rose-100 p-3">
+                      <div className="text-[10px] font-bold text-rose-600">NG (กก.)</div>
+                      <div className="font-mono font-bold text-rose-800 mt-0.5">
+                        {Number(selectedSandwichDetail.ngKg).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                  {selectedSandwichDetail.ngMeters != null && Number(selectedSandwichDetail.ngMeters) > 0 && (
+                    <div className="rounded-xl bg-rose-50 border border-rose-100 p-3">
+                      <div className="text-[10px] font-bold text-rose-600">NG (ม.)</div>
+                      <div className="font-mono font-bold text-rose-800 mt-0.5">
+                        {Number(selectedSandwichDetail.ngMeters).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedSandwichDetail.notes && (
+                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">หมายเหตุ</div>
+                  <div className="mt-1 text-slate-700 leading-relaxed">{selectedSandwichDetail.notes}</div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              {onEditSandwichRecord && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rec = selectedSandwichDetail;
+                    setSelectedSandwichDetail(null);
+                    handleActionGuarded(() => onEditSandwichRecord(rec));
+                  }}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold cursor-pointer flex items-center gap-1.5"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  แก้ไข
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedSandwichDetail(null)}
+                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm font-bold cursor-pointer"
+              >
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
