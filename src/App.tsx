@@ -179,8 +179,8 @@ export default function App() {
 
   // ไม่นับ SPLIT_PRODUCTION_BATCH (แบ่งรอบปกติ) เป็นบัคที่ต้องแจ้งเตือนบน badge
   const soBugCount = React.useMemo(() => {
-    return soAuditResults.filter((r) =>
-      r.issues.some((i) => i.type !== 'SPLIT_PRODUCTION_BATCH')
+    return soAuditResults.filter((r: { issues: { type: string }[] }) =>
+      r.issues.some((i: { type: string }) => i.type !== 'SPLIT_PRODUCTION_BATCH')
     ).length;
   }, [soAuditResults]);
 
@@ -279,10 +279,10 @@ export default function App() {
       (firestoreRolls) => {
         // activeOnly query already filters status==='active'; also drop any legacy
         // depleted/zeroed that slipped through so the main list stays lean.
-        setRolls((prev) => {
-          const prevMap = new Map(prev.map((r) => [r.id, r]));
-          // ถเพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่เด้งกลับ
-          const mergedServer = firestoreRolls.map((r) => {
+        setRolls((prev: FoilRoll[]) => {
+          const prevMap = new Map<string, FoilRoll>(prev.map((r: FoilRoll) => [r.id, r]));
+          // เพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
+          const mergedServer = firestoreRolls.map((r: FoilRoll) => {
             if (isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
               const local = prevMap.get(r.id)!;
               return {
