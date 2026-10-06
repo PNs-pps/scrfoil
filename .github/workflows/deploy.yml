@@ -63,27 +63,10 @@ jobs:
         # silently before. Cheap enough to always run.
         run: npm test
 
-      - name: Verify the editor-mode gate is armed
-        # Fail BEFORE building if the secret was never set. Without it the site
-        # goes live with every edit button permanently disabled, which looks like
-        # a bug to the operators rather than a missing secret.
-        run: |
-          if [ -z "${{ secrets.VITE_OPERATOR_PASSWORD_HASH }}" ]; then
-            echo "::error::VITE_OPERATOR_PASSWORD_HASH secret is not set — the deployed build cannot enter editor mode. Generate one with: npm run hash-password -- \"<password>\""
-            exit 1
-          fi
-          echo "Operator password gate is armed."
-
       - name: Build
         run: npm run build
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-          # Operator password gate. `VITE_OPERATOR_PASSWORD_HASH` is a SHA-256
-          # hex digest of the shared operator password, so the plaintext never
-          # enters the bundle. Without it the build is read-only: nobody can
-          # enter editor mode because there is no password to check against.
-          # Set it in Settings > Secrets > Actions.
-          VITE_OPERATOR_PASSWORD_HASH: ${{ secrets.VITE_OPERATOR_PASSWORD_HASH }}
 
       - name: Setup Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5

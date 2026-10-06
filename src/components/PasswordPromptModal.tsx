@@ -18,43 +18,29 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isChecking, setIsChecking] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isChecking) return;
     setError(null);
 
-    setIsChecking(true);
-    try {
-      if (await verifyPassword(password)) {
-        setPassword('');
-        setError(null);
-        onSuccess();
-        return;
-      }
-
-      // No shared password in this build — say so instead of claiming the input
-      // was wrong, otherwise staff will keep retrying a password that can't exist.
-      if (!hasOperatorPassword()) {
-        setPassword('');
-        setError('เวอร์ชันนี้ยังไม่ได้ตั้งรหัสผ่านสำหรับผู้ปฏิบัติการ จึงเข้าโหมดคีย์ข้อมูลไม่ได้ — กรุณาแจ้งผู้ดูแลระบบ');
-        return;
-      }
-
-      setError('รหัสผ่านไม่ถูกต้อง ติดต่อนอต');
-    } catch (err) {
+    if (verifyPassword(password)) {
       setPassword('');
-      setError(
-        (err as Error)?.message === 'insecure-context'
-          ? 'ตรวจสอบรหัสผ่านไม่ได้ เพราะเปิดเว็บผ่านที่อยู่ไม่ปลอดภัย (ไม่ใช่ https) — กรุณาใช้ลิงก์ https://'
-          : 'ตรวจสอบรหัสผ่านไม่สำเร็จ ลองใหม่อีกครั้ง'
-      );
-    } finally {
-      setIsChecking(false);
+      onSuccess();
+      return;
     }
+
+    // No shared password in this build — say so instead of claiming the input
+    // was wrong, otherwise staff will keep retrying a password that can't exist.
+    if (!hasOperatorPassword()) {
+      setPassword('');
+      setError('เวอร์ชันนี้ยังไม่ได้ตั้งรหัสผ่านสำหรับผู้ปฏิบัติการ จึงเข้าโหมดคีย์ข้อมูลไม่ได้ — กรุณาแจ้งผู้ดูแลระบบ');
+      return;
+    }
+
+    setPassword('');
+    setError('รหัสผ่านไม่ถูกต้อง ติดต่อนอต');
   };
 
   const handleClose = () => {
@@ -154,11 +140,10 @@ export const PasswordPromptModal: React.FC<PasswordPromptModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isChecking}
-              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-wait text-slate-950 text-xs font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xs active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <Key className={`w-4 h-4 stroke-[2.5] ${isChecking ? 'animate-spin' : ''}`} />
-              <span>{isChecking ? 'กำลังตรวจสอบ...' : 'ปลดล็อคโหมดคีย์ข้อมูล'}</span>
+              <Key className="w-4 h-4 stroke-[2.5]" />
+              <span>ปลดล็อคโหมดคีย์ข้อมูล</span>
             </button>
           </div>
         </form>

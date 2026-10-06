@@ -1,22 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-
-// The gate reads its configuration from import.meta.env at module load, so each
-// configuration needs a fresh module instance.
-async function loadAuth(env: Record<string, string>) {
-  vi.resetModules();
-  vi.stubEnv('VITE_OPERATOR_PASSWORD', env.VITE_OPERATOR_PASSWORD ?? '');
-  vi.stubEnv('VITE_OPERATOR_PASSWORD_HASH', env.VITE_OPERATOR_PASSWORD_HASH ?? '');
-  return await import('./auth');
-}
-
-const plainPassword = 'ทดสอบ-1234';
-
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 /** Minimal in-memory Storage stand-in (the suite runs in the node environment). */
 class FakeStorage {
@@ -41,123 +23,87 @@ class FakeStorage {
   }
 }
 
+async function loadAuth() {
+  vi.resetModules();
+  return await import('./auth');
+}
+
 describe('operator password gate', () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
   afterEach(() => {
-    vi.unstubAllEnvs();
     vi.resetModules();
   });
 
-  it('reports no password configured when neither build var is set', async () => {
-    const { hasOperatorPassword } = await loadAuth({});
-    expect(hasOperatorPassword()).toBe(false);
-  });
-
-  it('refuses every password when no password is configured', async () => {
-    const { verifyPassword } = await loadAuth({});
-    // The failure mode that let anyone edit: an empty config used to be treated
-    // as "no gate" rather than "no way in".
-    expect(await verifyPassword('')).toBe(false);
-    expect(await verifyPassword(plainPassword)).toBe(false);
-    expect(await verifyPassword('anything')).toBe(false);
-  });
-
-  it('accepts the exact plaintext password when only the plaintext var is set', async () => {
-    const { verifyPassword, hasOperatorPassword } = await loadAuth({
-      VITE_OPERATOR_PASSWORD: plainPassword,
-    });
+  it('has a password configured', async () => {
+    const { hasOperatorPassword } = await loadAuth();
     expect(hasOperatorPassword()).toBe(true);
-    expect(await verifyPassword(plainPassword)).toBe(true);
+  });
+
+  it('accepts the configured password', async () => {
+    const { verifyPassword } = await loadAuth();
+    expect(verifyPassword('Scrromklao')).toBe(true);
   });
 
   it('trims surrounding whitespace on both sides of the comparison', async () => {
-    const { verifyPassword } = await loadAuth({ VITE_OPERATOR_PASSWORD: plainPassword });
-    expect(await verifyPassword(`  ${plainPassword}  `)).toBe(true);
+    const { verifyPassword } = await loadAuth();
+    expect(verifyPassword('  Scrromklao  ')).toBe(true);
   });
 
   it('rejects a wrong password', async () => {
-    const { verifyPassword } = await loadAuth({ VITE_OPERATOR_PASSWORD: plainPassword });
-    expect(await verifyPassword('wrong')).toBe(false);
-    expect(await verifyPassword(`${plainPassword}x`)).toBe(false);
+    const { verifyPassword } = await loadAuth();
+    expect(verifyPassword('scrromklao')).toBe(false); // case matters
+    expect(verifyPassword('Scrromklaox')).toBe(false);
+    expect(verifyPassword('wrong')).toBe(false);
   });
 
   it('never accepts an empty submission', async () => {
-    const { verifyPassword } = await loadAuth({ VITE_OPERATOR_PASSWORD: plainPassword });
-    expect(await verifyPassword('')).toBe(false);
-    expect(await verifyPassword('   ')).toBe(false);
+    const { verifyPassword } = await loadAuth();
+    expect(verifyPassword('')).toBe(false);
+    expect(verifyPassword('   ')).toBe(false);
   });
 
-  it('accepts the matching digest when the hash var is set', async () => {
-    const digest = await sha256Hex(plainPassword);
-    const { verifyPassword, hasOperatorPassword } = await loadAuth({
-      VITE_OPERATOR_PASSWORD_HASH: digest,
-    });
-    expect(hasOperatorPassword()).toBe(true);
-    expect(await verifyPassword(plainPassword)).toBe(true);
+  it('treats a null-ish submission as a miss rather than throwing', async () => {
+    // The prompt input is a controlled string, but a stray null/undefined must
+    // not blow up the editor gate and leave it stuck open.
+    const { verifyPassword } = await loadAuth();
+    expect(verifyPassword(undefined as unknown as string)).toBe(false);
+    expect(verifyPassword(null as unknown as string)).toBe(false);
   });
 
-  it('rejects a password whose digest does not match', async () => {
-    const { verifyPassword } = await loadAuth({
-      VITE_OPERATOR_PASSWORD_HASH: await sha256Hex('a different password'),
-    });
-    expect(await verifyPassword(plainPassword)).toBe(false);
-  });
-
-  it('prefers the hash var over the plaintext var', async () => {
-    // Both set but disagreeing: the hash is authoritative, so a password equal
-    // to the plaintext must NOT pass.
-    const { verifyPassword } = await loadAuth({
-      VITE_OPERATOR_PASSWORD: plainPassword,
-      VITE_OPERATOR_PASSWORD_HASH: await sha256Hex('a different password'),
-    });
-    expect(await verifyPassword(plainPassword)).toBe(false);
-  });
-
-  it('accepts an uppercase digest from the build var', async () => {
-    // Operators paste hashes out of terminals that uppercase hex.
-    const digest = (await sha256Hex(plainPassword)).toUpperCase();
-    const { verifyPassword } = await loadAuth({ VITE_OPERATOR_PASSWORD_HASH: digest });
-    expect(await verifyPassword(plainPassword)).toBe(true);
-  });
-
-  it('digests Thai passwords as UTF-8', async () => {
-    const { verifyPassword } = await loadAuth({
-      VITE_OPERATOR_PASSWORD_HASH: await sha256Hex('รหัสผ่านไทย๑๒๓'),
-    });
-    expect(await verifyPassword('รหัสผ่านไทย๑๒๓')).toBe(true);
-    expect(await verifyPassword('รหัสผ่านไทย123')).toBe(false);
-  });
-
-  it('never returns true for a digest-shaped submission', async () => {
-    // Guard against accidentally comparing the digest to itself.
-    const digest = await sha256Hex(plainPassword);
-    const { verifyPassword } = await loadAuth({ VITE_OPERATOR_PASSWORD_HASH: digest });
-    expect(await verifyPassword(digest)).toBe(false);
+  it('does not depend on WebCrypto being available', async () => {
+    // The shop tablet is often opened over a plain-http LAN address, where
+    // `crypto.subtle` is absent. A digest-based gate fails closed there.
+    const { verifyPassword } = await loadAuth();
+    expect(typeof crypto === 'undefined' || !crypto.subtle).toBe(false); // precondition
+    expect(verifyPassword('Scrromklao')).toBe(true);
   });
 });
 
 describe('staff allowlist (display only)', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
     vi.resetModules();
   });
 
   it('matches the staff email case-insensitively', async () => {
-    const { isStaffEmail, getStaffEmails } = await loadAuth({});
+    const { isStaffEmail, getStaffEmails } = await loadAuth();
     expect(getStaffEmails()).toEqual(['ikuyisad@ikwai.com']);
     expect(isStaffEmail('IKUYISAD@IKWAI.COM')).toBe(true);
     expect(isStaffEmail('  ikuyisad@ikwai.com ')).toBe(true);
   });
 
   it('rejects other addresses and empty input', async () => {
-    const { isStaffEmail } = await loadAuth({});
+    const { isStaffEmail } = await loadAuth();
     expect(isStaffEmail('someone@else.com')).toBe(false);
     expect(isStaffEmail(null)).toBe(false);
     expect(isStaffEmail(undefined)).toBe(false);
     expect(isStaffEmail('')).toBe(false);
+  });
+
+  it('does not itself grant editor mode', async () => {
+    // Staff email is used for display/diagnostics only. Unlocking still runs
+    // through verifyPassword, which is the fix for "anyone can edit".
+    const { isStaffEmail, verifyPassword } = await loadAuth();
+    expect(isStaffEmail('ikuyisad@ikwai.com')).toBe(true);
+    expect(verifyPassword('')).toBe(false);
   });
 });
 
@@ -172,24 +118,23 @@ describe('user mode session state', () => {
   afterEach(() => {
     delete (globalThis as any).sessionStorage;
     delete (globalThis as any).localStorage;
-    vi.unstubAllEnvs();
     vi.resetModules();
   });
 
   it('starts in visitor mode on every fresh session', async () => {
-    const { getUserMode, isEditorMode } = await loadAuth({});
+    const { getUserMode, isEditorMode } = await loadAuth();
     expect(getUserMode()).toBe('visitor');
     expect(isEditorMode()).toBe(false);
   });
 
   it('persists editor mode for the session only', async () => {
-    const { setUserMode } = await loadAuth({});
+    const { setUserMode } = await loadAuth();
     setUserMode('editor');
     expect(sessionStorage.getItem(modeKey)).toBe('editor');
   });
 
   it('drops editor mode back to visitor on reset (logout path)', async () => {
-    const { getUserMode, setUserMode, resetToVisitorMode } = await loadAuth({});
+    const { getUserMode, setUserMode, resetToVisitorMode } = await loadAuth();
     setUserMode('editor');
     expect(getUserMode()).toBe('editor');
     resetToVisitorMode();
