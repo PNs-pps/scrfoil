@@ -1,9 +1,10 @@
 /**
  * Cloudflare Worker API — Snapshot backup ไป D1
  *
- * Headers:
- *   X-Backup-Secret: <secret ที่ตั้งด้วย wrangler secret put BACKUP_SECRET>
- *   Content-Type: application/json
+ * Auth: Authorization: Bearer <Firebase ID token>
+ *   Worker ตรวจลายเซ็น (JWKS ของ Google), iss/aud/exp, email_verified และอีเมลต้องอยู่ใน STAFF_EMAILS
+ *   ไม่มี shared secret อยู่ฝั่ง client อีกต่อไป
+ * Headers: Content-Type: application/json
  *
  * Routes:
  *   GET  /health
@@ -18,8 +19,13 @@ type D1DatabaseInstance = any;
 
 export interface Env {
   DB: D1DatabaseInstance;
-  BACKUP_SECRET: string;
   APP_NAME?: string;
+  /** comma-separated Firebase project IDs ที่ยอมรับ token (หลัก + สำรอง) */
+  FIREBASE_PROJECT_IDS: string;
+  /** comma-separated อีเมลพนักงาน (ตัวพิมพ์เล็ก) */
+  STAFF_EMAILS: string;
+  /** comma-separated origin ที่เรียก Worker ได้ เช่น https://user.github.io */
+  ALLOWED_ORIGINS: string;
 }
 
 interface BackupPayload {
@@ -41,35 +47,105 @@ interface PostBody {
   payload: BackupPayload;
 }
 
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Backup-Secret',
-  'Access-Control-Max-Age': '86400',
-};
+let currentCors: Record<string, string> = {};
+
+function buildCors(request: Request, env: Env): Record<string, string> {
+  const origin = request.headers.get('Origin') || '';
+  const allowed = (env.ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
+  const h: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
+  };
+  if (origin && allowed.includes(origin)) h['Access-Control-Allow-Origin'] = origin;
+  return h;
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...currentCors },
   });
 }
 
-function unauthorized(): Response {
-  return json({ ok: false, error: 'Unauthorized — ตรวจ X-Backup-Secret' }, 401);
+function unauthorized(reason = 'Unauthorized'): Response {
+  return json({ ok: false, error: reason }, 401);
 }
 
-function checkSecret(request: Request, env: Env): boolean {
-  const secret = env.BACKUP_SECRET || '';
-  if (!secret) return false;
-  const header = request.headers.get('X-Backup-Secret') || '';
-  return header === secret;
+// ---- Firebase ID token verification (RS256 via Google JWKS) ----------------
+const JWKS_URL =
+  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+let jwksCache: { keys: any[]; expires: number } | null = null;
+
+async function getJwks(): Promise<any[]> {
+  if (jwksCache && jwksCache.expires > Date.now()) return jwksCache.keys;
+  const res = await fetch(JWKS_URL);
+  if (!res.ok) throw new Error('JWKS fetch failed');
+  const data = (await res.json()) as { keys: any[] };
+  jwksCache = { keys: data.keys || [], expires: Date.now() + 60 * 60 * 1000 };
+  return jwksCache.keys;
+}
+
+function b64urlToBytes(input: string): Uint8Array {
+  const pad = '='.repeat((4 - (input.length % 4)) % 4);
+  const bin = atob(input.replace(/-/g, '+').replace(/_/g, '/') + pad);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+async function verifyFirebaseToken(token: string, env: Env): Promise<string | null> {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const header = JSON.parse(new TextDecoder().decode(b64urlToBytes(parts[0])));
+    const payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(parts[1])));
+    if (header.alg !== 'RS256' || !header.kid) return null;
+
+    const jwk = (await getJwks()).find((k) => k.kid === header.kid);
+    if (!jwk) return null;
+    const key = await crypto.subtle.importKey(
+      'jwk',
+      jwk,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const ok = await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      b64urlToBytes(parts[2]),
+      new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+    );
+    if (!ok) return null;
+
+    const now = Math.floor(Date.now() / 1000);
+    const projects = (env.FIREBASE_PROJECT_IDS || '').split(',').map((p) => p.trim()).filter(Boolean);
+    if (!projects.includes(payload.aud)) return null;
+    if (payload.iss !== `https://securetoken.google.com/${payload.aud}`) return null;
+    if (!payload.sub || typeof payload.exp !== 'number' || payload.exp < now) return null;
+    if (typeof payload.iat === 'number' && payload.iat > now + 300) return null;
+    if (payload.email_verified !== true || typeof payload.email !== 'string') return null;
+
+    const staff = (env.STAFF_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+    const email = payload.email.toLowerCase();
+    return staff.includes(email) ? email : null;
+  } catch {
+    return null;
+  }
+}
+
+async function authenticate(request: Request, env: Env): Promise<boolean> {
+  const auth = request.headers.get('Authorization') || '';
+  const m = auth.match(/^Bearer (.+)$/);
+  if (!m) return false;
+  return (await verifyFirebaseToken(m[1], env)) !== null;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    currentCors = buildCors(request, env);
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return new Response(null, { status: 204, headers: currentCors });
     }
 
     const url = new URL(request.url);
@@ -85,8 +161,8 @@ export default {
       });
     }
 
-    if (!checkSecret(request, env)) {
-      return unauthorized();
+    if (!(await authenticate(request, env))) {
+      return unauthorized('Unauthorized — ต้องล็อกอินด้วยบัญชีพนักงานที่ยืนยันอีเมลแล้ว');
     }
 
     try {
