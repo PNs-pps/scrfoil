@@ -87,6 +87,7 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
 
   const currentRollRemaining = Number(roll?.remainingMeters ?? record.remainingAfter ?? 0);
   const predictedRollRemaining = Math.round((Math.max(0, currentRollRemaining - delta) + Number.EPSILON) * 100) / 100;
+  // If delta <= 0 (reducing cut or editing metadata like SO number / notes), it never exceeds remaining
   const isOverRemaining = delta > 0 && delta > currentRollRemaining + 0.05;
 
   const patternStyle = getPatternStyle(record.pattern);
@@ -112,9 +113,9 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="ปิดหน้าต่าง"
             className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-sm rounded-xl cursor-pointer"
           >
-            aria-label="ปิดหน้าต่าง"
             ปิด
           </button>
         </div>
@@ -210,9 +211,9 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="ปิดหน้าต่าง"
             className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -485,9 +486,9 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
+              aria-label="ยกเลิก"
               className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer transition-colors"
             >
-            aria-label="ปิดหน้าต่าง"
               ยกเลิก
             </button>
             <button

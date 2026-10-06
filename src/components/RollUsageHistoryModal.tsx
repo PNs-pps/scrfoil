@@ -35,6 +35,7 @@ interface RollUsageHistoryModalProps {
   onClose: () => void;
   onOpenCutForThisRoll: (rollId: string) => void;
   onEditRoll?: (roll: FoilRoll) => void;
+  onEditCutRecord?: (record: StockCutRecord) => void;
   onFixRoll?: (rollId: string, correctRemaining: number, sumUsed?: number, sumNg?: number) => Promise<void>;
   onRealignChain?: (
     rollId: string,
@@ -50,6 +51,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   onClose,
   onOpenCutForThisRoll,
   onEditRoll,
+  onEditCutRecord,
   onFixRoll,
   onRealignChain,
   canEdit = true,
@@ -729,10 +731,38 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                         <th className="py-2.5 px-3">วันที่ใช้งาน</th>
                         <th className="py-2.5 px-3">ผู้บันทึก</th>
                         <th className="py-2.5 px-3">หมายเหตุ</th>
+                        {onEditCutRecord && <th className="py-2.5 px-3 text-center">จัดการ</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {historyItems.map((item, idx) => (
+                      {historyItems.map((item, idx) => {
+                        const targetRecord = records.find((r) => r.id === item.id) || {
+                          id: item.id,
+                          foilId: roll.id,
+                          lotNumber: roll.lotNumber,
+                          rollNumber: roll.rollNumber,
+                          width: roll.width,
+                          pattern: roll.pattern,
+                          soNumber: item.soNumber,
+                          cutType: item.cutType,
+                          nonSoReason: item.nonSoReason,
+                          productionRound: item.productionRound,
+                          roundNumber: item.roundNumber,
+                          usedMeters: item.cutMeters ?? item.usedMeters ?? 0,
+                          ngMeters: item.ngMeters ?? 0,
+                          totalDeducted: item.totalDeducted ?? ((item.cutMeters ?? item.usedMeters ?? 0) + (item.ngMeters || 0)),
+                          remainingBefore: item.remainingBefore,
+                          remainingAfter: item.remainingAfter ?? 0,
+                          usageDate: item.cutDate || item.usageDate || item.recordedDate || '',
+                          recordedDate: item.recordedDate || '',
+                          recordedBy: item.recordedBy || '',
+                          notes: item.notes || '',
+                          createdAt: item.createdAt || '',
+                          isSilverSide: item.isSilverSide,
+                          isWhiteSide: item.isWhiteSide,
+                        };
+
+                        return (
                         <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">
                             {idx + 1}
@@ -796,8 +826,24 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                           <td className="py-2.5 px-3 text-slate-500 max-w-[150px] truncate text-[11px]">
                             {item.notes || (item.nonSoReason ? `เหตุผล: ${item.nonSoReason}` : '-')}
                           </td>
+                          {onEditCutRecord && (
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onClose();
+                                  onEditCutRecord(targetRecord);
+                                }}
+                                title="แก้ไขรายการตัด SO นี้"
+                                className="p-1 rounded text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

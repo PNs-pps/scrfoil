@@ -18,7 +18,8 @@ import {
   Copy,
   Check,
   Trash2,
-  Lock
+  Lock,
+  Pencil
 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
@@ -30,6 +31,7 @@ interface SODetailModalProps {
   records: StockCutRecord[];
   onClose: () => void;
   onDeleteRecord?: (recordId: string) => void;
+  onEditRecord?: (record: StockCutRecord) => void;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
 }
@@ -40,6 +42,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   records,
   onClose,
   onDeleteRecord,
+  onEditRecord,
   userMode = 'visitor',
   onRequestUnlock,
 }) => {
@@ -311,9 +314,28 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: Delete */}
-              {onDeleteRecord && (
-                <div className="pt-2 flex items-center justify-end">
+              {/* Action Buttons: Edit & Delete */}
+              <div className="pt-2 flex items-center justify-end gap-2 flex-wrap">
+                {onEditRecord && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (userMode === 'visitor') {
+                        onRequestUnlock?.();
+                        return;
+                      }
+                      onClose();
+                      onEditRecord(record);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs cursor-pointer transition-colors"
+                    title="แก้ไขข้อมูลใบงาน SO นี้"
+                  >
+                    {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                    <span>แก้ไขใบงาน SO</span>
+                  </button>
+                )}
+
+                {onDeleteRecord && (
                   <button
                     type="button"
                     onClick={async () => {
@@ -337,8 +359,8 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                     {userMode === 'visitor' ? <Lock className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                     <span>ยกเลิกรายการนี้ (คืนยอดเข้าม้วน)</span>
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : (
             /* VIEW 2: FULL DETAILS OF THIS FOIL ROLL */

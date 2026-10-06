@@ -5,6 +5,7 @@ import { todayLocalISO } from '../utils/formatters';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator, exportPuSandwichRecordsToCSV } from '../utils/storage';
+import { isStaffEmail, getStaffEmails } from '../utils/auth';
 import { 
   X, 
   Layers, 
@@ -25,7 +26,9 @@ import {
   Factory,
   Ruler,
   RotateCcw,
-  Sparkles
+  Sparkles,
+  ShieldAlert,
+  Lock
 } from 'lucide-react';
 import { 
   COMMON_THICKNESSES,
@@ -42,6 +45,7 @@ interface PuSandwichModalProps {
   onDeleteRecord?: (recordId: string) => Promise<void> | void;
   initialMode?: 'create' | 'history';
   editingRecord?: PuSandwichCutRecord | null;
+  currentUserEmail?: string | null;
 }
 
 const COMMON_COIL_COLORS = ['สีขาว', 'สีดำ', 'สีน้ำตาล', 'สีเขียว', 'สีฟ้า', 'สีเทา', 'อลูซิงค์ (ซิงค์)'];
@@ -55,7 +59,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   onDeleteRecord,
   initialMode = 'create',
   editingRecord = null,
+  currentUserEmail,
 }) => {
+  const isStaff = isStaffEmail(currentUserEmail);
   const [activeTab, setActiveTab] = useState<'create' | 'history'>(initialMode);
   const panelRef = useModalA11y(isOpen, onClose, 'บันทึกการตัดสต๊อกแซนวิช');
   const recentOperators = getRecentOperators();
@@ -282,6 +288,12 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   };
 
   const executeSandwichSave = async () => {
+    if (!isStaff) {
+      setShowConfirmSummary(false);
+      setError(`บัญชีปัจจุบัน (${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'}) ไม่มีสิทธิ์บันทึกตัดแซนวิช — เฉพาะอีเมลเจ้าหน้าที่ (${getStaffEmails().join(', ')})`);
+      return;
+    }
+
     const numNgKg = parseCleanNum(ngKg);
     const numNgMeters = parseCleanNum(ngMeters);
 
@@ -455,9 +467,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
             <button
               type="button"
               onClick={onClose}
+              aria-label="ปิดหน้าต่าง"
               className="p-1.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             >
-            aria-label="ปิดหน้าต่าง"
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -467,6 +479,20 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
           {activeTab === 'create' ? (
             <form onSubmit={handleSubmit} className="space-y-5">
+              {!isStaff && (
+                <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-2xl flex items-start gap-2.5 text-xs text-rose-900 animate-in fade-in">
+                  <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-rose-950 text-sm">
+                      ไม่มีสิทธิ์บันทึกตัดแซนวิช / คีย์ข้อมูล (เฉพาะบัญชีที่ได้รับอนุญาต)
+                    </div>
+                    <p className="text-rose-800 leading-relaxed">
+                      บัญชีที่เข้าสู่ระบบปัจจุบัน ({currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'}) ไม่มีสิทธิ์บันทึกข้อมูลขึ้น Cloud ระบบเปิดสิทธิ์ให้เฉพาะอีเมลเจ้าหน้าที่ที่ได้รับอนุญาต ({getStaffEmails().join(', ')})
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {error && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2.5 text-xs text-rose-800 animate-in fade-in">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -1067,15 +1093,28 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
-                  className="px-6 py-2.5 rounded-xl bg-linear-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  disabled={isSubmitting || !isStaff}
+                  className={`px-6 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer ${
+                    !isStaff
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                      : 'bg-linear-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white hover:shadow-lg disabled:opacity-50'
+                  }`}
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  {isSubmitting
-                    ? 'กำลังบันทึก...'
-                    : editingRecord
-                      ? 'ตรวจสอบก่อนบันทึกแก้ไข'
-                      : 'ตรวจสอบก่อนตัด SO แซนวิช'}
+                  {!isStaff ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>ไม่มีสิทธิ์บันทึก (เฉพาะเจ้าหน้าที่)</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      {isSubmitting
+                        ? 'กำลังบันทึก...'
+                        : editingRecord
+                          ? 'ตรวจสอบก่อนบันทึกแก้ไข'
+                          : 'ตรวจสอบก่อนตัด SO แซนวิช'}
+                    </>
+                  )}
                 </button>
               </div>
             </form>

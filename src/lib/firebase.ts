@@ -1134,7 +1134,9 @@ export async function realignRollCutChainInFirestore(
  */
 export async function updateStockCutRecordInFirestore(
   updatedRecord: StockCutRecord,
-  oldRecord: StockCutRecord
+  oldRecord: StockCutRecord,
+  fallbackRoll?: FoilRoll,
+  fallbackRecord?: StockCutRecord
 ): Promise<{ updatedRoll: FoilRoll; updatedRecord: StockCutRecord }> {
   const rollId = updatedRecord.foilId;
   const recordId = updatedRecord.id;
@@ -1144,15 +1146,27 @@ export async function updateStockCutRecordInFirestore(
   const result = await runTransaction(db, async (tx) => {
     const [rollSnap, recSnap] = await Promise.all([tx.get(rollRef), tx.get(recordRef)]);
 
+    let serverRoll: FoilRoll;
     if (!rollSnap.exists()) {
-      throw new Error('ไม่พบข้อมูลม้วนฟอยล์ในระบบ');
-    }
-    if (!recSnap.exists()) {
-      throw new Error('ไม่พบรายการตัดสต๊อก SO นี้ในระบบ');
+      if (fallbackRoll) {
+        serverRoll = fallbackRoll;
+      } else {
+        throw new Error('ไม่พบข้อมูลม้วนฟอยล์ในระบบ');
+      }
+    } else {
+      serverRoll = rollSnap.data() as FoilRoll;
     }
 
-    const serverRoll = rollSnap.data() as FoilRoll;
-    const oldServerRecord = recSnap.data() as StockCutRecord;
+    let oldServerRecord: StockCutRecord;
+    if (!recSnap.exists()) {
+      if (fallbackRecord || oldRecord) {
+        oldServerRecord = fallbackRecord || oldRecord;
+      } else {
+        throw new Error('ไม่พบรายการตัดสต๊อก SO นี้ในระบบ');
+      }
+    } else {
+      oldServerRecord = recSnap.data() as StockCutRecord;
+    }
 
     // ห้ามแก้ใบปรับยอดจากนับสต๊อก (totalDeducted ติดลบ / id ขึ้นต้น cc_ / soNumber นับสต๊อก)
     const oldSignedTotal = Number(oldServerRecord.totalDeducted);

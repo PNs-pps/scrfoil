@@ -73,7 +73,7 @@ interface CuttingHistoryTableProps {
   onOpenPuSandwichModal?: () => void;
   initialCategory?: HistoryCategory;
   userMode?: UserMode;
-  onRequestUnlock?: () => void;
+  onRequestUnlock?: (action?: () => void) => void;
 }
 
 export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
@@ -272,7 +272,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   // Guarded actions for visitor vs editor
   const handleActionGuarded = (action: () => void) => {
     if (userMode === 'visitor') {
-      if (onRequestUnlock) onRequestUnlock();
+      if (onRequestUnlock) onRequestUnlock(action);
       return;
     }
     action();
@@ -735,6 +735,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         records={records}
         onClose={() => setSelectedDetailRecord(null)}
         onDeleteRecord={onDeleteRecord}
+        onEditRecord={onEditRecord}
         userMode={userMode}
         onRequestUnlock={onRequestUnlock}
       />

@@ -27,11 +27,7 @@
 
 const MODE_STORAGE_KEY = 'siampuufoam_user_mode';
 
-/**
- * Emails allowed to reach editor mode. Kept in sync with `isStaff()` in
- * firestore.rules — the rules are authoritative; this list only controls the UI.
- */
-const STAFF_EMAILS = ['ikuyisad@ikwai.com'];
+const DEFAULT_STAFF_EMAILS = ['ikuyisad@ikwai.com'];
 
 /**
  * Shared operator password. See the security note at the top of this file:
@@ -44,18 +40,27 @@ export function hasOperatorPassword(): boolean {
   return OPERATOR_PASSWORD.trim().length > 0;
 }
 
+/** Exposed so Settings can show which staff list this build was compiled with. */
+export function getStaffEmails(): string[] {
+  try {
+    const saved = localStorage.getItem('pufoam_staff_emails');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [...DEFAULT_STAFF_EMAILS];
+}
+
 /**
  * Check whether an authenticated email belongs to staff.
  * Mirrors `isStaff()` in firestore.rules (which lowercases before comparing).
  */
 export function isStaffEmail(email: string | null | undefined): boolean {
   if (!email) return false;
-  return STAFF_EMAILS.includes(email.trim().toLowerCase());
-}
-
-/** Exposed so Settings can show which staff list this build was compiled with. */
-export function getStaffEmails(): string[] {
-  return [...STAFF_EMAILS];
+  const clean = email.trim().toLowerCase();
+  const list = getStaffEmails().map((e) => e.trim().toLowerCase());
+  return list.includes(clean);
 }
 
 export type UserMode = 'visitor' | 'editor';

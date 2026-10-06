@@ -106,10 +106,10 @@ export function describeWriteFailure(
 ): string {
   switch (outcome.reason) {
     case 'permission':
-      return 'คลาวด์จำกัดสิทธิ์เจ้าหน้าที่ (บันทึกไว้ในเครื่องแล้ว)';
+      return 'ไม่มีสิทธิ์เขียนลง Cloud (Firestore Rules) — ยกเลิกการแก้ไขในเครื่องแล้ว';
     case 'rules':
-      return 'Firestore Rules ปฏิเสธการบันทึก (บันทึกไว้ในเครื่องแล้ว)';
+      return 'ข้อมูลไม่ผ่านเกณฑ์ความปลอดภัยของ Cloud (Firestore Rules) — ยกเลิกการแก้ไขในเครื่องแล้ว';
     default:
-      return 'บันทึกลง Cloud ไม่สำเร็จ (บันทึกไว้ในเครื่องแล้ว)';
+      return 'Cloud ปฏิเสธการบันทึก — ยกเลิกการแก้ไขในเครื่องแล้ว';
   }
 }

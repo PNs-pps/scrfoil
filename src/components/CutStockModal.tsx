@@ -5,6 +5,7 @@ import { getRecentOperators, saveRecentOperator } from '../utils/storage';
 import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
 import { fetchFoilRollFromServer } from '../lib/firebase';
+import { isStaffEmail, getStaffEmails } from '../utils/auth';
 import { 
   X, 
   Scissors, 
@@ -18,7 +19,9 @@ import {
   CheckCircle2,
   Building2,
   Wrench,
-  ArrowRight
+  ArrowRight,
+  ShieldAlert,
+  Lock
 } from 'lucide-react';
 
 interface CutOrderItem {
@@ -44,6 +47,7 @@ interface CutStockModalProps {
   existingRecords?: StockCutRecord[];
   preselectedRollId?: string | null;
   initialCutMode?: 'so' | 'non_so';
+  currentUserEmail?: string | null;
   onConfirmCut?: (record: Omit<StockCutRecord, 'id' | 'createdAt'>) => Promise<void> | void;
   onConfirmCutBatch: (records: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => Promise<void> | void;
   /** อัปเดตม้วนใน state หลักหลังดึงยอดจาก server ก่อนยืนยันตัด */
@@ -65,10 +69,12 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   existingRecords = [],
   preselectedRollId,
   initialCutMode = 'so',
+  currentUserEmail,
   onConfirmCut,
   onConfirmCutBatch,
   onRollRefreshed,
 }) => {
+  const isStaff = isStaffEmail(currentUserEmail);
   const today = todayLocalISO();
   const defaultSoPrefix = `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`;
 
@@ -364,6 +370,15 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const executeCutSubmission = async () => {
     if (!currentRoll) return;
 
+    if (!isStaff) {
+      setCutResult({
+        ok: false,
+        title: 'ไม่มีสิทธิ์ตัดใบงาน',
+        message: `บัญชี ${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'} ไม่มีสิทธิ์ตัดสต๊อกหรือบันทึกข้อมูลขึ้น Cloud (เฉพาะอีเมลเจ้าหน้าที่: ${getStaffEmails().join(', ')})`,
+      });
+      return;
+    }
+
     // Save operator to recent list
     saveRecentOperator(recordedBy.trim());
 
@@ -470,6 +485,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     e.preventDefault();
     if (isSubmitting) return; // hard guard against double-submit on flaky network / double-tap
     setError(null);
+
+    if (!isStaff) {
+      setError(`บัญชีปัจจุบัน (${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'}) ไม่มีสิทธิ์ตัดสต๊อกหรือคีย์ข้อมูล — เฉพาะอีเมลเจ้าหน้าที่ (${getStaffEmails().join(', ')})`);
+      return;
+    }
 
     if (!currentRoll) {
       setError('กรุณาเลือกม้วนฟอยล์ที่ต้องการตัดสต๊อก');
@@ -584,6 +604,20 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-sm">
+          {!isStaff && (
+            <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 flex items-start gap-2.5 animate-in fade-in">
+              <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-0.5">
+                <div className="font-bold text-rose-950 text-sm">
+                  ไม่มีสิทธิ์ตัดใบงาน / คีย์ข้อมูล (เฉพาะบัญชีที่ได้รับอนุญาต)
+                </div>
+                <p className="text-rose-800 leading-relaxed">
+                  บัญชีที่เข้าสู่ระบบปัจจุบัน ({currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'}) ไม่มีสิทธิ์บันทึกข้อมูลตัดสต๊อกขึ้น Cloud ระบบเปิดสิทธิ์ให้เฉพาะอีเมลเจ้าหน้าที่ที่ได้รับอนุญาต ({getStaffEmails().join(', ')})
+                </p>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div role="alert" className="p-3.5 bg-rose-50 border border-rose-300 text-rose-900 rounded-xl text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
               <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 mt-0.5" aria-hidden="true" />
@@ -1144,22 +1178,27 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
+              aria-label="ปิดหน้าต่าง"
               className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
-            aria-label="ปิดหน้าต่าง"
               ยกเลิก
             </button>
 
             <button
               type="submit"
-              disabled={isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0}
+              disabled={isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff}
               className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
-                isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0
+                isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
                   : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
               }`}
             >
-              {isSubmitting || isRefreshingStock ? (
+              {!isStaff ? (
+                <>
+                  <Lock className="w-4 h-4 stroke-[2.5]" />
+                  <span>ไม่มีสิทธิ์ตัดใบงาน (เฉพาะเจ้าหน้าที่)</span>
+                </>
+              ) : isSubmitting || isRefreshingStock ? (
                 <>
                   <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
                   <span>

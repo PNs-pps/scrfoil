@@ -38,7 +38,8 @@ import {
   activeTarget,
   setActiveTarget,
   auth,
-  signOutUser
+  signOutUser,
+  subscribeToAuthState,
 } from './lib/firebase';
 import { CycleCountSession } from './types';
 import { Navbar } from './components/Navbar';
@@ -65,7 +66,7 @@ import { SOBugInspectorModal } from './components/SOBugInspectorModal';
 import { CycleCountModal } from './components/CycleCountModal';
 import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
-import { getUserMode, setUserMode as saveUserMode, isStaffEmail, hasOperatorPassword, resetToVisitorMode, UserMode } from './utils/auth';
+import { getUserMode, setUserMode as saveUserMode, isStaffEmail, getStaffEmails, hasOperatorPassword, resetToVisitorMode, UserMode } from './utils/auth';
 import { confirmAction } from './utils/confirmAction';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON, getAllDueD1ScheduleSlots, markD1ScheduleSlotRun, getLastSnapshotFailure } from './utils/autoBackup';
 import { getD1BackupConfig, uploadBackupToD1 } from './utils/d1Backup';
@@ -122,7 +123,16 @@ export default function App() {
   // and offer sign-out).
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(auth.currentUser?.email || null);
   useEffect(() => {
-    setCurrentUserEmail(auth.currentUser?.email || null);
+    const unsub = subscribeToAuthState((user) => {
+      const email = user?.email || null;
+      setCurrentUserEmail(email);
+      // หากอีเมลไม่ใช่ทีมงานที่ได้รับอนุญาต ให้รีเซ็ตออกจากโหมดคีย์ข้อมูลทันที
+      if (email && !isStaffEmail(email)) {
+        resetToVisitorMode();
+        setUserMode('visitor');
+      }
+    });
+    return unsub;
   }, []);
   const handleSignOut = async () => {
     // Drop editor mode first. Otherwise signing out on a shared tablet leaves the
@@ -964,6 +974,18 @@ const updated = [newRoll, ...rolls];
   // Real authorization still belongs to Firestore Rules (see the header comment
   // in src/utils/auth.ts) — this gate is the UI layer on top of it.
   const requireEditorPermission = (action: () => void) => {
+    // ตรวจสอบสิทธิ์อีเมลเจ้าหน้าที่ก่อน: หากอีเมลที่ล็อกอินไม่มีสิทธิ์คีย์ข้อมูล ให้บล็อกตั้งแต่ก่อนเปิดหน้าตัดใบงาน
+    if (!currentUserEmail || !isStaffEmail(currentUserEmail)) {
+      setErrorAlert({
+        isOpen: true,
+        title: 'ไม่มีสิทธิ์เข้าถึงหน้าตัดใบงาน / คีย์ข้อมูล',
+        message: `บัญชีที่เข้าสู่ระบบ (${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'}) ไม่มีสิทธิ์คีย์ข้อมูลหรือตัดสต๊อก`,
+        detail: `ระบบเปิดสิทธิ์การคีย์ข้อมูลเฉพาะอีเมลทีมงานที่ได้รับอนุญาตเท่านั้น (${getStaffEmails().join(', ')}) กรุณาสลับบัญชี หรือติดต่อผู้ดูแลระบบ`,
+      });
+      playFeedback('error');
+      return;
+    }
+
     if (userMode === 'editor') {
       action();
       return;
@@ -1001,6 +1023,17 @@ const updated = [newRoll, ...rolls];
   // Cut stock handler (supports single roll batch and multi-roll import batch)
   const handleConfirmCutBatch = async (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]): Promise<void> => {
     if (!batchData || batchData.length === 0) return;
+
+    if (!currentUserEmail || !isStaffEmail(currentUserEmail)) {
+      setErrorAlert({
+        isOpen: true,
+        title: 'ไม่มีสิทธิ์ตัดใบงาน',
+        message: `บัญชี ${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'} ไม่มีสิทธิ์ตัดสต๊อกหรือบันทึกข้อมูลขึ้น Cloud`,
+        detail: `ระบบเปิดสิทธิ์ให้เฉพาะอีเมลเจ้าหน้าที่ที่ได้รับอนุญาตเท่านั้น (${getStaffEmails().join(', ')})`,
+      });
+      playFeedback('error');
+      throw new Error('PERMISSION_DENIED_NOT_STAFF');
+    }
 
     // Strict math sanitization: Ensure all inputs are positive and rounded.
     // Note: remainingBefore/remainingAfter here are only used for display in
@@ -1156,6 +1189,17 @@ const updated = [newRoll, ...rolls];
 
   // PU Sandwich Cut Handlers (ไม่ใช้ฟอยล์)
   const handleSavePuSandwichCut = async (record: PuSandwichCutRecord) => {
+    if (!currentUserEmail || !isStaffEmail(currentUserEmail)) {
+      setErrorAlert({
+        isOpen: true,
+        title: 'ไม่มีสิทธิ์บันทึกตัดแซนวิช',
+        message: `บัญชี ${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'} ไม่มีสิทธิ์บันทึกข้อมูลขึ้น Cloud`,
+        detail: `ระบบเปิดสิทธิ์ให้เฉพาะอีเมลเจ้าหน้าที่ที่ได้รับอนุญาตเท่านั้น (${getStaffEmails().join(', ')})`,
+      });
+      playFeedback('error');
+      throw new Error('PERMISSION_DENIED_NOT_STAFF');
+    }
+
     const previous = puSandwichRecords;
     const exists = previous.some((r) => r.id === record.id);
     const updated = exists
@@ -1372,9 +1416,27 @@ const updated = [newRoll, ...rolls];
     updatedRecord: StockCutRecord,
     oldRecord: StockCutRecord
   ) => {
+    if (!currentUserEmail || !isStaffEmail(currentUserEmail)) {
+      setErrorAlert({
+        isOpen: true,
+        title: 'ไม่มีสิทธิ์แก้ไขประวัติ SO',
+        message: `บัญชี ${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'} ไม่มีสิทธิ์แก้ไขข้อมูล`,
+        detail: `ระบบเปิดสิทธิ์ให้เฉพาะอีเมลเจ้าหน้าที่ที่ได้รับอนุญาตเท่านั้น (${getStaffEmails().join(', ')})`,
+      });
+      playFeedback('error');
+      throw new Error('PERMISSION_DENIED_NOT_STAFF');
+    }
+
+    const matchingRoll = rolls.find((r) => r.id === updatedRecord.foilId);
+
     try {
       const { updatedRoll, updatedRecord: finalRec } =
-        await updateStockCutRecordInFirestore(updatedRecord, oldRecord);
+        await updateStockCutRecordInFirestore(
+          updatedRecord,
+          oldRecord,
+          matchingRoll,
+          oldRecord
+        );
 
       let nextRolls = rolls.map((r) =>
         r.id === updatedRoll.id ? updatedRoll : r
@@ -1410,16 +1472,64 @@ const updated = [newRoll, ...rolls];
       setEditingCutRecord(null);
       const finalRoll = nextRolls.find((r) => r.id === finalRec.foilId) || updatedRoll;
       showToast(
-        `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(finalRoll.remainingMeters)} ม. · จัดห่วงโซ่ประวัติแล้ว`,
+        `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(finalRoll.remainingMeters)} ม. · จัดห่วงโซ่ประวัติแล้ว [Cloud]`,
         'success'
       );
     } catch (err: any) {
-      console.error('Update cut record failed:', err);
+      console.warn('Update cut record failed, checking fallback:', err);
       const isPermissionError =
         err?.code === 'permission-denied' || err?.message?.includes('permission');
-      if (isPermissionError) setSyncStatus('permission-denied');
-      playFeedback('error');
-      throw err;
+      if (isPermissionError) {
+        setSyncStatus('permission-denied');
+        playFeedback('error');
+        throw err;
+      }
+
+      // Offline / network fallback: บันทึกข้อมูลที่แก้ไขลงในเครื่องเพื่อไม่ให้ข้อมูลสูญหาย
+      const oldUsed = Math.abs(Number(oldRecord.usedMeters || 0));
+      const oldNg = Math.abs(Number(oldRecord.ngMeters || 0));
+      const oldTotal = Math.abs(Number(oldRecord.totalDeducted) || (oldUsed + oldNg));
+      const newUsed = Math.abs(Number(updatedRecord.usedMeters || 0));
+      const newNg = Math.abs(Number(updatedRecord.ngMeters || 0));
+      const newTotal = round2(newUsed + newNg);
+      const deltaTotal = round2(newTotal - oldTotal);
+      const deltaUsed = round2(newUsed - oldUsed);
+      const deltaNg = round2(newNg - oldNg);
+
+      let finalRoll = matchingRoll;
+      if (matchingRoll) {
+        const nextRemaining = round2(Math.max(0, Number(matchingRoll.remainingMeters || 0) - deltaTotal));
+        const nextUsedVal = round2(Math.max(0, Number(matchingRoll.usedMeters || 0) + deltaUsed));
+        const nextNgVal = round2(Math.max(0, Number(matchingRoll.ngMeters || 0) + deltaNg));
+        finalRoll = {
+          ...matchingRoll,
+          remainingMeters: nextRemaining,
+          usedMeters: nextUsedVal,
+          ngMeters: nextNgVal,
+          status: nextRemaining > 0 ? ('active' as const) : ('depleted' as const),
+        };
+      }
+
+      const finalRec: StockCutRecord = {
+        ...updatedRecord,
+        usedMeters: newUsed,
+        ngMeters: newNg,
+        totalDeducted: newTotal,
+        remainingAfter: finalRoll ? finalRoll.remainingMeters : updatedRecord.remainingAfter,
+      };
+
+      const nextRolls = finalRoll ? rolls.map((r) => r.id === finalRoll.id ? finalRoll : r) : rolls;
+      const nextRecords = records.map((r) => r.id === finalRec.id ? finalRec : r);
+
+      updateRecordsState(nextRecords);
+      updateRollsState(nextRolls);
+      createBackupSnapshot(nextRolls, nextRecords, 'realign_chain');
+      setEditingCutRecord(null);
+      setSyncStatus('offline');
+      showToast(
+        `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จในเครื่อง (รอซิงค์ Cloud)`,
+        'info'
+      );
     }
   };
 
@@ -1952,7 +2062,7 @@ const updated = [newRoll, ...rolls];
               setIsPuSandwichModalOpen(true);
             })}
             userMode={userMode}
-            onRequestUnlock={() => requireEditorPermission(() => {})}
+            onRequestUnlock={(action) => requireEditorPermission(typeof action === 'function' ? action : () => {})}
           />
         )}
 
@@ -2025,6 +2135,7 @@ const updated = [newRoll, ...rolls];
         }}
         editingRecord={editingPuSandwich}
         records={puSandwichRecords}
+        currentUserEmail={currentUserEmail}
         onSaveCut={handleSavePuSandwichCut}
         onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
       />
@@ -2039,6 +2150,7 @@ const updated = [newRoll, ...rolls];
         existingRecords={records}
         preselectedRollId={preselectedRollId}
         initialCutMode={cutModalInitialMode}
+        currentUserEmail={currentUserEmail}
         onConfirmCut={handleConfirmCut}
         onConfirmCutBatch={handleConfirmCutBatch}
         onRollRefreshed={(fresh) => {
@@ -2116,6 +2228,7 @@ const updated = [newRoll, ...rolls];
           onClose={() => setDetailRoll(null)}
           onOpenCutForThisRoll={handleOpenCutForRoll}
           onEditRoll={(roll) => requireEditorPermission(() => setEditingRoll(roll))}
+          onEditCutRecord={(rec) => requireEditorPermission(() => setEditingCutRecord(rec))}
           onFixRoll={handleFixRoll}
           onRealignChain={handleRealignChain}
           canEdit={userMode === 'editor'}
