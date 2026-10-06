@@ -995,6 +995,20 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                         className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-sky-200 rounded-lg"
                       />
                     </div>
+                    <div>
+                      <label className="text-[11px] text-slate-600 block mb-1 font-medium">รหัสลับ BACKUP_SECRET:</label>
+                      <input
+                        type="password"
+                        placeholder="BACKUP_SECRET"
+                        value={d1Config.secret}
+                        onChange={(e) => {
+                          const next = saveD1BackupConfig({ secret: e.target.value });
+                          setD1Config(next);
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-sky-200 rounded-lg"
+                        autoComplete="off"
+                      />
+                    </div>
                   </div>
                 ) : (
                   <button
@@ -1003,7 +1017,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                     className="w-full flex items-center justify-center gap-1.5 px-2.5 py-2 text-xs font-bold text-sky-900 bg-white border border-dashed border-sky-300 rounded-lg cursor-pointer"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    <span>Worker URL — ปลดล็อคโหมดแก้ไขเพื่อดูและตั้งค่า</span>
+                    <span>Worker URL / รหัสลับ — ปลดล็อคโหมดแก้ไขเพื่อดูและตั้งค่า</span>
                   </button>
                 )}
 
@@ -1024,7 +1038,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                         const r = await testD1Connection(d1Config);
                         setD1Status(r.message);
                         showToast(r.message, r.ok ? 'success' : 'info');
-                        if (r.ok) {
+                        if (r.ok && d1Config.secret) {
                           const list = await listD1Backups(15);
                           setD1List(list);
                         }

@@ -6,7 +6,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create foil-stock-backups",
-    "db:schema": "wrangler d1 execute foil-stock-backups --file=./schema.sql"
+    "db:schema": "wrangler d1 execute foil-stock-backups --file=./schema.sql",
+    "secret": "wrangler secret put BACKUP_SECRET"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241112.0",

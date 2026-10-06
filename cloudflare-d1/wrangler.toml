@@ -3,7 +3,7 @@
 # 2) wrangler d1 create foil-stock-backups
 # 3) ใส่ database_id ด้านล่าง
 # 4) wrangler d1 execute foil-stock-backups --file=./schema.sql
-# 5) แก้ [vars] ด้านล่าง (STAFF_EMAILS, ALLOWED_ORIGINS) — ไม่ต้องใช้ BACKUP_SECRET แล้ว
+# 5) ตั้ง secret: wrangler secret put BACKUP_SECRET
 # 6) wrangler deploy
 
 name = "foil-stock-d1-backup"
@@ -17,9 +17,5 @@ database_name = "foil-stock-backups"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
 [vars]
+# อย่าใส่ secret จริงตรงนี้ — ใช้ wrangler secret put BACKUP_SECRET
 APP_NAME = "scrfoil-backup"
-# ค่าด้านล่างไม่ใช่ความลับ (ความปลอดภัยมาจากการตรวจ Firebase ID token)
-FIREBASE_PROJECT_IDS = "stock-foil,xenon-airport-rlxdt"
-STAFF_EMAILS = "ikuyisad@ikwai.com"
-# origin ของเว็บที่เรียก Worker ได้ (คั่นหลายค่าด้วย comma) — ไม่มี path/ไม่มี / ท้าย
-ALLOWED_ORIGINS = "https://scrfoil.vercel.app"

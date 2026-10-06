@@ -31,7 +31,6 @@ import {
   signOut, 
   onAuthStateChanged, 
   createUserWithEmailAndPassword,
-  sendEmailVerification,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   updateProfile,
@@ -185,18 +184,8 @@ export async function checkRedirectSignIn(): Promise<User | null> {
   }
 }
 
-export async function signInWithEmail(email: string, password: string): Promise<User> {
-  const r = await signInWithEmailAndPassword(auth, email.trim(), password);
-  // firestore.rules requires email_verified == true. Accounts created before
-  // that rule existed may be unverified, so (re)send the verification mail.
-  if (!r.user.emailVerified) {
-    try {
-      await sendEmailVerification(r.user);
-    } catch (err) {
-      console.warn('Verification email not sent:', err);
-    }
-  }
-  return r.user;
+export function signInWithEmail(email: string, password: string): Promise<User> {
+  return signInWithEmailAndPassword(auth, email.trim(), password).then((r) => r.user);
 }
 
 export async function registerWithEmail(
@@ -211,11 +200,6 @@ export async function registerWithEmail(
     } catch (err) {
       console.warn('Failed to set display name:', err);
     }
-  }
-  try {
-    await sendEmailVerification(result.user);
-  } catch (err) {
-    console.warn('Verification email not sent:', err);
   }
   return result.user;
 }

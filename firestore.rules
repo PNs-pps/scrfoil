@@ -5,13 +5,9 @@ service cloud.firestore {
 
     // จำกัดสิทธิ์เฉพาะพนักงาน (อีเมลเดียว)
     // อีเมลต้องเป็นตัวพิมพ์เล็ก และต้องสมัครบัญชีนี้ในแอปไว้แล้ว
-    // ต้องยืนยันอีเมลแล้ว (email_verified) กันคนอื่นสมัครอีเมลนี้ด้วยรหัสผ่านแล้วได้สิทธิ์
-    // (Google sign-in ถือว่า verified อัตโนมัติ)
-    // ไฟล์นี้ deploy ได้ทั้งฐานข้อมูลหลัก (stock-foil) และฐานสำรอง (xenon-airport-rlxdt)
     function isStaff() {
       return request.auth != null &&
         request.auth.token.email != null &&
-        request.auth.token.email_verified == true &&
         request.auth.token.email.lower() == 'ikuyisad@ikwai.com';
     }
 

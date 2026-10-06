@@ -462,7 +462,7 @@ export default function App() {
   }, [rolls, records, syncStatus]);
 
   // Cloudflare D1 scheduled backup — fixed times daily (12:30 / 17:30), using
-  // the Worker URL already saved in Settings > Backup. Independent
+  // the Worker URL + secret already saved in Settings > Backup. Independent
   // of the Firebase interval above. Checks right away on open and once a
   // minute after that; if the device/app was closed at 12:30 or 17:30, the
   // moment it's opened again after that time it treats the slot as still due
@@ -480,7 +480,7 @@ export default function App() {
       if (dueSlots.length === 0) return;
 
       const d1Config = getD1BackupConfig();
-      if (!d1Config.workerUrl) return;
+      if (!d1Config.workerUrl || !d1Config.secret) return;
 
       dueSlots.forEach(markD1ScheduleSlotRun);
       uploadBackupToD1({

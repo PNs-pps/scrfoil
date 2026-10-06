@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
-import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern, getCanonicalPatternStyle } from '../utils/soFormatter';
+import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
 import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
@@ -668,55 +668,44 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
             {/* Selected Roll Highlight — ล็อต + เบอร์ม้วน เด่นชัดมาก เพื่อลดความผิดพลาด */}
             {currentRoll && (
-              <div className="p-3 sm:p-3.5 bg-amber-50 border-2 border-amber-400 rounded-xl flex flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+              <div className="p-3 sm:p-3.5 bg-amber-50 border-2 border-amber-400 rounded-xl flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-col gap-2 min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 bg-slate-900 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm shrink-0 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 bg-slate-900 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm">
                       <span className="text-[10px] font-bold uppercase tracking-wide text-amber-200/90">ล็อต</span>
                       <span className="lot-number-display text-base sm:text-lg font-bold text-white leading-none">
                         {currentRoll.lotNumber}
                       </span>
                     </span>
-                    <span className="inline-flex items-center gap-1.5 bg-white border-2 border-amber-400 text-slate-900 px-3 py-1.5 rounded-lg shadow-sm shrink-0 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 bg-white border-2 border-amber-400 text-slate-900 px-3 py-1.5 rounded-lg shadow-sm">
                       <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">เบอร์</span>
                       <span className="lot-number-display text-base sm:text-lg font-bold leading-none">
                         #{currentRoll.rollNumber}
                       </span>
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-slate-700">
-                    <span className="font-semibold whitespace-nowrap">{currentRoll.width} มม.</span>
+                  <div className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="font-semibold">{currentRoll.width} มม.</span>
                     <span className="text-slate-400">•</span>
-                    {/* เดสก์ท็อป: ข้อความเดิม */}
-                    <span className="hidden sm:inline font-semibold">ลาย {currentRoll.pattern}</span>
-                    {/* มือถือ: ชิปสีท้องลาย สีเดียวกับแดชบอร์ด */}
-                    {(() => {
-                      const pStyle = getCanonicalPatternStyle(currentRoll.pattern);
-                      return (
-                        <span className={`sm:hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${pStyle.badgeClass}`}>
-                          <span className={`w-3 h-3 rounded-full shrink-0 ${pStyle.dotClass}`} />
-                          ลาย {pStyle.label}
-                        </span>
-                      );
-                    })()}
+                    <span className="font-semibold">ลาย {currentRoll.pattern}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="flex items-center gap-2">
                   {currentRoll.remainingMeters <= 0 ? (
-                    <span className="px-2 py-0.5 rounded w-full sm:w-auto text-center sm:text-left text-sm sm:text-base leading-snug bg-slate-200 text-slate-700 font-bold font-mono">
+                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold font-mono">
                       ตัดหมดแล้ว (0.00 ม.)
                     </span>
                   ) : currentRoll.remainingMeters <= 50 ? (
-                    <span className="px-2 py-0.5 rounded w-full sm:w-auto text-center sm:text-left text-sm sm:text-base leading-snug bg-rose-100 text-rose-700 border border-rose-300 font-bold font-mono animate-pulse">
+                    <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300 font-bold font-mono animate-pulse">
                       คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (วิกฤต &le; 50ม. สีแดง)
                     </span>
                   ) : currentRoll.remainingMeters <= 200 ? (
-                    <span className="px-2 py-0.5 rounded w-full sm:w-auto text-center sm:text-left text-sm sm:text-base leading-snug bg-amber-100 text-amber-800 border border-amber-300 font-bold font-mono">
+                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-bold font-mono">
                       คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (เหลือน้อย &le; 200ม. สีเหลือง)
                     </span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded w-full sm:w-auto text-center sm:text-left text-sm sm:text-base leading-snug bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono">
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono">
                       คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (พร้อมใช้)
                     </span>
                   )}

@@ -1,21 +1,29 @@
 /**
  * Client สำหรับสำรอง/กู้คืน snapshot ไป Cloudflare D1 (ผ่าน Worker)
- * เก็บเฉพาะ Worker URL ใน localStorage — ไม่แทนที่ Firebase realtime
+ * เก็บเฉพาะ URL + secret ใน localStorage — ไม่แทนที่ Firebase realtime
  *
- * AUTH: ไม่มี shared secret ฝั่ง client แล้ว ทุก request แนบ Firebase ID token
- * (Authorization: Bearer ...) ของผู้ใช้ที่ล็อกอินอยู่ Worker ตรวจลายเซ็นของ Google
- * และตรวจว่าเป็นอีเมลพนักงานที่ยืนยันแล้วเท่านั้น
- * secret เดิม (ถ้ามีค้างใน localStorage ของเครื่องเก่า) จะถูกลบทิ้งอัตโนมัติ
- * และควร rotate/ลบ BACKUP_SECRET เดิมบน Worker ด้วย
+ * NOTE ON `secret`: the real secret lives only in the Worker
+ * (`wrangler secret put BACKUP_SECRET`) and is never in the source or the
+ * bundle. This copy in localStorage is the client half of a shared-secret
+ * scheme: the Worker has to be told "this request is trusted", and today that
+ * proof is the same value. So anyone who can open devtools on the shared tablet
+ * can read it and replay it against the Worker directly.
+ *
+ * That is a real weakness and it is NOT fixed here — it needs the Worker to
+ * verify a Firebase ID token (`Authorization: Bearer <idToken>`, checked against
+ * Google's JWKS and the staff email) instead of a shared secret, which removes
+ * the credential from the client entirely. Until that lands, treat BACKUP_SECRET
+ * as scoped to backup data only, rotate it if a device is lost, and do not reuse
+ * that value anywhere else.
  */
 
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord, CycleCountSession } from '../types';
-import { auth } from '../lib/firebase';
 
 const CONFIG_KEY = 'pufoam_d1_backup_config_v1';
 
 export interface D1BackupConfig {
   workerUrl: string;
+  secret: string;
   lastBackupAt: string | null;
   lastBackupId: string | null;
 }
@@ -49,6 +57,7 @@ export interface D1BackupFull extends D1BackupListItem {
 
 const DEFAULT_CONFIG: D1BackupConfig = {
   workerUrl: '',
+  secret: '',
   lastBackupAt: null,
   lastBackupId: null,
 };
@@ -57,13 +66,7 @@ export function getD1BackupConfig(): D1BackupConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
     if (!raw) return { ...DEFAULT_CONFIG };
-    const parsed = JSON.parse(raw);
-    if ('secret' in parsed) {
-      // purge legacy shared secret left on this device
-      delete parsed.secret;
-      localStorage.setItem(CONFIG_KEY, JSON.stringify(parsed));
-    }
-    return { ...DEFAULT_CONFIG, ...parsed };
+    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
   } catch {
     return { ...DEFAULT_CONFIG };
   }
@@ -92,15 +95,13 @@ async function d1Fetch(
   if (!base) {
     throw new Error('ยังไม่ได้ตั้ง Worker URL ของ Cloudflare D1');
   }
-  const user = auth.currentUser;
-  if (!user) {
-    throw new Error('ต้องล็อกอินก่อนจึงจะใช้ D1 ได้');
+  if (!config.secret) {
+    throw new Error('ยังไม่ได้ตั้งรหัสลับ (BACKUP_SECRET)');
   }
-  const idToken = await user.getIdToken();
 
   const { config: _c, ...init } = options;
   const headers = new Headers(init.headers || {});
-  headers.set('Authorization', `Bearer ${idToken}`);
+  headers.set('X-Backup-Secret', config.secret);
   if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
@@ -129,8 +130,8 @@ export async function testD1Connection(
     };
   }
 
-  if (!auth.currentUser) {
-    return { ok: true, message: 'Worker ทำงาน — แต่ยังไม่ได้ล็อกอิน จึงยังตรวจสิทธิ์ไม่ได้' };
+  if (!cfg.secret) {
+    return { ok: true, message: 'Worker ทำงาน — ยังไม่ได้ใส่รหัสลับ (ใส่แล้วค่อยสำรองได้)' };
   }
 
   try {
@@ -139,7 +140,7 @@ export async function testD1Connection(
     if (!res.ok) {
       return {
         ok: false,
-        message: data?.error || `สิทธิ์ไม่ผ่าน (ต้องเป็นอีเมลพนักงานที่ยืนยันแล้ว) (HTTP ${res.status})`,
+        message: data?.error || `รหัสลับหรือสิทธิ์ไม่ผ่าน (HTTP ${res.status})`,
       };
     }
     return {
