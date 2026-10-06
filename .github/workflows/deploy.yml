@@ -42,13 +42,12 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
-        # `npm ci` installs exactly what package-lock.json pins. There is also a
-        # bun.lock in the repo, but the Pages runner has no bun, and having two
-        # lockfiles for the same tree is how they drift apart.
+        # `npm ci` requires package-lock.json in the repo root.
+        # Do not commit bun.lock alongside it — two lockfiles drift apart.
         run: npm ci
 
       - name: Typecheck
