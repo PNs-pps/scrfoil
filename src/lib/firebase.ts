@@ -363,9 +363,21 @@ export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
       rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
     });
     rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    if (rolls.length > 0) {
+      try {
+        localStorage.setItem('pufoam_archived_rolls_cache', JSON.stringify(rolls));
+      } catch {}
+    }
     return rolls;
   } catch (err: any) {
-    console.warn('fetchArchivedFoilRolls failed:', err?.message || err);
+    console.warn('fetchArchivedFoilRolls failed, checking local cache:', err?.message || err);
+    try {
+      const cached = localStorage.getItem('pufoam_archived_rolls_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
     return [];
   }
 }

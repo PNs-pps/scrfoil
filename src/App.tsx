@@ -82,8 +82,26 @@ type AppTab = 'dashboard' | 'rolls' | 'history' | 'settings';
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
   const rollsRef = useRef<FoilRoll[]>([]);
-  const [archivedRolls, setArchivedRolls] = useState<FoilRoll[]>([]);
-  const [archiveLoaded, setArchiveLoaded] = useState(false);
+  const [archivedRolls, setArchivedRolls] = useState<FoilRoll[]>(() => {
+    try {
+      const cached = localStorage.getItem('pufoam_archived_rolls_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [archiveLoaded, setArchiveLoaded] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem('pufoam_archived_rolls_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return true;
+      }
+    } catch {}
+    return false;
+  });
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
@@ -1956,7 +1974,7 @@ const updated = [newRoll, ...rolls];
             archivedRolls={archivedRolls}
             archiveLoaded={archiveLoaded}
             onLoadArchive={async () => {
-              if (isLoadingArchive || archiveLoaded) return;
+              if (isLoadingArchive || (archiveLoaded && archivedRolls.length > 0)) return;
               setIsLoadingArchive(true);
               try {
                 const archived = await fetchArchivedFoilRolls();
