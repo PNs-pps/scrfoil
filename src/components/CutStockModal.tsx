@@ -700,47 +700,49 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               </div>
             </div>
 
-            {/* Selected Roll Highlight — ล็อต + เบอร์ม้วน เด่นชัดมาก เพื่อลดความผิดพลาด */}
+            {/* Selected Roll Highlight — จัดเรียงแนวตั้ง กันตัวหนังสือทับกันบนมือถือ */}
             {currentRoll && (
-              <div className="p-3 sm:p-3.5 bg-amber-50 border-2 border-amber-400 rounded-xl flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-col gap-2 min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 bg-slate-900 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm">
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-amber-200/90">ล็อต</span>
-                      <span className="lot-number-display text-base sm:text-lg font-bold text-white leading-none">
-                        {currentRoll.lotNumber}
-                      </span>
+              <div className="p-3 bg-amber-50 border-2 border-amber-400 rounded-xl space-y-2.5">
+                {/* แถว 1: ล็อต + เบอร์ */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 bg-slate-900 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-amber-200/90">ล็อต</span>
+                    <span className="lot-number-display text-base font-bold text-white leading-none">
+                      {currentRoll.lotNumber}
                     </span>
-                    <span className="inline-flex items-center gap-1.5 bg-white border-2 border-amber-400 text-slate-900 px-3 py-1.5 rounded-lg shadow-sm">
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">เบอร์</span>
-                      <span className="lot-number-display text-base sm:text-lg font-bold leading-none">
-                        #{currentRoll.rollNumber}
-                      </span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 bg-white border-2 border-amber-400 text-slate-900 px-3 py-1.5 rounded-lg shadow-sm shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">เบอร์</span>
+                    <span className="lot-number-display text-base font-bold leading-none">
+                      #{currentRoll.rollNumber}
                     </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-slate-700">
-                    <span className="font-semibold">{currentRoll.width} มม.</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="font-semibold">ลาย {currentRoll.pattern}</span>
-                  </div>
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                {/* แถว 2: หน้ากว้าง + ลาย */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
+                  <span className="font-semibold">{currentRoll.width} มม.</span>
+                  <span className="text-slate-300">·</span>
+                  <span className="font-semibold">ลาย {currentRoll.pattern}</span>
+                </div>
+
+                {/* แถว 3: คงเหลือเต็มความกว้าง ไม่ทับแถวบน */}
+                <div className="w-full">
                   {currentRoll.remainingMeters <= 0 ? (
-                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold font-mono">
+                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 font-bold font-mono text-sm">
                       ตัดหมดแล้ว (0.00 ม.)
                     </span>
                   ) : currentRoll.remainingMeters <= 50 ? (
-                    <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300 font-bold font-mono animate-pulse">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (วิกฤต &le; 50ม. สีแดง)
+                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 border border-rose-300 font-bold font-mono text-sm animate-pulse">
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. · วิกฤต ≤ 50 ม.
                     </span>
                   ) : currentRoll.remainingMeters <= 200 ? (
-                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-bold font-mono">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (เหลือน้อย &le; 200ม. สีเหลือง)
+                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-300 font-bold font-mono text-sm">
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. · เหลือน้อย ≤ 200 ม.
                     </span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. (พร้อมใช้)
+                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono text-sm">
+                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. · พร้อมใช้
                     </span>
                   )}
                 </div>
@@ -878,46 +880,59 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Checkboxes: ตัวเลือกใช้เป็นท้องเงิน หรือ ท้องขาว */}
-                      <div className="flex flex-wrap items-center gap-4 pt-1">
-                        <span className="text-xs font-semibold text-slate-500">ตัวเลือกท้อง:</span>
-                        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={!!order.isSilverSide}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              handleUpdateOrder(order.id, { 
-                                isSilverSide: checked,
-                                isWhiteSide: checked ? false : order.isWhiteSide
-                              });
-                            }}
-                            className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
-                          />
-                          <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-slate-300 to-zinc-200 border border-slate-400" />
-                            <span>ใช้เป็นท้องเงิน</span>
-                          </span>
-                        </label>
-
-                        <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={!!order.isWhiteSide}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              handleUpdateOrder(order.id, { 
-                                isWhiteSide: checked,
-                                isSilverSide: checked ? false : order.isSilverSide
-                              });
-                            }}
-                            className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
-                          />
-                          <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                            <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400" />
-                            <span>ใช้เป็นท้องขาว</span>
-                          </span>
-                        </label>
+                      {/* ตัวเลือกท้อง — ปุ่มชิปชัดเจน ไม่วาง checkbox กับจุดสีซ้อนกัน */}
+                      <div className="pt-1 space-y-1.5">
+                        <span className="text-xs font-semibold text-slate-500">ตัวเลือกท้อง (ถ้ามี)</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUpdateOrder(order.id, {
+                                isSilverSide: !order.isSilverSide,
+                                isWhiteSide: false,
+                              })
+                            }
+                            className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer ${
+                              order.isSilverSide
+                                ? 'bg-slate-800 text-white border-slate-900 shadow-sm'
+                                : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                            }`}
+                          >
+                            <span
+                              className={`w-3 h-3 rounded-full border shrink-0 ${
+                                order.isSilverSide
+                                  ? 'bg-gradient-to-r from-slate-300 to-zinc-100 border-white/40'
+                                  : 'bg-gradient-to-r from-slate-300 to-zinc-200 border-slate-400'
+                              }`}
+                              aria-hidden
+                            />
+                            ใช้เป็นท้องเงิน
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUpdateOrder(order.id, {
+                                isWhiteSide: !order.isWhiteSide,
+                                isSilverSide: false,
+                              })
+                            }
+                            className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer ${
+                              order.isWhiteSide
+                                ? 'bg-slate-100 text-slate-900 border-slate-400 shadow-sm'
+                                : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                            }`}
+                          >
+                            <span
+                              className={`w-3 h-3 rounded-full border shrink-0 ${
+                                order.isWhiteSide
+                                  ? 'bg-white border-slate-500'
+                                  : 'bg-white border-slate-300'
+                              }`}
+                              aria-hidden
+                            />
+                            ใช้เป็นท้องขาว
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : (
