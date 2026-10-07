@@ -1,21 +1,16 @@
 # Deploy to GitHub Pages.
 #
-# DEPLOY_TO_GITHUB.md references this file, but it did not exist until now —
-# that document was claiming a deploy pipeline that was never in the repo.
-#
 # One-time setup after the first push:
 #   Settings > Pages > Build and deployment > Source: GitHub Actions
 #
 # The app has no client-side router (no react-router), so there is no SPA
-# 404 fallback needed — a hard refresh on any path serves index.html only for
-# "/", and there are no other paths.
+# 404 fallback needed.
 
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
-  # Lets you re-run the deploy from the Actions tab without pushing a commit.
   workflow_dispatch:
 
 permissions:
@@ -23,13 +18,7 @@ permissions:
   pages: write
   id-token: write
 
-# Every `uses:` below is pinned to a full commit SHA with the tag in a trailing
-# comment. A bare `@v4` is a mutable ref — anyone who can push a tag to the
-# action repo changes what runs here with the repo's Pages write token. Bump
-# deliberately: replace the SHA and update the comment together.
-
-# Never run two deploys at once, and let a running deploy finish rather than
-# cancelling it mid-publish.
+# Pin every `uses:` to a full commit SHA. Bump deliberately.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -37,29 +26,38 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          # Node 20 LTS is more stable with npm ci on GH runners than 22
+          # (avoids intermittent "Exit handler never called" crashes).
+          node-version: 20
           cache: npm
 
       - name: Install dependencies
-        # `npm ci` requires package-lock.json in the repo root.
-        # Do not commit bun.lock alongside it — two lockfiles drift apart.
-        run: npm ci
+        # npm ci can hit a known npm CLI crash ("Exit handler never called")
+        # on long installs. Retry once, then fall back to npm install.
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set fetch-timeout 300000
+          npm config set maxsockets 10
+          if ! npm ci --no-audit --no-fund; then
+            echo "::warning::npm ci failed — falling back to npm install"
+            rm -rf node_modules
+            npm install --no-audit --no-fund
+          fi
 
       - name: Typecheck
-        # Run the same check as `npm run lint`. CI needs ~4 GB for tsc on this
-        # file set; the default Node heap is not enough.
         run: npm run lint
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Test
-        # Covers the snapshot-persistence and batch-reconcile paths that broke
-        # silently before. Cheap enough to always run.
         run: npm test
 
       - name: Build
