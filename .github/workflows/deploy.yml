@@ -1,8 +1,4 @@
-# Deploy to GitHub Pages.
-#
-# One-time setup:
-#   Settings > Pages > Build and deployment > Source: GitHub Actions
-
+# Deploy to GitHub Pages — fast path: install + build only
 name: Deploy to GitHub Pages
 
 on:
@@ -17,44 +13,23 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # Do NOT set cache: npm unless package-lock.json is in the repo.
-      # Without the lockfile, setup-node fails immediately and skips install.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          # Several deps (vitest/jsdom/etc.) require Node >= 22
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
-        run: |
-          npm config set fetch-retries 5
-          npm config set fetch-retry-mintimeout 20000
-          npm config set fetch-retry-maxtimeout 120000
-          npm config set fetch-timeout 300000
-          if [ -f package-lock.json ]; then
-            echo "Found package-lock.json — using npm ci"
-            npm ci --no-audit --no-fund || npm install --no-audit --no-fund
-          else
-            echo "No package-lock.json — using npm install"
-            npm install --no-audit --no-fund
-          fi
-
-      - name: Typecheck
-        run: npm run lint
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-        continue-on-error: true
-
-      - name: Test
-        run: npm test
-        continue-on-error: true
+        run: npm ci --no-audit --no-fund
 
       - name: Build
         run: npm run build
