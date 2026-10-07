@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { confirmAction } from '../utils/confirmAction';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { StockCutRecord, FoilRoll, WIDTH_SPECIFICATIONS } from '../types';
@@ -49,6 +49,16 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   const [currentView, setCurrentView] = useState<'so' | 'roll'>('so');
   const [copied, setCopied] = useState(false);
 
+  // MUST be called unconditionally every render to obey Rules of Hooks
+  const panelRef = useModalA11y(Boolean(record), onClose, 'รายละเอียด SO');
+
+  useEffect(() => {
+    if (record) {
+      setCurrentView('so');
+      setCopied(false);
+    }
+  }, [record]);
+
   if (!record) return null;
 
   // Find the matching foil roll
@@ -94,8 +104,6 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   const currentRollRemaining = matchedRoll ? matchedRoll.remainingMeters : record.remainingAfter;
   const currentRollTotal = matchedRoll ? matchedRoll.totalMeters : (record.remainingBefore || record.remainingAfter + record.totalDeducted);
   const rollPercentLeft = currentRollTotal > 0 ? Math.round((currentRollRemaining / currentRollTotal) * 100) : 0;
-
-  const panelRef = useModalA11y(true, onClose, 'รายละเอียด SO');
 
   return (
     <div 
