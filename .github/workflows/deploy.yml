@@ -35,6 +35,7 @@ jobs:
         run: npm run build
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          VITE_OPERATOR_PASSWORD: ${{ secrets.VITE_OPERATOR_PASSWORD }}
 
       - name: Setup Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
