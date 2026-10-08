@@ -419,9 +419,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   onEditRoll,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll' | 'pattern' | 'width'>('all');
+  const [advLot, setAdvLot] = useState('');
+  const [advRoll, setAdvRoll] = useState('');
+  const [advPattern, setAdvPattern] = useState('');
+  const [advWidth, setAdvWidth] = useState('');
   const [isAdvancedDropdownOpen, setIsAdvancedDropdownOpen] = useState(false);
   const advancedDropdownRef = useRef<HTMLDivElement>(null);
+
+  const activeAdvCount = [advLot, advRoll, advPattern, advWidth].filter((v) => v.trim().length > 0).length;
 
   // ปิดเมนูค้นหาขั้นสูงเมื่อคลิกนอกพื้นที่
   useEffect(() => {
@@ -533,36 +538,55 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
   const filteredRolls = useMemo(() => {
     return sourceRolls.filter((r) => {
-      // Search filter by Lot Number, Roll Number, or All
+      // 1. General search query (from main search bar)
       const q = searchQuery.toLowerCase().trim();
-      let matchQuery = true;
       if (q) {
-        if (searchTarget === 'lot') {
-          matchQuery = r.lotNumber.toLowerCase().includes(q);
-        } else if (searchTarget === 'roll') {
-          matchQuery = r.rollNumber.toLowerCase().includes(q);
-        } else if (searchTarget === 'pattern') {
-          matchQuery = r.pattern.toLowerCase().includes(q) || normalizePattern(r.pattern).toLowerCase().includes(q);
-        } else if (searchTarget === 'width') {
-          matchQuery =
-            String(r.width).includes(q) ||
-            `${r.width}มม`.toLowerCase().includes(q) ||
-            `${r.width} มม`.toLowerCase().includes(q) ||
-            `${r.width}mm`.toLowerCase().includes(q);
-        } else {
-          matchQuery =
-            r.lotNumber.toLowerCase().includes(q) || 
-            r.rollNumber.toLowerCase().includes(q) ||
-            r.pattern.toLowerCase().includes(q) ||
-            normalizePattern(r.pattern).toLowerCase().includes(q) ||
-            String(r.width).includes(q) ||
-            (r.notes ? r.notes.toLowerCase().includes(q) : false);
+        const matchMain =
+          r.lotNumber.toLowerCase().includes(q) || 
+          r.rollNumber.toLowerCase().includes(q) ||
+          r.pattern.toLowerCase().includes(q) ||
+          normalizePattern(r.pattern).toLowerCase().includes(q) ||
+          String(r.width).includes(q) ||
+          `${r.width}มม`.includes(q) ||
+          `${r.width} มม`.includes(q) ||
+          (r.notes ? r.notes.toLowerCase().includes(q) : false);
+        if (!matchMain) return false;
+      }
+
+      // 2. Advanced Search Inputs (ช่องกรอก: lot., no., ท้อง, หน้ากว้าง)
+      if (advLot.trim()) {
+        if (!r.lotNumber.toLowerCase().includes(advLot.toLowerCase().trim())) {
+          return false;
         }
       }
 
-      return matchQuery;
+      if (advRoll.trim()) {
+        if (!r.rollNumber.toLowerCase().includes(advRoll.toLowerCase().trim())) {
+          return false;
+        }
+      }
+
+      if (advPattern.trim()) {
+        const pTerm = advPattern.toLowerCase().trim();
+        const matchesPattern =
+          r.pattern.toLowerCase().includes(pTerm) ||
+          normalizePattern(r.pattern).toLowerCase().includes(pTerm);
+        if (!matchesPattern) return false;
+      }
+
+      if (advWidth.trim()) {
+        const wTerm = advWidth.trim();
+        const matchesWidth =
+          String(r.width).includes(wTerm) ||
+          `${r.width}มม`.includes(wTerm) ||
+          `${r.width} มม`.includes(wTerm) ||
+          `${r.width}mm`.toLowerCase().includes(wTerm.toLowerCase());
+        if (!matchesWidth) return false;
+      }
+
+      return true;
     });
-  }, [sourceRolls, searchQuery, searchTarget]);
+  }, [sourceRolls, searchQuery, advLot, advRoll, advPattern, advWidth]);
 
   const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
 
@@ -1010,13 +1034,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     <div className="space-y-4">
 
       {/* ปุ่มย้อนกลับเมื่อเข้า Archive / กรองหลายชั้น */}
-      {(statusFilter === 'depleted' || searchQuery.trim()) && (
+      {(statusFilter === 'depleted' || searchQuery.trim() || activeAdvCount > 0) && (
         <button
           type="button"
           onClick={() => {
             setStatusFilter('all');
             setSearchQuery('');
-            setSearchTarget('all');
+            setAdvLot('');
+            setAdvRoll('');
+            setAdvPattern('');
+            setAdvWidth('');
           }}
           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-amber-300 text-xs font-bold shadow-sm cursor-pointer hover:bg-slate-800"
         >
@@ -1027,7 +1054,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
       {/* Top Controls: Search Bar & Filters */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
-        {/* Row 1: Search Bar (ความยาวเต็มพื้นที่) & ปุ่มค้นหาขั้นสูง Dropdown (lot., no., ท้อง, หน้ากว้าง) */}
+        {/* Row 1: Search Bar (ความยาวเต็มพื้นที่) & ปุ่มค้นหาขั้นสูง Dropdown (ช่องกรอก: lot., no., ท้อง, หน้ากว้าง) */}
         <div className="flex items-center gap-2 sm:gap-3 w-full">
           {/* Main Search Input: เพิ่มความยาวเต็มพื้นที่ flex-1 ตามกรอบสีแดง */}
           <div className="relative flex-1 min-w-0">
@@ -1041,17 +1068,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') setSearchQuery('');
                 }}
-                placeholder={
-                  searchTarget === 'lot'
-                    ? 'ค้นหาเฉพาะ lot. (เลขล็อต เช่น LOT2609-01)...'
-                    : searchTarget === 'roll'
-                    ? 'ค้นหาเฉพาะ no. (เบอร์ม้วน เช่น 01, R02)...'
-                    : searchTarget === 'pattern'
-                    ? 'ค้นหาเฉพาะ ท้อง (ลายฟอยล์ เช่น ขาว, ดำ, ไม้อ่อน)...'
-                    : searchTarget === 'width'
-                    ? 'ค้นหาเฉพาะ หน้ากว้าง (เช่น 830, 850, 900)...'
-                    : 'ค้นหาตาม lot., no., ท้อง, หน้ากว้าง...'
-                }
+                placeholder="ค้นหาด่วนตามเลขล็อต, เบอร์ม้วน, ลาย หรือ หน้ากว้าง..."
                 className="w-full pl-10 pr-14 sm:pr-24 py-2.5 text-xs sm:text-sm bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-400"
               />
               <div className="absolute right-2.5 flex items-center gap-1.5">
@@ -1072,29 +1089,26 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </div>
           </div>
 
-          {/* ปุ่มค้นหาขั้นสูง Dropdown ตามกรอบสีเหลือง: มี lot., no., ท้อง, หน้ากว้าง */}
+          {/* ปุ่มค้นหาขั้นสูง Dropdown ตามกรอบสีเหลือง: เมนูช่องกรอกข้อมูล (lot., no., ท้อง, หน้ากว้าง) */}
           <div className="relative shrink-0" ref={advancedDropdownRef}>
             <button
               type="button"
               onClick={() => setIsAdvancedDropdownOpen((prev) => !prev)}
               className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-xs cursor-pointer border ${
-                searchTarget !== 'all'
+                activeAdvCount > 0
                   ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 border-amber-500 ring-2 ring-amber-400/40'
                   : 'bg-amber-300 hover:bg-amber-400 text-amber-950 border-amber-400 hover:border-amber-500'
               }`}
-              title="ค้นหาขั้นสูง (เลือกค้นหาเฉพาะ lot., no., ท้อง, หน้ากว้าง)"
+              title="ค้นหาขั้นสูง (กรอก lot., no., ท้อง, หน้ากว้าง)"
             >
               <SlidersHorizontal className="w-4 h-4 text-amber-950 shrink-0" />
-              <span className="whitespace-nowrap">
-                {searchTarget === 'lot'
-                  ? 'lot.'
-                  : searchTarget === 'roll'
-                  ? 'no.'
-                  : searchTarget === 'pattern'
-                  ? 'ท้อง'
-                  : searchTarget === 'width'
-                  ? 'หน้ากว้าง'
-                  : 'ค้นหาขั้นสูง'}
+              <span className="whitespace-nowrap flex items-center gap-1">
+                <span>ค้นหาขั้นสูง</span>
+                {activeAdvCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-slate-900 text-amber-300 text-[10px] font-black leading-tight">
+                    {activeAdvCount}
+                  </span>
+                )}
               </span>
               <ChevronDown
                 className={`w-3.5 h-3.5 text-amber-950 transition-transform shrink-0 ${
@@ -1103,132 +1117,141 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               />
             </button>
 
-            {/* เมนู Drop Down ค้นหาขั้นสูง */}
+            {/* เมนู Drop Down ค้นหาขั้นสูง: เป็นช่องกรอกข้อมูล ไม่ใช่ช่องเลือก */}
             {isAdvancedDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] bg-white rounded-2xl border border-amber-300 shadow-xl z-50 p-2 text-xs">
-                <div className="px-2.5 py-1.5 flex items-center justify-between border-b border-slate-100 mb-1">
-                  <span className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
-                    ค้นหาขั้นสูง
-                  </span>
-                  {searchTarget !== 'all' && (
+              <div className="absolute right-0 top-full mt-1.5 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-white rounded-2xl border border-amber-300 shadow-2xl z-50 p-3.5 text-xs animate-in fade-in zoom-in-95 duration-100">
+                {/* Header */}
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 mb-3">
+                  <div className="flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-4 h-4 text-amber-600" />
+                    <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                      ค้นหาขั้นสูง (ช่องกรอกข้อมูล)
+                    </span>
+                  </div>
+                  {activeAdvCount > 0 && (
                     <button
                       type="button"
                       onClick={() => {
-                        setSearchTarget('all');
-                        setIsAdvancedDropdownOpen(false);
+                        setAdvLot('');
+                        setAdvRoll('');
+                        setAdvPattern('');
+                        setAdvWidth('');
                       }}
                       className="text-[11px] text-rose-600 hover:underline font-semibold cursor-pointer"
                     >
-                      ล้างตัวเลือก
+                      ล้างค่าที่กรอก ({activeAdvCount})
                     </button>
                   )}
                 </div>
 
-                <div className="space-y-1">
-                  {/* ทั้งหมด */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchTarget('all');
-                      setIsAdvancedDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left cursor-pointer transition-colors ${
-                      searchTarget === 'all'
-                        ? 'bg-amber-100 text-amber-950 font-bold'
-                        : 'hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Search className="w-4 h-4 text-slate-500" />
-                      <div>
-                        <div className="font-bold">ทั้งหมด (All)</div>
-                        <div className="text-[10px] text-slate-500">ทุกล็อต / เบอร์ม้วน / ท้อง / หน้ากว้าง</div>
-                      </div>
+                {/* 4 Input Fields: lot., no., ท้อง, หน้ากว้าง */}
+                <div className="space-y-3">
+                  {/* 1. lot. (เลขล็อต) */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Tag className="w-3.5 h-3.5 text-amber-600" />
+                        <span>lot. (เลขล็อต)</span>
+                      </span>
+                      {advLot && (
+                        <span className="text-[10px] text-amber-700 font-semibold">กำลังกรอง</span>
+                      )}
+                    </label>
+                    <div className="relative flex items-center">
+                      <input
+                        type="text"
+                        value={advLot}
+                        onChange={(e) => setAdvLot(e.target.value)}
+                        placeholder="กรอกเลขล็อต เช่น LOT2609-01..."
+                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 font-medium placeholder:text-slate-400 transition-colors"
+                      />
+                      {advLot && (
+                        <button
+                          type="button"
+                          onClick={() => setAdvLot('')}
+                          className="absolute right-2 p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                          title="ล้างช่องนี้"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
-                    {searchTarget === 'all' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
-                  </button>
+                  </div>
 
-                  {/* lot. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchTarget('lot');
-                      setIsAdvancedDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left cursor-pointer transition-colors ${
-                      searchTarget === 'lot'
-                        ? 'bg-amber-100 text-amber-950 font-bold'
-                        : 'hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Tag className="w-4 h-4 text-amber-600" />
-                      <div>
-                        <div className="font-bold">lot.</div>
-                        <div className="text-[10px] text-slate-500">เลขล็อต (Lot No.) เช่น LOT2609-01</div>
-                      </div>
+                  {/* 2. no. (เบอร์ม้วน) */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Hash className="w-3.5 h-3.5 text-amber-600" />
+                        <span>no. (เบอร์ม้วน)</span>
+                      </span>
+                      {advRoll && (
+                        <span className="text-[10px] text-amber-700 font-semibold">กำลังกรอง</span>
+                      )}
+                    </label>
+                    <div className="relative flex items-center">
+                      <input
+                        type="text"
+                        value={advRoll}
+                        onChange={(e) => setAdvRoll(e.target.value)}
+                        placeholder="กรอกเบอร์ม้วน เช่น 01, R02..."
+                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 font-medium placeholder:text-slate-400 transition-colors"
+                      />
+                      {advRoll && (
+                        <button
+                          type="button"
+                          onClick={() => setAdvRoll('')}
+                          className="absolute right-2 p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                          title="ล้างช่องนี้"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
-                    {searchTarget === 'lot' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
-                  </button>
+                  </div>
 
-                  {/* no. */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchTarget('roll');
-                      setIsAdvancedDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left cursor-pointer transition-colors ${
-                      searchTarget === 'roll'
-                        ? 'bg-amber-100 text-amber-950 font-bold'
-                        : 'hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Hash className="w-4 h-4 text-amber-600" />
-                      <div>
-                        <div className="font-bold">no.</div>
-                        <div className="text-[10px] text-slate-500">เบอร์ม้วน (Roll No.) เช่น 01, R02</div>
-                      </div>
+                  {/* 3. ท้อง (ท้องฟอยล์ / ลาย) */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Layers className="w-3.5 h-3.5 text-amber-600" />
+                        <span>ท้อง (ท้องฟอยล์ / ลาย)</span>
+                      </span>
+                      {advPattern && (
+                        <span className="text-[10px] text-amber-700 font-semibold">กำลังกรอง</span>
+                      )}
+                    </label>
+                    <div className="relative flex items-center">
+                      <input
+                        type="text"
+                        value={advPattern}
+                        onChange={(e) => setAdvPattern(e.target.value)}
+                        placeholder="กรอกลาย เช่น ขาว, ดำ, ไม้อ่อน..."
+                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 font-medium placeholder:text-slate-400 transition-colors"
+                      />
+                      {advPattern && (
+                        <button
+                          type="button"
+                          onClick={() => setAdvPattern('')}
+                          className="absolute right-2 p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                          title="ล้างช่องนี้"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
-                    {searchTarget === 'roll' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
-                  </button>
-
-                  {/* ท้อง */}
-                  <div className={`p-2 rounded-xl transition-colors ${searchTarget === 'pattern' ? 'bg-amber-50/80 border border-amber-200' : 'hover:bg-slate-50'}`}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchTarget('pattern');
-                        setIsAdvancedDropdownOpen(false);
-                      }}
-                      className="w-full flex items-center justify-between text-left cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-amber-600" />
-                        <div>
-                          <div className="font-bold text-slate-900">ท้อง</div>
-                          <div className="text-[10px] text-slate-500">ท้องฟอยล์ / ลาย (Pattern)</div>
-                        </div>
-                      </div>
-                      {searchTarget === 'pattern' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
-                    </button>
-                    {/* ตัวเลือกลายด่วน */}
-                    <div className="mt-2 flex flex-wrap gap-1 pl-6">
+                    {/* Quick fill chips */}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      <span className="text-[10px] text-slate-400 mr-0.5">เลือกด่วน:</span>
                       {STANDARD_PATTERNS.map((p) => (
                         <button
                           key={p.value}
                           type="button"
-                          onClick={() => {
-                            setSearchTarget('pattern');
-                            setSearchQuery(p.value);
-                            setIsAdvancedDropdownOpen(false);
-                          }}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium border cursor-pointer transition-colors ${
-                            searchTarget === 'pattern' && searchQuery === p.value
+                          onClick={() => setAdvPattern(advPattern === p.value ? '' : p.value)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium border cursor-pointer transition-colors ${
+                            advPattern === p.value
                               ? 'bg-amber-500 text-slate-950 font-bold border-amber-600'
-                              : 'bg-white hover:bg-amber-100 text-slate-700 border-slate-200'
+                              : 'bg-slate-100 hover:bg-amber-100 text-slate-700 border-slate-200'
                           }`}
                         >
                           {p.label}
@@ -1237,40 +1260,48 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     </div>
                   </div>
 
-                  {/* หน้ากว้าง */}
-                  <div className={`p-2 rounded-xl transition-colors ${searchTarget === 'width' ? 'bg-amber-50/80 border border-amber-200' : 'hover:bg-slate-50'}`}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchTarget('width');
-                        setIsAdvancedDropdownOpen(false);
-                      }}
-                      className="w-full flex items-center justify-between text-left cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <SlidersHorizontal className="w-4 h-4 text-amber-600" />
-                        <div>
-                          <div className="font-bold text-slate-900">หน้ากว้าง</div>
-                          <div className="text-[10px] text-slate-500">หน้ากว้างฟอยล์ (มม.)</div>
-                        </div>
-                      </div>
-                      {searchTarget === 'width' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
-                    </button>
-                    {/* ตัวเลือกหน้ากว้างด่วน */}
-                    <div className="mt-2 flex flex-wrap gap-1 pl-6">
+                  {/* 4. หน้ากว้าง (มม.) */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
+                        <span>หน้ากว้าง (มม.)</span>
+                      </span>
+                      {advWidth && (
+                        <span className="text-[10px] text-amber-700 font-semibold">กำลังกรอง</span>
+                      )}
+                    </label>
+                    <div className="relative flex items-center">
+                      <input
+                        type="text"
+                        value={advWidth}
+                        onChange={(e) => setAdvWidth(e.target.value)}
+                        placeholder="กรอกหน้ากว้าง เช่น 830, 850..."
+                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 font-medium placeholder:text-slate-400 transition-colors"
+                      />
+                      {advWidth && (
+                        <button
+                          type="button"
+                          onClick={() => setAdvWidth('')}
+                          className="absolute right-2 p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                          title="ล้างช่องนี้"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    {/* Quick fill chips */}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      <span className="text-[10px] text-slate-400 mr-0.5">เลือกด่วน:</span>
                       {STANDARD_WIDTHS.map((w) => (
                         <button
                           key={w}
                           type="button"
-                          onClick={() => {
-                            setSearchTarget('width');
-                            setSearchQuery(String(w));
-                            setIsAdvancedDropdownOpen(false);
-                          }}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium border cursor-pointer transition-colors ${
-                            searchTarget === 'width' && searchQuery === String(w)
+                          onClick={() => setAdvWidth(advWidth === String(w) ? '' : String(w))}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium border cursor-pointer transition-colors ${
+                            advWidth === String(w)
                               ? 'bg-amber-500 text-slate-950 font-bold border-amber-600'
-                              : 'bg-white hover:bg-amber-100 text-slate-700 border-slate-200'
+                              : 'bg-slate-100 hover:bg-amber-100 text-slate-700 border-slate-200'
                           }`}
                         >
                           {w} มม.
@@ -1279,32 +1310,108 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Footer Actions */}
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-600 font-medium">
+                    ผลการกรอง: <strong className="text-amber-700 font-bold">{filteredRolls.length}</strong> ม้วน
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsAdvancedDropdownOpen(false)}
+                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold rounded-xl text-xs cursor-pointer shadow-xs transition-colors"
+                  >
+                    ปิดหน้าต่าง
+                  </button>
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Active Search Summary Notification Banner */}
-        {searchQuery.trim() && (
-          <div className="flex items-center justify-between bg-amber-50/90 border border-amber-200 px-3.5 py-2 rounded-xl text-xs text-amber-950">
-            <div className="flex items-center gap-2">
-              <Search className="w-3.5 h-3.5 text-amber-600" />
-              <span>
-                กำลังกรองด้วยคำค้นหา: <strong className="font-mono font-bold text-slate-900">"{searchQuery}"</strong>{' '}
-                <span className="text-slate-600">
-                  ({searchTarget === 'lot' ? 'เฉพาะ lot.' : searchTarget === 'roll' ? 'เฉพาะ no.' : searchTarget === 'pattern' ? 'เฉพาะ ท้อง' : searchTarget === 'width' ? 'เฉพาะ หน้ากว้าง' : 'ทุกล็อต/เบอร์ม้วน/ท้อง/หน้ากว้าง'})
+        {/* Active Search & Advanced Filter Summary Notification Banner */}
+        {(searchQuery.trim() || activeAdvCount > 0) && (
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-amber-50/90 border border-amber-200 px-3.5 py-2 rounded-xl text-xs text-amber-950">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Search className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>กำลังกรอง:</span>
+              {searchQuery.trim() && (
+                <span className="inline-flex items-center gap-1 bg-white border border-amber-300 px-2 py-0.5 rounded-md font-medium text-slate-800">
+                  ค้นหา: <strong className="font-mono text-slate-950">{searchQuery}</strong>
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="text-slate-400 hover:text-rose-600 ml-0.5 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
                 </span>
-                {' • '}
-                พบ <strong className="text-amber-800 font-bold">{filteredRolls.length}</strong> ม้วน
+              )}
+              {advLot.trim() && (
+                <span className="inline-flex items-center gap-1 bg-amber-200/90 border border-amber-400 px-2 py-0.5 rounded-md font-medium text-amber-950">
+                  lot: <strong>{advLot}</strong>
+                  <button
+                    type="button"
+                    onClick={() => setAdvLot('')}
+                    className="text-amber-800 hover:text-rose-600 ml-0.5 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {advRoll.trim() && (
+                <span className="inline-flex items-center gap-1 bg-amber-200/90 border border-amber-400 px-2 py-0.5 rounded-md font-medium text-amber-950">
+                  no: <strong>{advRoll}</strong>
+                  <button
+                    type="button"
+                    onClick={() => setAdvRoll('')}
+                    className="text-amber-800 hover:text-rose-600 ml-0.5 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {advPattern.trim() && (
+                <span className="inline-flex items-center gap-1 bg-amber-200/90 border border-amber-400 px-2 py-0.5 rounded-md font-medium text-amber-950">
+                  ท้อง: <strong>{advPattern}</strong>
+                  <button
+                    type="button"
+                    onClick={() => setAdvPattern('')}
+                    className="text-amber-800 hover:text-rose-600 ml-0.5 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {advWidth.trim() && (
+                <span className="inline-flex items-center gap-1 bg-amber-200/90 border border-amber-400 px-2 py-0.5 rounded-md font-medium text-amber-950">
+                  หน้ากว้าง: <strong>{advWidth} มม.</strong>
+                  <button
+                    type="button"
+                    onClick={() => setAdvWidth('')}
+                    className="text-amber-800 hover:text-rose-600 ml-0.5 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              <span className="text-slate-500">
+                • พบ <strong className="text-amber-800 font-bold">{filteredRolls.length}</strong> ม้วน
               </span>
             </div>
             <button
               type="button"
-              onClick={() => setSearchQuery('')}
-              className="text-xs font-semibold text-amber-900 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
+              onClick={() => {
+                setSearchQuery('');
+                setAdvLot('');
+                setAdvRoll('');
+                setAdvPattern('');
+                setAdvWidth('');
+              }}
+              className="text-xs font-semibold text-amber-900 hover:text-rose-700 flex items-center gap-1 cursor-pointer shrink-0 ml-auto"
             >
               <X className="w-3.5 h-3.5" />
-              <span>ล้างคำค้น</span>
+              <span>ล้างคำค้นทั้งหมด</span>
             </button>
           </div>
         )}
@@ -1436,11 +1543,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </div>
           )}
 
-          {(searchQuery || statusFilter !== 'all' || searchTarget !== 'all') && (
+          {(searchQuery || statusFilter !== 'all' || activeAdvCount > 0) && (
             <button
               onClick={() => {
                 setSearchQuery('');
-                setSearchTarget('all');
+                setAdvLot('');
+                setAdvRoll('');
+                setAdvPattern('');
+                setAdvWidth('');
                 setStatusFilter('all');
               }}
               className="text-xs text-rose-600 hover:underline ml-auto cursor-pointer font-medium"
@@ -1534,12 +1644,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               {isLoadingArchive ? 'กำลังโหลด...' : 'โหลดคลังข้อมูลเก่าจาก Cloud'}
             </button>
           )}
-          {(searchQuery || statusFilter !== 'all') && (
+          {(searchQuery || statusFilter !== 'all' || activeAdvCount > 0) && (
             <button
               type="button"
               onClick={() => {
                 setSearchQuery('');
-                setSearchTarget('all');
+                setAdvLot('');
+                setAdvRoll('');
+                setAdvPattern('');
+                setAdvWidth('');
                 setStatusFilter('all');
               }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer mx-auto"
