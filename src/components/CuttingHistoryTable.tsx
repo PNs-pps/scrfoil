@@ -555,15 +555,25 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       {/* STICKY SO COLUMN: Always visible when scrolling horizontally */}
                       <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-2 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
                         <div className="flex items-center gap-1.5 min-w-[120px]">
-                          <span
-                            className={`font-mono font-black text-xs px-2 py-0.5 rounded-lg border shadow-2xs ${
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isFoil && item.rawFoil) {
+                                setSelectedDetailRecord(item.rawFoil);
+                              } else if (!isFoil && item.rawSandwich) {
+                                setSelectedSandwichDetail(item.rawSandwich);
+                              }
+                            }}
+                            title="คลิกเพื่อดูรายละเอียดใบ SO แบบเต็ม"
+                            className={`font-mono font-black text-xs px-2.5 py-1 rounded-lg border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1 text-left ${
                               isFoil
-                                ? 'bg-amber-50 text-amber-950 border-amber-200'
-                                : 'bg-emerald-50 text-emerald-950 border-emerald-200'
+                                ? 'bg-amber-50 text-amber-950 border-amber-300 hover:bg-amber-100 hover:border-amber-400'
+                                : 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400'
                             }`}
                           >
-                            {item.soNumber}
-                          </span>
+                            <span>{item.soNumber}</span>
+                            <FileText className="w-3 h-3 opacity-60 ml-0.5 shrink-0" />
+                          </button>
                         </div>
                       </td>
 
@@ -587,7 +597,17 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       </td>
 
                       {/* Details / Lot / Coil */}
-                      <td className="px-3 py-2">
+                      <td
+                        className="px-3 py-2 cursor-pointer hover:bg-slate-100/60 transition-colors"
+                        onClick={() => {
+                          if (isFoil && item.rawFoil) {
+                            setSelectedDetailRecord(item.rawFoil);
+                          } else if (!isFoil && item.rawSandwich) {
+                            setSelectedSandwichDetail(item.rawSandwich);
+                          }
+                        }}
+                        title="คลิกเพื่อดูรายละเอียดใบ SO"
+                      >
                         {isFoil && item.rawFoil ? (
                           <div className="flex items-center gap-1.5 max-w-[320px]">
                             <div className="inline-flex items-center gap-1 bg-black text-white px-2 py-0.5 rounded-md border border-slate-800 shadow-2xs shrink-0">
@@ -741,16 +761,18 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
       </div>
 
       {/* Pop-up Modal: Foil SO Cut Details */}
-      <SODetailModal
-        record={selectedDetailRecord}
-        rolls={rolls || []}
-        records={records}
-        onClose={() => setSelectedDetailRecord(null)}
-        onDeleteRecord={onDeleteRecord}
-        onEditRecord={onEditRecord}
-        userMode={userMode}
-        onRequestUnlock={onRequestUnlock}
-      />
+      {selectedDetailRecord && (
+        <SODetailModal
+          record={selectedDetailRecord}
+          rolls={rolls || []}
+          records={records}
+          onClose={() => setSelectedDetailRecord(null)}
+          onDeleteRecord={onDeleteRecord}
+          onEditRecord={onEditRecord}
+          userMode={userMode}
+          onRequestUnlock={onRequestUnlock}
+        />
+      )}
 
       {/* Pop-up Modal: Sandwich SO Cut Details */}
       {selectedSandwichDetail && (

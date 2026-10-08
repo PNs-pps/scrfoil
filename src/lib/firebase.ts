@@ -355,6 +355,7 @@ export function subscribeToFoilRolls(
  */
 export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
   try {
+    // 1. First try query by status == 'depleted'
     const q = query(collection(db, ROLLS_COLLECTION), where('status', '==', 'depleted'));
     const snapshot = await getDocs(q);
     const rolls: FoilRoll[] = [];
@@ -362,6 +363,24 @@ export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
       const data = docSnap.data() as FoilRoll;
       rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
     });
+
+    // 2. Also check if there are rolls with remainingMeters <= 0 or isZeroedOut that didn't have status == 'depleted'
+    try {
+      const allSnap = await getDocs(collection(db, ROLLS_COLLECTION));
+      const seenIds = new Set(rolls.map((r) => r.id));
+      allSnap.forEach((docSnap) => {
+        const data = docSnap.data() as FoilRoll;
+        if (!seenIds.has(data.id)) {
+          if (data.status === 'depleted' || data.isZeroedOut || Number(data.remainingMeters) <= 0) {
+            rolls.push({ ...data, pattern: normalizePattern(data.pattern) });
+            seenIds.add(data.id);
+          }
+        }
+      });
+    } catch (fallbackErr) {
+      console.warn('Fallback depleted check warning:', fallbackErr);
+    }
+
     rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     if (rolls.length > 0) {
       try {

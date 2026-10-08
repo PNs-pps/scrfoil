@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS, isRollUnused } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { formatMeters } from '../utils/formatters';
@@ -419,9 +419,27 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   onEditRoll,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll'>('all');
-  const [selectedWidth, setSelectedWidth] = useState<string>('all');
-  const [selectedPattern, setSelectedPattern] = useState<string>('all');
+  const [searchTarget, setSearchTarget] = useState<'all' | 'lot' | 'roll' | 'pattern' | 'width'>('all');
+  const [isAdvancedDropdownOpen, setIsAdvancedDropdownOpen] = useState(false);
+  const advancedDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ปิดเมนูค้นหาขั้นสูงเมื่อคลิกนอกพื้นที่
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        advancedDropdownRef.current &&
+        !advancedDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsAdvancedDropdownOpen(false);
+      }
+    };
+    if (isAdvancedDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isAdvancedDropdownOpen]);
   // เปิดแท็บ "ใช้งาน" เป็นค่าเริ่มต้น — แสดงเฉพาะม้วนที่มีการตัดแล้ว ลดงานเรนเดอร์
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_use' | 'unused' | 'depleted'>('in_use');
   const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
@@ -440,18 +458,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   );
   const activeCount = inUseCount + unusedCount;
 
-  // Source list: แยกม้วนเต็มที่ยังไม่มีการใช้งาน กับม้วนที่มีการใช้งานแล้ว
+  // Source list: แยกม้วนเต็มที่ยังไม่มีการใช้งาน กับม้วนที่มีการใช้งานแล้ว และม้วนที่หมดแล้ว
   const sourceRolls = useMemo(() => {
     if (statusFilter === 'depleted') {
       const localDepleted = rolls.filter(
         (r) => r.remainingMeters <= 0 || r.status === 'depleted' || r.isZeroedOut
       );
-      if (archiveLoaded) {
-        const byId = new Map<string, FoilRoll>();
-        [...archivedRolls, ...localDepleted].forEach((r) => byId.set(r.id, r));
-        return Array.from(byId.values());
-      }
-      return localDepleted;
+      const byId = new Map<string, FoilRoll>();
+      [...archivedRolls, ...localDepleted].forEach((r) => byId.set(r.id, r));
+      return Array.from(byId.values());
     }
     if (statusFilter === 'in_use') {
       return rolls.filter(
@@ -463,8 +478,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r)
       );
     }
-    return rolls;
-  }, [rolls, archivedRolls, archiveLoaded, statusFilter]);
+    // 'all' รวมทั้งม้วนพร้อมใช้และม้วนหมดแล้ว
+    const byId = new Map<string, FoilRoll>();
+    [...rolls, ...archivedRolls].forEach((r) => byId.set(r.id, r));
+    return Array.from(byId.values());
+  }, [rolls, archivedRolls, statusFilter]);
 
   // Unique lots for quick 1-click filter chips
   const uniqueLots = useMemo(() => {
@@ -477,19 +495,26 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     return Array.from(set).slice(0, 8);
   }, [sourceRolls]);
 
+  // ค่าเริ่มต้น: ปิดพับอยู่ในโฟลเดอร์ ให้ผู้ใช้กดเลือกเปิดดูเอง
   const toggleGroup = (key: string) => {
-    setCollapsedGroups(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+    setCollapsedGroups(prev => {
+      const current = prev[key] ?? true; // default collapsed is true
+      return {
+        ...prev,
+        [key]: !current
+      };
+    });
   };
 
   const toggleSubGroup = (key: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setCollapsedSubGroups(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+    setCollapsedSubGroups(prev => {
+      const current = prev[key] ?? true; // default collapsed is true
+      return {
+        ...prev,
+        [key]: !current
+      };
+    });
   };
 
   const toggleAllGroups = (expand: boolean) => {
@@ -516,27 +541,28 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           matchQuery = r.lotNumber.toLowerCase().includes(q);
         } else if (searchTarget === 'roll') {
           matchQuery = r.rollNumber.toLowerCase().includes(q);
+        } else if (searchTarget === 'pattern') {
+          matchQuery = r.pattern.toLowerCase().includes(q) || normalizePattern(r.pattern).toLowerCase().includes(q);
+        } else if (searchTarget === 'width') {
+          matchQuery =
+            String(r.width).includes(q) ||
+            `${r.width}มม`.toLowerCase().includes(q) ||
+            `${r.width} มม`.toLowerCase().includes(q) ||
+            `${r.width}mm`.toLowerCase().includes(q);
         } else {
           matchQuery =
             r.lotNumber.toLowerCase().includes(q) || 
             r.rollNumber.toLowerCase().includes(q) ||
             r.pattern.toLowerCase().includes(q) ||
+            normalizePattern(r.pattern).toLowerCase().includes(q) ||
+            String(r.width).includes(q) ||
             (r.notes ? r.notes.toLowerCase().includes(q) : false);
         }
       }
 
-      // Width with numeric and string normalization
-      const matchWidth = selectedWidth === 'all' || String(r.width) === selectedWidth || Number(r.width) === Number(selectedWidth);
-
-      // Pattern with canonical normalization (e.g. ท้องขาว vs ขาว)
-      const matchPattern = selectedPattern === 'all' || normalizePattern(r.pattern) === normalizePattern(selectedPattern);
-
-      // Status is already handled cleanly in sourceRolls
-      const matchStatus = true;
-
-      return matchQuery && matchWidth && matchPattern && matchStatus;
+      return matchQuery;
     });
-  }, [sourceRolls, searchQuery, searchTarget, selectedWidth, selectedPattern, statusFilter]);
+  }, [sourceRolls, searchQuery, searchTarget]);
 
   const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
 
@@ -735,7 +761,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }
 
     return null;
-  }, [groupBy, filteredRolls, selectedWidth, selectedPattern, rolls]);
+  }, [groupBy, filteredRolls, rolls]);
 
   // Highlight matched search term in text
   const highlightMatch = (text: string, query: string) => {
@@ -984,13 +1010,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     <div className="space-y-4">
 
       {/* ปุ่มย้อนกลับเมื่อเข้า Archive / กรองหลายชั้น */}
-      {(statusFilter === 'depleted' || selectedWidth !== 'all' || selectedPattern !== 'all' || searchQuery.trim()) && (
+      {(statusFilter === 'depleted' || searchQuery.trim()) && (
         <button
           type="button"
           onClick={() => {
             setStatusFilter('all');
-            setSelectedWidth('all');
-            setSelectedPattern('all');
             setSearchQuery('');
             setSearchTarget('all');
           }}
@@ -1003,10 +1027,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
       {/* Top Controls: Search Bar & Filters */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
-        {/* Row 1: Search Bar & Target Mode & Actions */}
-        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-          {/* Main Search Input */}
-          <div className="relative flex-1">
+        {/* Row 1: Search Bar (ความยาวเต็มพื้นที่) & ปุ่มค้นหาขั้นสูง Dropdown (lot., no., ท้อง, หน้ากว้าง) */}
+        <div className="flex items-center gap-2 sm:gap-3 w-full">
+          {/* Main Search Input: เพิ่มความยาวเต็มพื้นที่ flex-1 ตามกรอบสีแดง */}
+          <div className="relative flex-1 min-w-0">
             <div className="relative flex items-center">
               <Search className="w-4 h-4 text-amber-500 absolute left-3.5 pointer-events-none" />
               <input
@@ -1019,12 +1043,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 }}
                 placeholder={
                   searchTarget === 'lot'
-                    ? 'ค้นหาเฉพาะเลขล็อต (Lot Number) เช่น LOT2609-01...'
+                    ? 'ค้นหาเฉพาะ lot. (เลขล็อต เช่น LOT2609-01)...'
                     : searchTarget === 'roll'
-                    ? 'ค้นหาเฉพาะเบอร์ม้วน (Roll Number) เช่น R01, R02...'
-                    : 'ค้นหาด่วนตามเลขล็อต (Lot No.) หรือ เบอร์ม้วน (Roll No.)...'
+                    ? 'ค้นหาเฉพาะ no. (เบอร์ม้วน เช่น 01, R02)...'
+                    : searchTarget === 'pattern'
+                    ? 'ค้นหาเฉพาะ ท้อง (ลายฟอยล์ เช่น ขาว, ดำ, ไม้อ่อน)...'
+                    : searchTarget === 'width'
+                    ? 'ค้นหาเฉพาะ หน้ากว้าง (เช่น 830, 850, 900)...'
+                    : 'ค้นหาตาม lot., no., ท้อง, หน้ากว้าง...'
                 }
-                className="w-full pl-10 pr-24 py-2.5 text-sm bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-400"
+                className="w-full pl-10 pr-14 sm:pr-24 py-2.5 text-xs sm:text-sm bg-slate-50 hover:bg-slate-100/60 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all font-medium placeholder:text-slate-400"
               />
               <div className="absolute right-2.5 flex items-center gap-1.5">
                 {searchQuery ? (
@@ -1044,46 +1072,216 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </div>
           </div>
 
-          {/* Search Scope Filter Buttons */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs shrink-0">
+          {/* ปุ่มค้นหาขั้นสูง Dropdown ตามกรอบสีเหลือง: มี lot., no., ท้อง, หน้ากว้าง */}
+          <div className="relative shrink-0" ref={advancedDropdownRef}>
             <button
               type="button"
-              onClick={() => setSearchTarget('all')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                searchTarget === 'all'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+              onClick={() => setIsAdvancedDropdownOpen((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-xs cursor-pointer border ${
+                searchTarget !== 'all'
+                  ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 border-amber-500 ring-2 ring-amber-400/40'
+                  : 'bg-amber-300 hover:bg-amber-400 text-amber-950 border-amber-400 hover:border-amber-500'
               }`}
+              title="ค้นหาขั้นสูง (เลือกค้นหาเฉพาะ lot., no., ท้อง, หน้ากว้าง)"
             >
-              <span>ทั้งหมด</span>
+              <SlidersHorizontal className="w-4 h-4 text-amber-950 shrink-0" />
+              <span className="whitespace-nowrap">
+                {searchTarget === 'lot'
+                  ? 'lot.'
+                  : searchTarget === 'roll'
+                  ? 'no.'
+                  : searchTarget === 'pattern'
+                  ? 'ท้อง'
+                  : searchTarget === 'width'
+                  ? 'หน้ากว้าง'
+                  : 'ค้นหาขั้นสูง'}
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-amber-950 transition-transform shrink-0 ${
+                  isAdvancedDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
             </button>
-            <button
-              type="button"
-              onClick={() => setSearchTarget('lot')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                searchTarget === 'lot'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Tag className="w-3 h-3 text-amber-950" />
-              <span>เลขล็อต (Lot No.)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSearchTarget('roll')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                searchTarget === 'roll'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Hash className="w-3 h-3 text-amber-950" />
-              <span>เบอร์ม้วน (Roll No.)</span>
-            </button>
+
+            {/* เมนู Drop Down ค้นหาขั้นสูง */}
+            {isAdvancedDropdownOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] bg-white rounded-2xl border border-amber-300 shadow-xl z-50 p-2 text-xs">
+                <div className="px-2.5 py-1.5 flex items-center justify-between border-b border-slate-100 mb-1">
+                  <span className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
+                    ค้นหาขั้นสูง
+                  </span>
+                  {searchTarget !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTarget('all');
+                        setIsAdvancedDropdownOpen(false);
+                      }}
+                      className="text-[11px] text-rose-600 hover:underline font-semibold cursor-pointer"
+                    >
+                      ล้างตัวเลือก
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  {/* ทั้งหมด */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTarget('all');
+                      setIsAdvancedDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left cursor-pointer transition-colors ${
+                      searchTarget === 'all'
+                        ? 'bg-amber-100 text-amber-950 font-bold'
+                        : 'hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Search className="w-4 h-4 text-slate-500" />
+                      <div>
+                        <div className="font-bold">ทั้งหมด (All)</div>
+                        <div className="text-[10px] text-slate-500">ทุกล็อต / เบอร์ม้วน / ท้อง / หน้ากว้าง</div>
+                      </div>
+                    </div>
+                    {searchTarget === 'all' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
+                  </button>
+
+                  {/* lot. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTarget('lot');
+                      setIsAdvancedDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left cursor-pointer transition-colors ${
+                      searchTarget === 'lot'
+                        ? 'bg-amber-100 text-amber-950 font-bold'
+                        : 'hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Tag className="w-4 h-4 text-amber-600" />
+                      <div>
+                        <div className="font-bold">lot.</div>
+                        <div className="text-[10px] text-slate-500">เลขล็อต (Lot No.) เช่น LOT2609-01</div>
+                      </div>
+                    </div>
+                    {searchTarget === 'lot' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
+                  </button>
+
+                  {/* no. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTarget('roll');
+                      setIsAdvancedDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left cursor-pointer transition-colors ${
+                      searchTarget === 'roll'
+                        ? 'bg-amber-100 text-amber-950 font-bold'
+                        : 'hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Hash className="w-4 h-4 text-amber-600" />
+                      <div>
+                        <div className="font-bold">no.</div>
+                        <div className="text-[10px] text-slate-500">เบอร์ม้วน (Roll No.) เช่น 01, R02</div>
+                      </div>
+                    </div>
+                    {searchTarget === 'roll' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
+                  </button>
+
+                  {/* ท้อง */}
+                  <div className={`p-2 rounded-xl transition-colors ${searchTarget === 'pattern' ? 'bg-amber-50/80 border border-amber-200' : 'hover:bg-slate-50'}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTarget('pattern');
+                        setIsAdvancedDropdownOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between text-left cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-amber-600" />
+                        <div>
+                          <div className="font-bold text-slate-900">ท้อง</div>
+                          <div className="text-[10px] text-slate-500">ท้องฟอยล์ / ลาย (Pattern)</div>
+                        </div>
+                      </div>
+                      {searchTarget === 'pattern' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
+                    </button>
+                    {/* ตัวเลือกลายด่วน */}
+                    <div className="mt-2 flex flex-wrap gap-1 pl-6">
+                      {STANDARD_PATTERNS.map((p) => (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => {
+                            setSearchTarget('pattern');
+                            setSearchQuery(p.value);
+                            setIsAdvancedDropdownOpen(false);
+                          }}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium border cursor-pointer transition-colors ${
+                            searchTarget === 'pattern' && searchQuery === p.value
+                              ? 'bg-amber-500 text-slate-950 font-bold border-amber-600'
+                              : 'bg-white hover:bg-amber-100 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* หน้ากว้าง */}
+                  <div className={`p-2 rounded-xl transition-colors ${searchTarget === 'width' ? 'bg-amber-50/80 border border-amber-200' : 'hover:bg-slate-50'}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTarget('width');
+                        setIsAdvancedDropdownOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between text-left cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <SlidersHorizontal className="w-4 h-4 text-amber-600" />
+                        <div>
+                          <div className="font-bold text-slate-900">หน้ากว้าง</div>
+                          <div className="text-[10px] text-slate-500">หน้ากว้างฟอยล์ (มม.)</div>
+                        </div>
+                      </div>
+                      {searchTarget === 'width' && <CheckCircle2 className="w-4 h-4 text-amber-700" />}
+                    </button>
+                    {/* ตัวเลือกหน้ากว้างด่วน */}
+                    <div className="mt-2 flex flex-wrap gap-1 pl-6">
+                      {STANDARD_WIDTHS.map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => {
+                            setSearchTarget('width');
+                            setSearchQuery(String(w));
+                            setIsAdvancedDropdownOpen(false);
+                          }}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium border cursor-pointer transition-colors ${
+                            searchTarget === 'width' && searchQuery === String(w)
+                              ? 'bg-amber-500 text-slate-950 font-bold border-amber-600'
+                              : 'bg-white hover:bg-amber-100 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          {w} มม.
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-
-
         </div>
 
         {/* Active Search Summary Notification Banner */}
@@ -1094,7 +1292,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               <span>
                 กำลังกรองด้วยคำค้นหา: <strong className="font-mono font-bold text-slate-900">"{searchQuery}"</strong>{' '}
                 <span className="text-slate-600">
-                  ({searchTarget === 'lot' ? 'เฉพาะเลขล็อต' : searchTarget === 'roll' ? 'เฉพาะเบอร์ม้วน' : 'ทุกล็อต/เบอร์ม้วน/ลาย'})
+                  ({searchTarget === 'lot' ? 'เฉพาะ lot.' : searchTarget === 'roll' ? 'เฉพาะ no.' : searchTarget === 'pattern' ? 'เฉพาะ ท้อง' : searchTarget === 'width' ? 'เฉพาะ หน้ากว้าง' : 'ทุกล็อต/เบอร์ม้วน/ท้อง/หน้ากว้าง'})
                 </span>
                 {' • '}
                 พบ <strong className="text-amber-800 font-bold">{filteredRolls.length}</strong> ม้วน
@@ -1111,10 +1309,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           </div>
         )}
 
-        {/* Row 2: Group By Categorization & Filter Pills */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+        {/* Row 2: Group By Categorization & Status Tabs (ลบฟิลด์หน้ากว้างและท้องออกตามคำขอ) */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
           {/* Group By Categorization Selector */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs mr-1">
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
             <span className="px-2 py-1 text-slate-500 font-semibold flex items-center gap-1">
               <FolderTree className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">จัดหมวดหมู่:</span>
@@ -1154,55 +1352,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </button>
           </div>
 
-          {groupBy !== 'none' && groupedData && groupedData.length > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 rounded-lg text-slate-600 font-medium">
-              <button
-                type="button"
-                onClick={() => toggleAllGroups(true)}
-                className="hover:text-amber-800 hover:underline cursor-pointer"
-              >
-                เปิดทั้งหมด
-              </button>
-              <span className="text-slate-300">|</span>
-              <button
-                type="button"
-                onClick={() => toggleAllGroups(false)}
-                className="hover:text-amber-800 hover:underline cursor-pointer"
-              >
-                ย่อทั้งหมด
-              </button>
-            </div>
-          )}
-
-          <div className="flex items-center gap-1 text-slate-500 mr-1 font-medium">
-            <Filter className="w-3.5 h-3.5" />
-            <span>กรองตาม:</span>
-          </div>
-
-          {/* Width Filter */}
-          <select
-            value={selectedWidth}
-            onChange={(e) => setSelectedWidth(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:border-amber-500 cursor-pointer"
-          >
-            <option value="all">หน้ากว้าง: ทั้งหมด</option>
-            {STANDARD_WIDTHS.map(w => (
-              <option key={w} value={String(w)}>{w} มม. ({WIDTH_SPECIFICATIONS[w] || ''})</option>
-            ))}
-          </select>
-
-          {/* Pattern Filter */}
-          <select
-            value={selectedPattern}
-            onChange={(e) => setSelectedPattern(e.target.value)}
-            className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-xs focus:border-amber-500 cursor-pointer"
-          >
-            <option value="all">ท้องฟอยล์: ทั้งหมด</option>
-            {STANDARD_PATTERNS.map(p => (
-              <option key={p.value} value={p.value}>{p.label}</option>
-            ))}
-          </select>
-
           {/* สถานะม้วน — แถวเดียว ไม่ใช้อิโมจิ · ค่าเริ่มต้น = ใช้งาน */}
           <div className="flex flex-nowrap items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 overflow-x-auto max-w-full">
             <button
@@ -1211,9 +1360,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                 statusFilter === 'all' ? 'bg-white text-slate-900 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
-              title="ม้วนพร้อมใช้ทั้งหมด"
+              title="ม้วนทั้งหมด"
             >
-              ทั้งหมด ({activeCount})
+              ทั้งหมด ({sourceRolls.length})
             </button>
             <button
               type="button"
@@ -1246,14 +1395,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                 statusFilter === 'depleted' ? 'bg-white text-rose-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
-              title="ม้วนหมดแล้ว (โหลดคลังเมื่อกด)"
+              title="ม้วนหมดแล้ว (ดูได้ทุกบัญชี)"
             >
-              หมดแล้ว
-              {archiveLoaded
-                ? ` (${archivedRolls.length})`
-                : rolls.filter((r) => r.remainingMeters <= 0).length > 0
-                  ? ` (${rolls.filter((r) => r.remainingMeters <= 0).length}+)`
-                  : ''}
+              หมดแล้ว ({archivedRolls.length || rolls.filter((r) => r.remainingMeters <= 0).length})
             </button>
           </div>
 
@@ -1292,13 +1436,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </div>
           )}
 
-          {(searchQuery || selectedWidth !== 'all' || selectedPattern !== 'all' || statusFilter !== 'all') && (
+          {(searchQuery || statusFilter !== 'all' || searchTarget !== 'all') && (
             <button
               onClick={() => {
                 setSearchQuery('');
                 setSearchTarget('all');
-                setSelectedWidth('all');
-                setSelectedPattern('all');
                 setStatusFilter('all');
               }}
               className="text-xs text-rose-600 hover:underline ml-auto cursor-pointer font-medium"
@@ -1307,6 +1449,37 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </button>
           )}
         </div>
+
+        {/* ตำแหน่งล่างสุดของช่องค้นหา: ปุ่มเปิดทั้งหมด / ปิดทั้งหมด เพิ่มสีเพื่อให้ง่ายต่อการเห็น */}
+        {groupBy !== 'none' && groupedData && groupedData.length > 0 && (
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => toggleAllGroups(true)}
+                title="คลิกเพื่อเปิดดูรายละเอียดทุกกลุ่ม"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs shadow-xs hover:shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span>เปิดทั้งหมด</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleAllGroups(false)}
+                title="คลิกเพื่อย่อ/ปิดรายละเอียดทุกกลุ่ม"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-xs hover:shadow-sm active:scale-95 transition-all cursor-pointer"
+              >
+                <Folder className="w-4 h-4" />
+                <span>ปิดทั้งหมด</span>
+              </button>
+            </div>
+
+            <div className="text-[11px] font-mono text-slate-500">
+              รวม {groupedData.length} กลุ่ม ({filteredRolls.length} ม้วน)
+            </div>
+          </div>
+        )}
 
         {/* คำอธิบายสี — บรรทัดเดียว เลื่อนดูได้ถ้าจอแคบ */}
         <div className="flex flex-nowrap items-center gap-1.5 pt-2.5 border-t border-slate-100 text-[11px] overflow-x-auto">
@@ -1361,14 +1534,12 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               {isLoadingArchive ? 'กำลังโหลด...' : 'โหลดคลังข้อมูลเก่าจาก Cloud'}
             </button>
           )}
-          {(searchQuery || selectedWidth !== 'all' || selectedPattern !== 'all' || statusFilter !== 'all') && (
+          {(searchQuery || statusFilter !== 'all') && (
             <button
               type="button"
               onClick={() => {
                 setSearchQuery('');
                 setSearchTarget('all');
-                setSelectedWidth('all');
-                setSelectedPattern('all');
                 setStatusFilter('all');
               }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer mx-auto"
@@ -1382,7 +1553,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         /* Categorized / Grouped View */
         <div className="space-y-4">
           {groupedData.map((group) => {
-            const isCollapsed = searchQuery.trim() ? false : !!collapsedGroups[group.key];
+            const isCollapsed = searchQuery.trim() ? false : (collapsedGroups[group.key] ?? true);
             const percentRemaining = group.totalFull > 0 
               ? Math.round((group.totalRemaining / group.totalFull) * 100) 
               : 0;
@@ -1478,7 +1649,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     <div className="divide-y divide-slate-200">
                       {group.subGroups.map((sub) => {
                         const subKey = `${group.key}-${sub.key}`;
-                        const isSubCollapsed = searchQuery.trim() ? false : !!collapsedSubGroups[subKey];
+                        const isSubCollapsed = searchQuery.trim() ? false : (collapsedSubGroups[subKey] ?? true);
                         const pStyle = sub.pattern ? getPatternStyle(sub.pattern) : null;
 
                         return (

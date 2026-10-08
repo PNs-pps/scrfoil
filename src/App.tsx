@@ -291,12 +291,10 @@ export default function App() {
     setRecords(loadedRecords);
     setPuSandwichRecords(loadedPuSandwich);
 
-    // 2. Realtime listener for Foil Rolls
+    // 2. Realtime listener for Foil Rolls (activeOnly: false เพื่อให้ทุกบัญชีรวมทั้ง non-admin ดูม้วนที่หมดแล้วได้)
     let isInitialRollsFetch = true;
     const unsubRolls = subscribeToFoilRolls(
       (firestoreRolls) => {
-        // activeOnly query already filters status==='active'; also drop any legacy
-        // depleted/zeroed that slipped through so the main list stays lean.
         setRolls((prev: FoilRoll[]) => {
           const prevMap = new Map<string, FoilRoll>(prev.map((r: FoilRoll) => [r.id, r]));
           // เพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
@@ -315,6 +313,7 @@ export default function App() {
             }
             return r;
           });
+
           // พร้อมใช้เท่านั้น — เหลือ 0 / depleted / zeroed ไม่นับในลิสต์หลัก
           const activeRolls = mergedServer.filter(
             (r) =>
@@ -322,6 +321,29 @@ export default function App() {
               !r.isZeroedOut &&
               Number(r.remainingMeters) > 0
           );
+
+          // ม้วนที่หมดแล้ว — ซิงค์ให้ทุกบัญชี (admin และ non-admin) สามารถดูได้ทันที
+          const depletedRolls = mergedServer.filter(
+            (r) =>
+              r.status === 'depleted' ||
+              r.isZeroedOut ||
+              Number(r.remainingMeters) <= 0
+          );
+
+          if (depletedRolls.length > 0) {
+            setArchivedRolls((prevArchived) => {
+              const map = new Map<string, FoilRoll>();
+              prevArchived.forEach((r) => map.set(r.id, r));
+              depletedRolls.forEach((r) => map.set(r.id, r));
+              const combined = Array.from(map.values());
+              try {
+                localStorage.setItem('pufoam_archived_rolls_cache', JSON.stringify(combined));
+              } catch {}
+              return combined;
+            });
+            setArchiveLoaded(true);
+          }
+
           const next =
             activeRolls.length > 0 || firestoreRolls.length === 0
               ? activeRolls.length > 0
@@ -351,7 +373,7 @@ export default function App() {
         }
       },
       {
-        activeOnly: true,
+        activeOnly: false,
         onFromCache: (fromCache) => {
           setIsCached(fromCache);
         },
@@ -2054,7 +2076,7 @@ const updated = [newRoll, ...rolls];
         {activeTab === 'history' && (
           <CuttingHistoryTable
             records={records}
-            rolls={rolls}
+            rolls={[...rolls, ...archivedRolls]}
             puRecords={puSandwichRecords}
             initialCategory={historyInitialCategory}
             onDeleteRecord={(recId) => requireEditorPermission(() => {
