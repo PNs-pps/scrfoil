@@ -1145,6 +1145,7 @@ const updated = [newRoll, ...rolls];
         usedMeters: newUsed,
         ngMeters: newNg,
         status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+        depletedAt: newRemaining <= 0 ? (r.depletedAt || new Date().toISOString()) : undefined,
         isUnused: false,
         recentCuts: recent,
       };
@@ -1326,6 +1327,7 @@ const updated = [newRoll, ...rolls];
             manualZeroedOriginalMeters: r.remainingMeters,
             remainingMeters: 0,
             status: 'depleted' as const,
+            depletedAt: new Date().toISOString(),
           };
           updatedTargetRoll = rollObj;
           return rollObj;
@@ -1336,6 +1338,7 @@ const updated = [newRoll, ...rolls];
             isZeroedOut: false,
             remainingMeters: restored,
             status: restored > 0 ? ('active' as const) : ('depleted' as const),
+            depletedAt: restored > 0 ? undefined : r.depletedAt,
           };
           updatedTargetRoll = rollObj;
           return rollObj;
@@ -2042,6 +2045,7 @@ const updated = [newRoll, ...rolls];
         {activeTab === 'rolls' && (
           <FoilRollTable
             rolls={rolls}
+            records={records}
             archivedRolls={archivedRolls}
             archiveLoaded={archiveLoaded}
             isLoadingArchive={isLoadingArchive}

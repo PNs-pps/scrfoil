@@ -21,7 +21,7 @@ import {
   Lock,
   Pencil
 } from 'lucide-react';
-import { formatMeters } from '../utils/formatters';
+import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 import { UserMode } from '../utils/auth';
 
@@ -494,14 +494,22 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
 
               {/* Complete Cutting Timeline for this roll */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-amber-600" />
                     <span>ประวัติการตัดของม้วนนี้ ({rollCuts.length} ครั้ง)</span>
                   </h4>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    เรียงตามลำดับล่าสุด
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {matchedRoll && isRollDepleted(matchedRoll) && (
+                      <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-rose-600" />
+                        <span>ม้วนหมดแล้ว: วันที่ {formatThaiDate(getRollDepletionDate(matchedRoll, records))}</span>
+                      </span>
+                    )}
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      เรียงตามลำดับล่าสุด
+                    </span>
+                  </div>
                 </div>
 
                 <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white overflow-hidden max-h-56 overflow-y-auto">
@@ -545,6 +553,11 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                             <span className="text-[10px] text-slate-400">
                               เหลือ {formatMeters(cut.remainingAfter)} ม.
                             </span>
+                            {Number(cut.remainingAfter) <= 0 && (
+                              <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 block mt-0.5">
+                                🏁 หมดม้วน
+                              </span>
+                            )}
                           </div>
                         </div>
                       );

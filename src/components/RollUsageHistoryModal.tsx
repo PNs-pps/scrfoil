@@ -25,7 +25,7 @@ import {
   ShieldCheck,
   Info
 } from 'lucide-react';
-import { formatMeters } from '../utils/formatters';
+import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { subscribeToRollCutHistory } from '../lib/firebase';
 import { auditRollSOHistory } from '../utils/soHistoryAudit';
 
@@ -245,6 +245,9 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     ? Math.max(0, Math.round((effectiveRemaining / roll!.totalMeters) * 100)) 
     : 0;
 
+  const isDepleted = roll ? isRollDepleted(roll) : false;
+  const depletionDate = roll ? getRollDepletionDate(roll, records) : null;
+
   // Handle single roll fix with consent
   const handleFixCurrentRoll = async () => {
     if (!roll || !audit || !onFixRoll) return;
@@ -386,9 +389,15 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                   <span className="px-2 py-0.5 bg-white text-slate-700 border border-slate-200 text-xs rounded-md font-mono">
                     กว้าง {roll.width} มม.
                   </span>
-                  {roll.isZeroedOut || effectiveRemaining <= 0 ? (
-                    <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-xs rounded-md font-semibold">
-                      {roll.isZeroedOut ? 'ตัดเป็น 0 แล้ว' : 'ตัดหมดแล้ว'}
+                  {isDepleted ? (
+                    <span className="px-2.5 py-1 bg-slate-800 text-amber-300 border border-slate-700 text-xs rounded-lg font-bold inline-flex items-center gap-1.5 shadow-2xs">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{roll.isZeroedOut ? 'ตัดสล็อตเป็น 0 แล้ว' : 'ตัดหมดสต๊อกแล้ว'}</span>
+                      {depletionDate && (
+                        <span className="text-white font-mono font-semibold">
+                          · หมดเมื่อ: {formatThaiDate(depletionDate)}
+                        </span>
+                      )}
                     </span>
                   ) : effectiveRemaining <= 50 ? (
                     <span className="px-2 py-0.5 bg-rose-100 text-rose-700 border border-rose-300 text-xs rounded-md font-bold animate-pulse">
@@ -406,6 +415,11 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 </div>
                 <p className="text-xs text-slate-500 font-mono">
                   วันที่รับเข้า: {roll.dateReceived} | บันทึกครั้งแรก: {roll.createdAt ? new Date(roll.createdAt).toLocaleDateString('th-TH') : '-'}
+                  {depletionDate && (
+                    <span className="text-rose-700 font-bold block sm:inline sm:ml-2">
+                      | วันที่ม้วนหมด: {formatThaiDate(depletionDate)} ({depletionDate})
+                    </span>
+                  )}
                   {roll.notes && <span className="text-slate-600 block sm:inline sm:ml-2">หมายเหตุ: {roll.notes}</span>}
                 </p>
               </div>
@@ -708,6 +722,35 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               </span>
             </div>
 
+            {/* แสดงสถานะและวันที่หมดในประวัติไทม์ไลน์ */}
+            {isDepleted && (
+              <div className="p-3.5 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-700 rounded-xl text-white flex items-center justify-between flex-wrap gap-2.5 shadow-xs animate-in fade-in">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-4 h-4 text-rose-400" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>ประวัติไทม์ไลน์: ม้วนฟอยล์หมดสต๊อกแล้ว (เหลือ 0.00 ม.)</span>
+                      {roll.isZeroedOut && (
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-900/80 text-rose-200 border border-rose-700">
+                          ตัดสล็อตเป็น 0
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-amber-300 font-mono mt-0.5 flex items-center gap-1.5 font-bold">
+                      <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>วันที่หมดสต๊อก: <span className="text-white underline decoration-amber-400 decoration-2">{formatThaiDate(depletionDate)}</span></span>
+                      <span className="text-slate-400 text-[11px] font-normal">({depletionDate || '-'})</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right text-xs text-slate-300 font-mono">
+                  ตัดใช้รวม {formatMeters(totalUsed)} ม. · NG {formatMeters(totalNg)} ม.
+                </div>
+              </div>
+            )}
+
             {historyItems.length === 0 ? (
               <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center">
                 <Scissors className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -816,6 +859,14 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                             <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
                             <span className="text-slate-300 mx-1">&rarr;</span>
                             <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
+                            {Number(item.remainingAfter) <= 0 && (
+                              <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
+                                <span>🏁 หมดม้วน</span>
+                                <span className="font-mono text-slate-500 font-normal">
+                                  ({formatThaiDate(item.cutDate || item.usageDate || item.recordedDate)})
+                                </span>
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap text-[11px]">
                             {item.cutDate || item.usageDate || item.recordedDate || (item.createdAt ? item.createdAt.slice(0, 10) : '-')}

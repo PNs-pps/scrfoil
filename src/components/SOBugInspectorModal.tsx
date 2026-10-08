@@ -28,7 +28,7 @@ import {
   RollSOAuditResult, 
   SOBugIssue 
 } from '../utils/soHistoryAudit';
-import { formatMeters } from '../utils/formatters';
+import { formatMeters, formatThaiDate, getRollDepletionDate, isRollDepleted } from '../utils/formatters';
 import { KpiSlideRow } from './KpiSlideRow';
 
 interface SOBugInspectorModalProps {
@@ -601,14 +601,25 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                   </div>
 
                   {/* Expanded Timeline Table */}
-                  {isExpanded && (
+                  {isExpanded && (() => {
+                    const matchedRoll = rolls.find((r) => r.id === res.rollId);
+                    const isDep = matchedRoll ? isRollDepleted(matchedRoll) : (res.currentRemaining <= 0 || res.isZeroedOut);
+                    const depDate = matchedRoll ? getRollDepletionDate(matchedRoll, records) : null;
+
+                    return (
                     <div className="bg-slate-50 p-4 border-t border-slate-200 animate-in fade-in">
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-amber-600" />
                             <span>ไทม์ไลน์การตัดเรียงตามวันใบงาน ({res.timeline.length} รายการ)</span>
                           </h4>
+                          {isDep && (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-900 text-amber-300 text-[10px] font-bold border border-slate-700 inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span>หมดสต๊อก: วันที่ {formatThaiDate(depDate)}</span>
+                            </span>
+                          )}
                           {hasChainJump && (
                             <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
                               พบจุดยอดกระโดด {res.issues.filter((i) => i.type === 'METER_JUMP').length}
@@ -725,6 +736,12 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                       <span className="text-slate-500">{formatMeters(rec.remainingBefore ?? 0)}</span>
                                       <span className="text-slate-300 mx-1">&rarr;</span>
                                       <span className="font-bold text-emerald-700">{formatMeters(rec.remainingAfter ?? 0)} ม.</span>
+                                      {Number(rec.remainingAfter) <= 0 && (
+                                        <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
+                                          <span>🏁 หมดม้วน</span>
+                                          <span className="font-mono text-slate-500 font-normal">({formatThaiDate(rec.usageDate || rec.recordedDate)})</span>
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="p-2.5">
                                       {step.isChainValid ? (
@@ -774,7 +791,8 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                         </div>
                       )}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               );
             })

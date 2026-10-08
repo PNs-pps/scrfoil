@@ -38,6 +38,7 @@ export interface FoilRoll {
   notes?: string;
   isZeroedOut?: boolean;     // ติ๊กตัดสต๊อกเป็น 0 (กรณีเหลือสีแดง <= 50 เมตร)
   manualZeroedOriginalMeters?: number; // เก็บค่าเมตรก่อนติ๊กเป็น 0 เพื่อนำกลับมาใช้ใหม่ได้
+  depletedAt?: string;       // วันที่ม้วนหมดสต๊อก (YYYY-MM-DD หรือ ISO string)
   recentCuts?: Array<{
     id: string;
     soNumber: string;

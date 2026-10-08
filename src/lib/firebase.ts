@@ -622,6 +622,7 @@ export async function executeCutBatchInFirestore(
       usedMeters: newUsed,
       ngMeters: newNg,
       status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+      depletedAt: newRemaining <= 0 ? (serverRoll.depletedAt || (newRecords[0]?.usageDate ? new Date(newRecords[0].usageDate).toISOString() : new Date().toISOString())) : undefined,
       isUnused: false,
       recentCuts: rollCuts,
     };
@@ -787,6 +788,7 @@ export async function executeMultiRollCutBatchInFirestore(
         usedMeters: newUsed,
         ngMeters: newNg,
         status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+        depletedAt: newRemaining <= 0 ? (serverRoll.depletedAt || new Date().toISOString()) : undefined,
         isUnused: false,
         recentCuts: rollCuts,
         _freshRemainingBefore: freshRemaining,

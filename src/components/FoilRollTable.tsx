@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS, isRollUnused } from '../types';
+import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS, isRollUnused, StockCutRecord } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
-import { formatMeters } from '../utils/formatters';
+import { formatMeters, compareFoilRolls, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 import { 
   Search, 
@@ -38,6 +38,7 @@ import {
 
 interface FoilRollTableProps {
   rolls: FoilRoll[];
+  records?: StockCutRecord[];
   /** Depleted rolls loaded on-demand (Archive). Not in the main realtime subscription. */
   archivedRolls?: FoilRoll[];
   archiveLoaded?: boolean;
@@ -62,6 +63,7 @@ type GroupByCategory = 'none' | 'width' | 'pattern';
 interface SwipeableRollCardProps {
   roll: FoilRoll;
   searchQuery: string;
+  records?: StockCutRecord[];
   onOpenCut: (rollId: string) => void;
   onViewHistory: (roll: FoilRoll) => void;
   onEdit?: (roll: FoilRoll) => void;
@@ -74,6 +76,7 @@ interface SwipeableRollCardProps {
 const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
   roll,
   searchQuery,
+  records,
   onOpenCut,
   onViewHistory,
   onEdit,
@@ -359,6 +362,13 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
               ใช้ {formatMeters(roll.usedMeters)}
               {roll.ngMeters > 0 && <span className="text-rose-600 font-semibold ml-1">· NG {formatMeters(roll.ngMeters)}</span>}
             </span>
+
+            {/* วันที่หมด เมื่อม้วนหมดแล้ว */}
+            {(isDepleted || isZeroed || roll.status === 'depleted') && (
+              <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded font-sans font-bold shrink-0">
+                หมด: {formatThaiDate(getRollDepletionDate(roll, records))}
+              </span>
+            )}
           </div>
 
           {/* Quick Actions (ตัด 0 / เมนู) */}
@@ -404,6 +414,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
 
 export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   rolls,
+  records = [],
   archivedRolls = [],
   archiveLoaded = false,
   isLoadingArchive = false,
@@ -537,7 +548,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   };
 
   const filteredRolls = useMemo(() => {
-    return sourceRolls.filter((r) => {
+    const list = sourceRolls.filter((r) => {
       // 1. General search query (from main search bar)
       const q = searchQuery.toLowerCase().trim();
       if (q) {
@@ -586,7 +597,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
       return true;
     });
-  }, [sourceRolls, searchQuery, advLot, advRoll, advPattern, advWidth]);
+
+    // เรียงลำดับ: ฟอล์ยที่หมดแล้วไปอยู่ข้างล่างม้วนที่ใช้อยู่ เรียงจากหมดนานแล้วจะอยู่ล่างสุด พึ่งหมดจะอยู่บน
+    return [...list].sort((a, b) => compareFoilRolls(a, b, records));
+  }, [sourceRolls, searchQuery, advLot, advRoll, advPattern, advWidth, records]);
 
   const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
 
@@ -661,16 +675,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         pSubMap.forEach((pRolls, pName) => {
           if (pRolls.length === 0) return;
 
-          // Natural sort: Lot Number then Roll Number (เรียงตามล็อต เบอร์)
-          const sorted = [...pRolls].sort((a, b) => {
-            const lotA = (a.lotNumber || '').trim();
-            const lotB = (b.lotNumber || '').trim();
-            const lotComp = lotA.localeCompare(lotB, undefined, { numeric: true, sensitivity: 'base' });
-            if (lotComp !== 0) return lotComp;
-            const rollA = (a.rollNumber || '').trim();
-            const rollB = (b.rollNumber || '').trim();
-            return rollA.localeCompare(rollB, undefined, { numeric: true, sensitivity: 'base' });
-          });
+          // เรียงลำดับ: ฟอล์ยที่หมดแล้วไปอยู่ข้างล่างม้วนที่ใช้อยู่ เรียงจากหมดนานแล้วจะอยู่ล่างสุด พึ่งหมดจะอยู่บน
+          const sorted = [...pRolls].sort((a, b) => compareFoilRolls(a, b, records));
 
           const subRemaining = sorted.reduce((sum, r) => sum + r.remainingMeters, 0);
           const subActive = sorted.filter(r => r.remainingMeters > 0).length;
@@ -692,7 +698,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           title: `หน้ากว้าง ${w} มม.`,
           subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้ • ${subGroups.length} ลาย)`,
           badge: `${w} mm`,
-          rolls: gRolls,
+          rolls: [...gRolls].sort((a, b) => compareFoilRolls(a, b, records)),
           subGroups,
           totalRemaining,
           totalFull,
@@ -743,12 +749,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         wSubMap.forEach((wRolls, wNum) => {
           if (wRolls.length === 0) return;
 
-          // Natural sort: Lot Number then Roll Number
-          const sorted = [...wRolls].sort((a, b) => {
-            const lotComp = a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
-            if (lotComp !== 0) return lotComp;
-            return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true, sensitivity: 'base' });
-          });
+          // เรียงลำดับ: ฟอล์ยที่หมดแล้วไปอยู่ข้างล่างม้วนที่ใช้อยู่ เรียงจากหมดนานแล้วจะอยู่ล่างสุด พึ่งหมดจะอยู่บน
+          const sorted = [...wRolls].sort((a, b) => compareFoilRolls(a, b, records));
 
           const subRemaining = sorted.reduce((sum, r) => sum + r.remainingMeters, 0);
           const subActive = sorted.filter(r => r.remainingMeters > 0).length;
@@ -771,7 +773,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           title: `ลาย${pName}`,
           subTitle: `${gRolls.length} ม้วน (${activeCount} ม้วนพร้อมใช้ • ${subGroups.length} ขนาดหน้ากว้าง)`,
           badge: pName,
-          rolls: gRolls,
+          rolls: [...gRolls].sort((a, b) => compareFoilRolls(a, b, records)),
           subGroups,
           totalRemaining,
           totalFull,
@@ -785,7 +787,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }
 
     return null;
-  }, [groupBy, filteredRolls, rolls]);
+  }, [groupBy, filteredRolls, rolls, records]);
 
   // Highlight matched search term in text
   const highlightMatch = (text: string, query: string) => {
@@ -940,6 +942,12 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           {isZeroed && roll.manualZeroedOriginalMeters !== undefined && (
             <div className="text-[10px] text-rose-700 font-bold font-mono">
               ตัดเป็น 0 แล้ว (เดิม {formatMeters(roll.manualZeroedOriginalMeters)} ม.)
+            </div>
+          )}
+
+          {(isDepleted || isZeroed || roll.status === 'depleted') && (
+            <div className="text-[10px] text-rose-700 font-bold font-mono mt-0.5">
+              หมดเมื่อ: {formatThaiDate(getRollDepletionDate(roll, records))}
             </div>
           )}
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord } from '../types';
 import { X, ArrowLeft, Layers, Scissors, Calendar, User, FileText, CheckCircle2 } from 'lucide-react';
-import { formatMeters } from '../utils/formatters';
+import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 
 interface RollDetailModalProps {
   roll: FoilRoll | null;
@@ -23,6 +23,8 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
 
   const rollRecords = records.filter(r => r.foilId === roll.id);
   const percentLeft = roll.totalMeters > 0 ? Math.round((roll.remainingMeters / roll.totalMeters) * 100) : 0;
+  const isDepleted = isRollDepleted(roll);
+  const depletionDate = getRollDepletionDate(roll, records);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/65 backdrop-blur-xs">
@@ -49,8 +51,13 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
               <h2 className="text-sm sm:text-base font-bold text-white leading-tight truncate">
                 ประวัติการตัด: ล็อต {roll.lotNumber} #{roll.rollNumber}
               </h2>
-              <p className="text-[11px] text-slate-300 truncate">
-                ลาย {roll.pattern} | หน้ากว้าง {roll.width} มม.
+              <p className="text-[11px] text-slate-300 truncate flex items-center gap-2">
+                <span>ลาย {roll.pattern} | หน้ากว้าง {roll.width} มม.</span>
+                {isDepleted && (
+                  <span className="text-[10px] font-bold text-amber-300 bg-slate-800 px-1.5 py-0.2 rounded border border-slate-700">
+                    หมดสต๊อก: {formatThaiDate(depletionDate)}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -110,6 +117,13 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
                 />
               </div>
             </div>
+
+            {isDepleted && (
+              <div className="text-xs text-rose-800 bg-rose-50 p-2.5 rounded-lg border border-rose-200 font-bold flex items-center justify-between">
+                <span>สถานะ: ม้วนหมดสต๊อกแล้ว</span>
+                <span className="font-mono">วันที่หมด: {formatThaiDate(depletionDate)} ({depletionDate || '-'})</span>
+              </div>
+            )}
 
             {roll.notes && (
               <div className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
