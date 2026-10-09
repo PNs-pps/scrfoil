@@ -97,12 +97,12 @@ export const THAI_MONTHS = [
 ];
 
 export const STANDARD_PATTERNS = [
-  { value: 'ขาว', label: 'ขาว', colorClass: 'bg-white text-slate-800 border-slate-300' },
-  { value: 'ดำ', label: 'ดำ', colorClass: 'bg-slate-900 text-white' },
+  { value: 'ขาว', label: 'ขาว', colorClass: 'bg-slate-100 text-slate-800 border-slate-300' },
+  { value: 'ดำ', label: 'ดำ', colorClass: 'bg-slate-900 text-white border-slate-800' },
   { value: 'ไม้อ่อน', label: 'ไม้อ่อน', colorClass: 'bg-amber-100 text-amber-900 border-amber-300' },
-  { value: 'ไม้เข้ม', label: 'ไม้เข้ม', colorClass: 'bg-amber-800 text-amber-50' },
-  { value: 'เทา', label: 'เทา', colorClass: 'bg-slate-400 text-slate-900' },
-  { value: 'กลีบบัว', label: 'กลีบบัว', colorClass: 'bg-rose-200 text-rose-900 border-rose-300' },
+  { value: 'ไม้เข้ม', label: 'ไม้เข้ม', colorClass: 'bg-amber-800 text-amber-50 border-amber-900' },
+  { value: 'เทา', label: 'เทา', colorClass: 'bg-slate-200 text-slate-800 border-slate-300' },
+  { value: 'กลีบบัว', label: 'กลีบบัว', colorClass: 'bg-rose-100 text-rose-900 border-rose-300' },
 ];
 
 export const STANDARD_WIDTHS = [830, 850, 880, 900] as const;
@@ -111,14 +111,23 @@ export interface PatternStyleDef {
   value: string;
   label: string;
   name: string;
+  /** ชื่อสีภาษาไทย เช่น "สีเหลือง" */
+  colorName: string;
   dotClass: string;
   badgeClass: string;
+  /** สีแท่ง "คงเหลือแยกตามลาย" ในหน้าแดชบอร์ด */
   progressClass: string;
+  borderClass: string;
+  /** สีไฮไลต์เข้ม (พื้นทึบ + ตัวอักษรที่อ่านออก) ใช้กับป้ายลายฟอยล์ */
+  highlightClass: string;
+  /** สีไฮไลต์อ่อน ใช้กับพื้นกล่อง/แถวที่เกี่ยวกับลายนั้น */
+  tintClass: string;
 }
 
 /**
- * Provides canonical colors, dot markers, and badges for foil patterns
- * ensuring absolute visual consistency across Dashboard, Roll List, SO History, and Flow Chart.
+ * แหล่งสีเดียวของลายฟอยล์ทั้งแอพ — ใช้ชุดสีเดียวกับ "คงเหลือฟอยล์แยกตามลาย"
+ * ในหน้าแดชบอร์ด ให้ Dashboard, รายการม้วน, ประวัติ SO, กราฟรายเดือน,
+ * Daily Flow และ Modal ต่าง ๆ แสดงสีตรงกันเสมอ
  */
 export function getCanonicalPatternStyle(patternRaw: string): PatternStyleDef {
   const p = normalizePattern(patternRaw);
@@ -128,79 +137,125 @@ export function getCanonicalPatternStyle(patternRaw: string): PatternStyleDef {
         value: 'ขาว',
         label: 'ขาว',
         name: 'ขาว',
+        colorName: 'สีขาว',
         dotClass: 'bg-white border-2 border-slate-400 shadow-2xs',
         badgeClass: 'bg-slate-100 text-slate-800 border border-slate-300',
         progressClass: 'bg-slate-400',
+        borderClass: 'border-slate-400',
+        highlightClass: 'bg-slate-100 text-slate-900 border-slate-400',
+        tintClass: 'bg-slate-50 border-slate-300',
       };
     case 'ดำ':
       return {
         value: 'ดำ',
         label: 'ดำ',
         name: 'ดำ',
+        colorName: 'สีดำ',
         dotClass: 'bg-slate-950 border border-slate-800 shadow-2xs',
         badgeClass: 'bg-slate-900 text-white border border-slate-800',
         progressClass: 'bg-slate-900',
+        borderClass: 'border-slate-900',
+        highlightClass: 'bg-slate-900 text-white border-slate-950',
+        tintClass: 'bg-slate-100 border-slate-500',
       };
     case 'ไม้อ่อน':
       return {
         value: 'ไม้อ่อน',
         label: 'ไม้อ่อน',
         name: 'ไม้อ่อน',
+        colorName: 'สีเหลือง',
         dotClass: 'bg-amber-200 border border-amber-400 shadow-2xs',
         badgeClass: 'bg-amber-100 text-amber-900 border border-amber-300',
         progressClass: 'bg-amber-400',
+        borderClass: 'border-amber-400',
+        highlightClass: 'bg-amber-200 text-amber-950 border-amber-400',
+        tintClass: 'bg-amber-50 border-amber-300',
       };
     case 'ไม้เข้ม':
       return {
         value: 'ไม้เข้ม',
         label: 'ไม้เข้ม',
         name: 'ไม้เข้ม',
+        colorName: 'สีน้ำตาล',
         dotClass: 'bg-amber-800 border border-amber-950 shadow-2xs',
         badgeClass: 'bg-amber-800 text-amber-50 border border-amber-900',
         progressClass: 'bg-amber-800',
+        borderClass: 'border-amber-800',
+        highlightClass: 'bg-amber-800 text-amber-50 border-amber-950',
+        tintClass: 'bg-amber-100/80 border-amber-700',
       };
     case 'เทา':
       return {
         value: 'เทา',
         label: 'เทา',
         name: 'เทา',
+        colorName: 'สีเทา',
         dotClass: 'bg-slate-400 border border-slate-500 shadow-2xs',
         badgeClass: 'bg-slate-200 text-slate-800 border border-slate-300',
         progressClass: 'bg-slate-500',
+        borderClass: 'border-slate-500',
+        highlightClass: 'bg-slate-300 text-slate-900 border-slate-500',
+        tintClass: 'bg-slate-100 border-slate-400',
       };
     case 'กลีบบัว':
       return {
         value: 'กลีบบัว',
         label: 'กลีบบัว',
         name: 'กลีบบัว',
+        colorName: 'สีชมพู',
         dotClass: 'bg-rose-300 border border-rose-400 shadow-2xs',
         badgeClass: 'bg-rose-100 text-rose-900 border border-rose-300',
         progressClass: 'bg-rose-400',
+        borderClass: 'border-rose-400',
+        highlightClass: 'bg-rose-200 text-rose-950 border-rose-400',
+        tintClass: 'bg-rose-50 border-rose-300',
       };
     default:
       return {
         value: p,
         label: p,
         name: p,
+        colorName: 'สีอื่น ๆ',
         dotClass: 'bg-indigo-300 border border-indigo-400 shadow-2xs',
         badgeClass: 'bg-indigo-100 text-indigo-900 border border-indigo-200',
         progressClass: 'bg-indigo-400',
+        borderClass: 'border-indigo-400',
+        highlightClass: 'bg-indigo-200 text-indigo-950 border-indigo-400',
+        tintClass: 'bg-indigo-50 border-indigo-300',
       };
   }
 }
 
+/**
+ * จับคู่ชื่อลายที่พิมพ์หลากหลาย (เช่น "ลายไม้เข้ม", "สีดำ", "silver") ให้เป็นลายมาตรฐาน
+ * คืน null ถ้าไม่ตรงกับลายมาตรฐานใดเลย
+ */
+export function resolveStandardPattern(patternRaw: string = ''): string | null {
+  const norm = normalizePattern((patternRaw || '').trim());
+  if (STANDARD_PATTERNS.some((sp) => sp.value === norm)) return norm;
+  const l = norm.toLowerCase();
+  if (l.includes('ไม้เข้ม') || l === 'dark_wood') return 'ไม้เข้ม';
+  if (l.includes('ไม้อ่อน') || l.includes('ไม้อ้อน') || l.includes('ไม่อ่อน') || l === 'light_wood') return 'ไม้อ่อน';
+  if (l.includes('กลีบบัว') || l.includes('กลับบัว') || l === 'บัว' || l === 'silver' || l === 'เงิน') return 'กลีบบัว';
+  if (l.includes('ดำ') || l === 'black') return 'ดำ';
+  if (l.includes('เทา') || l === 'gray' || l === 'grey') return 'เทา';
+  if (l.includes('ขาว') || l === 'white') return 'ขาว';
+  return null;
+}
+
+/** สี hex สำหรับกราฟ — ตรงกับ progressClass ของแต่ละลายในแดชบอร์ด (Tailwind 400/500/800/900) */
 export const PATTERN_HEX_COLORS: Record<string, string> = {
-  'ขาว': '#64748b',    // Slate 500 (distinct and visible)
-  'ดำ': '#0f172a',     // Slate 900
-  'ไม้อ่อน': '#f59e0b', // Amber 500
-  'ไม้เข้ม': '#92400e', // Amber 800
-  'เทา': '#94a3b8',    // Slate 400
-  'กลีบบัว': '#f43f5e', // Rose 500
+  'ขาว': '#94a3b8',    // slate-400  (bg-slate-400)
+  'ดำ': '#0f172a',     // slate-900  (bg-slate-900)
+  'ไม้อ่อน': '#fbbf24', // amber-400  (bg-amber-400)
+  'ไม้เข้ม': '#92400e', // amber-800  (bg-amber-800)
+  'เทา': '#64748b',    // slate-500  (bg-slate-500)
+  'กลีบบัว': '#fb7185', // rose-400   (bg-rose-400)
 };
 
 export function getPatternHexColor(pattern: string): string {
-  const norm = normalizePattern(pattern);
-  return PATTERN_HEX_COLORS[norm] || '#8b5cf6';
+  const norm = resolveStandardPattern(pattern) ?? normalizePattern(pattern);
+  return PATTERN_HEX_COLORS[norm] || '#818cf8'; // indigo-400 = สีลายอื่น ๆ ใน getCanonicalPatternStyle
 }
 
 /**
