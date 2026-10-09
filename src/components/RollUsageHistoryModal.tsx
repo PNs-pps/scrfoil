@@ -766,7 +766,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                     <thead>
                       <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 text-[11px]">
                         <th className="py-2.5 px-3">ลำดับ</th>
-                        <th className="py-2.5 px-3">รหัส SO / ใบงาน</th>
+                        <th className="py-2.5 px-3 sticky left-0 z-20 bg-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">รหัส SO / ใบงาน (ตรึงซ้าย)</th>
                         <th className="py-2.5 px-3 text-right">ตัดลงแผ่น</th>
                         <th className="py-2.5 px-3 text-right">NG</th>
                         <th className="py-2.5 px-3 text-right">รวมตัดออก</th>
@@ -810,9 +810,19 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                           <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">
                             {idx + 1}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
+                          <td className="py-2.5 px-3 font-mono font-bold text-slate-900 sticky left-0 z-10 bg-white group-hover:bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span>{item.soNumber || '-'}</span>
+                              {item.isSilverSide && (
+                                <span className="px-1.5 py-0.2 bg-zinc-800 text-amber-300 rounded text-[10px] font-bold border border-amber-400">
+                                  ท้องเงิน
+                                </span>
+                              )}
+                              {item.isWhiteSide && (
+                                <span className="px-1.5 py-0.2 bg-white text-slate-900 rounded text-[10px] font-bold border border-slate-300">
+                                  ท้องขาว
+                                </span>
+                              )}
                               {item.cutType === 'non_so' && (
                                 <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded text-[10px] font-normal">
                                   ไม่มี SO
