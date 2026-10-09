@@ -294,8 +294,8 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                         <span className="font-mono font-semibold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
                           หน้า {record.width} มม.
                         </span>
-                        <span className="inline-flex items-center gap-1 font-semibold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                        <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded border-2 ${patternStyle.highlightClass}`}>
+                          <span className={`w-2 h-2 rounded-full shrink-0 ring-1 ring-white/70 ${patternStyle.dotClass}`} />
                           <span>ลาย{record.pattern}</span>
                         </span>
                       </div>
@@ -416,8 +416,8 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                   <span className="font-mono bg-white px-2 py-1 rounded-lg border border-slate-200 font-bold text-slate-800">
                     หน้า {record.width} มม. {WIDTH_SPECIFICATIONS[record.width] ? `(${WIDTH_SPECIFICATIONS[record.width]})` : ''}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${patternStyle.dotClass}`} />
+                  <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg border-2 ${patternStyle.highlightClass}`}>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-white/70 ${patternStyle.dotClass}`} />
                     <span>ลาย{record.pattern}</span>
                   </span>
                   {record.isSilverSide && (

@@ -32,7 +32,7 @@ import {
   STANDARD_PATTERNS, 
   normalizePattern, 
   getCanonicalPatternStyle, 
-  PATTERN_HEX_COLORS 
+  getPatternHexColor 
 } from '../utils/soFormatter';
 import { formatMeters, round2 } from '../utils/formatters';
 
@@ -671,7 +671,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
                     </span>
                     <span
                       className="w-2.5 h-2.5 rounded-full border border-slate-300"
-                      style={{ backgroundColor: PATTERN_HEX_COLORS[normalizePattern(p.pattern)] || '#cbd5e1' }}
+                      style={{ backgroundColor: getPatternHexColor(p.pattern) }}
                     />
                   </div>
                   <div className="text-sm font-bold font-mono text-slate-900">
@@ -803,7 +803,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
         {allActivePatterns.map((pat) => {
           const isSelected = selectedPatterns.includes(pat);
           const pStyle = getCanonicalPatternStyle(pat);
-          const hexColor = PATTERN_HEX_COLORS[pat] || '#8b5cf6';
+          const hexColor = getPatternHexColor(pat);
 
           return (
             <button
@@ -872,7 +872,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
 
               {/* Render Bars for each selected pattern */}
               {selectedPatterns.map((pat) => {
-                const hexColor = PATTERN_HEX_COLORS[pat] || '#8b5cf6';
+                const hexColor = getPatternHexColor(pat);
                 return (
                   <Bar
                     key={pat}

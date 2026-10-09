@@ -30,7 +30,7 @@ import { getPatternStyle } from '../utils/patternStyles';
 import { SODetailModal } from './SODetailModal';
 
 export type HistoryCategory = 'all' | 'foil' | 'sandwich';
-type SortField = 'date' | 'so' | 'type' | 'details' | 'used' | 'ng' | 'remaining' | 'recorder';
+type SortField = 'date' | 'so' | 'type' | 'details' | 'pattern' | 'side' | 'used' | 'ng' | 'remaining' | 'recorder';
 type SortDirection = 'asc' | 'desc';
 
 export interface UnifiedHistoryItem {
@@ -239,6 +239,14 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         case 'details':
           diff = a.detailsSummary.localeCompare(b.detailsSummary);
           break;
+        case 'pattern':
+          diff = (a.pattern || '').localeCompare(b.pattern || '');
+          break;
+        case 'side': {
+          const sideRank = (x: typeof a) => (x.isSilverSide ? 1 : x.isWhiteSide ? 2 : 0);
+          diff = sideRank(a) - sideRank(b);
+          break;
+        }
         case 'used':
           diff = a.usedValue - b.usedValue;
           break;
@@ -342,22 +350,22 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     return (
       <th
         onClick={() => handleToggleSort(field)}
-        className={`px-3 py-2 text-xs font-semibold select-none cursor-pointer transition-colors ${
+        className={`px-5 py-4 text-lg font-semibold select-none cursor-pointer transition-colors ${
           stickyLeft
             ? 'sticky left-0 z-30 bg-slate-100 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]'
             : 'bg-slate-50 hover:bg-slate-100'
         } ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'}`}
       >
-        <div className={`inline-flex items-center gap-1 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
+        <div className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
           <span className={isCurrent ? 'text-slate-950 font-bold' : 'text-slate-600'}>{label}</span>
           {isCurrent ? (
             sortDirection === 'asc' ? (
-              <ArrowUp className="w-3.5 h-3.5 text-amber-600" />
+              <ArrowUp className="w-5 h-5 text-amber-600" />
             ) : (
-              <ArrowDown className="w-3.5 h-3.5 text-amber-600" />
+              <ArrowDown className="w-5 h-5 text-amber-600" />
             )
           ) : (
-            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+            <ArrowUpDown className="w-4 h-4 text-slate-400 opacity-60" />
           )}
         </div>
       </th>
@@ -668,13 +676,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       </div>
 
                       {/* แสดงท้องแล้วแสดงตัวเลือกว่าเป็นเงินหรือขาว (ตามคำขอ) */}
-                      <div className="p-3 bg-gradient-to-r from-amber-50/70 via-slate-50 to-orange-50/40 rounded-xl border border-amber-200/90 space-y-2 shadow-2xs">
+                      <div className={`p-3 rounded-xl border-2 space-y-2 shadow-2xs ${patternStyle ? patternStyle.tintClass : 'bg-slate-50 border-slate-200'}`}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           {/* แสดงท้อง (ลายฟอยล์) */}
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-bold text-slate-600">ท้อง (ลายฟอยล์):</span>
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-100 text-amber-950 font-black text-xs border border-amber-300 shadow-2xs">
-                              {patternStyle && <span className={`w-2.5 h-2.5 rounded-full ${patternStyle.dotClass}`} />}
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-black text-xs border-2 shadow-2xs ${patternStyle ? patternStyle.highlightClass : 'bg-slate-100 text-slate-800 border-slate-300'}`}>
+                              {patternStyle && <span className={`w-2.5 h-2.5 rounded-full ring-1 ring-white/70 ${patternStyle.dotClass}`} />}
                               <span>{item.rawFoil.pattern || 'ลายมาตรฐาน'}</span>
                             </span>
                           </div>
@@ -873,19 +881,21 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         /* VIEW MODE 2: TABLE VIEW (แถวใหญ่และรายละเอียดครบถ้วน) */
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
           <div className="overflow-x-auto relative scroll-smooth focus:outline-none">
-            <table className="w-full text-left border-collapse text-xs whitespace-nowrap min-w-[900px]">
+            <table className="w-full text-left border-collapse text-lg whitespace-nowrap min-w-[1900px]">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
                 <tr>
                   {/* STICKY SO HEADER */}
                   {renderSortTh('so', 'รหัส SO (ตรึงซ้าย)', 'left', true)}
                   {renderSortTh('type', 'ประเภท', 'center')}
                   {renderSortTh('date', 'วันที่ผลิต/ตัด')}
-                  {renderSortTh('details', 'รายละเอียด / ล็อต / ท้อง & ตัวเลือก')}
+                  {renderSortTh('details', 'รายละเอียด / ล็อต / ม้วน')}
+                  {renderSortTh('pattern', 'ท้อง (ลาย) / สีฟอยล์')}
+                  {renderSortTh('side', 'ตัวเลือก เงิน / ขาว', 'center')}
                   {renderSortTh('used', 'ปริมาณที่ใช้', 'right')}
                   {renderSortTh('ng', 'NG ที่เสีย', 'right')}
                   {renderSortTh('remaining', 'คงเหลือ / หลังตัด', 'right')}
                   {renderSortTh('recorder', 'ผู้บันทึก')}
-                  <th className="px-3 py-2 text-center font-semibold text-slate-600 w-24">จัดการ</th>
+                  <th className="px-5 py-4 text-center text-lg font-semibold text-slate-600 w-44">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -899,8 +909,8 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       className="group hover:bg-slate-50/90 transition-colors"
                     >
                       {/* STICKY SO COLUMN: Large prominent SO button */}
-                      <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
-                        <div className="flex items-center gap-1.5 min-w-[140px]">
+                      <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 transition-colors px-5 py-5 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)]">
+                        <div className="flex items-center gap-1.5 min-w-[210px]">
                           <button
                             type="button"
                             onClick={() => {
@@ -911,40 +921,40 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               }
                             }}
                             title="คลิกเพื่อดูรายละเอียดใบ SO แบบเต็ม"
-                            className={`font-mono font-black text-sm px-3 py-1.5 rounded-xl border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 text-left ${
+                            className={`font-mono font-black text-[21px] px-4.5 py-2 rounded-xl border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 text-left ${
                               isFoil
                                 ? 'bg-amber-50 text-amber-950 border-amber-300 hover:bg-amber-100 hover:border-amber-400'
                                 : 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400'
                             }`}
                           >
                             <span>{item.soNumber}</span>
-                            <FileText className="w-3.5 h-3.5 opacity-60 ml-0.5 shrink-0" />
+                            <FileText className="w-5 h-5 opacity-60 ml-0.5 shrink-0" />
                           </button>
                         </div>
                       </td>
 
                       {/* Type Badge */}
-                      <td className="px-3 py-3 text-center">
+                      <td className="px-5 py-5 text-center">
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          className={`inline-flex items-center gap-1 px-4 py-1 rounded-full text-[15px] font-bold ${
                             isFoil
                               ? 'bg-amber-100/80 text-amber-900 border border-amber-300'
                               : 'bg-emerald-100/80 text-emerald-950 border border-emerald-300'
                           }`}
                         >
-                          {isFoil ? <Scissors className="w-3 h-3 text-amber-700" /> : <Factory className="w-3 h-3 text-emerald-700" />}
+                          {isFoil ? <Scissors className="w-[18px] h-[18px] text-amber-700" /> : <Factory className="w-[18px] h-[18px] text-emerald-700" />}
                           <span>{item.categoryLabel}</span>
                         </span>
                       </td>
 
                       {/* Date */}
-                      <td className="px-3 py-3 font-mono text-slate-700 font-medium">
+                      <td className="px-5 py-5 font-mono text-slate-700 font-medium text-lg">
                         {item.date || '-'}
                       </td>
 
-                      {/* Details / Lot / Foil Pattern & Side Selection */}
+                      {/* Details / Lot / Roll / Width */}
                       <td
-                        className="px-3 py-3 cursor-pointer hover:bg-slate-100/60 transition-colors"
+                        className="px-5 py-5 cursor-pointer hover:bg-slate-100/60 transition-colors"
                         onClick={() => {
                           if (isFoil && item.rawFoil) {
                             setSelectedDetailRecord(item.rawFoil);
@@ -955,104 +965,117 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         title="คลิกเพื่อดูรายละเอียดใบ SO"
                       >
                         {isFoil && item.rawFoil ? (
-                          <div className="flex flex-col gap-1.5 py-0.5">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <div className="inline-flex items-center gap-1 bg-black text-white px-2 py-0.5 rounded-md border border-slate-800 shadow-2xs shrink-0">
-                                <span className="text-[10px] font-black uppercase text-amber-400">LOT.</span>
-                                <span className="lot-number-display text-xs font-black text-white">{item.rawFoil.lotNumber}</span>
-                                <span className="text-slate-600 font-bold">|</span>
-                                <span className="text-[10px] font-black uppercase text-amber-400">NO.</span>
-                                <span className="lot-number-display text-xs font-black text-amber-300">#{item.rawFoil.rollNumber}</span>
-                              </div>
-                              <span className="font-mono font-bold text-slate-700 text-xs">
-                                หน้า {item.rawFoil.width} มม.
-                              </span>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="inline-flex items-center gap-1.5 bg-black text-white px-3 py-1.5 rounded-lg border border-slate-800 shadow-2xs shrink-0">
+                              <span className="text-[15px] font-black uppercase text-amber-400">LOT.</span>
+                              <span className="lot-number-display text-lg font-black text-white">{item.rawFoil.lotNumber}</span>
+                              <span className="text-slate-600 font-bold">|</span>
+                              <span className="text-[15px] font-black uppercase text-amber-400">NO.</span>
+                              <span className="lot-number-display text-lg font-black text-amber-300">#{item.rawFoil.rollNumber}</span>
                             </div>
-
-                            {/* แสดงท้องแล้วแสดงตัวเลือกว่าเป็นเงินหรือขาว */}
-                            <div className="flex items-center gap-1.5 flex-wrap text-xs">
-                              <span className="text-slate-500 font-bold">ท้อง:</span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 font-bold border border-amber-200">
-                                {patternStyle && <span className={`w-2 h-2 rounded-full ${patternStyle.dotClass}`} />}
-                                <span>{item.rawFoil.pattern || 'ลายมาตรฐาน'}</span>
-                              </span>
-                              <span className="text-slate-300 font-bold">•</span>
-                              <span className="text-slate-500 font-bold">ตัวเลือก:</span>
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold border ${
-                                  item.isSilverSide
-                                    ? 'bg-slate-800 text-white border-slate-900 shadow-2xs'
-                                    : 'text-slate-400 border-slate-200 bg-slate-50'
-                                }`}
-                              >
-                                <span className="w-2 h-2 rounded-full bg-slate-300 border border-white/50" />
-                                <span>ท้องเงิน</span>
-                                {item.isSilverSide && <span className="text-[10px] text-amber-300 font-normal">✓</span>}
-                              </span>
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold border ${
-                                  item.isWhiteSide
-                                    ? 'bg-white text-slate-900 border-slate-400 shadow-2xs'
-                                    : 'text-slate-400 border-slate-200 bg-slate-50'
-                                }`}
-                              >
-                                <span className="w-2 h-2 rounded-full bg-white border border-slate-400" />
-                                <span>ท้องขาว</span>
-                                {item.isWhiteSide && <span className="text-[10px] text-emerald-600 font-normal">✓</span>}
-                              </span>
-                            </div>
+                            <span className="font-mono font-bold text-slate-700 text-lg">
+                              หน้า {item.rawFoil.width} มม.
+                            </span>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1.5 max-w-[320px] truncate" title={item.detailsSummary}>
-                            {patternStyle && (
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${patternStyle.dotClass}`} />
-                            )}
-                            <span className="font-medium text-slate-900">
+                          <div className="flex items-center gap-2 max-w-[480px] truncate" title={item.detailsSummary}>
+                            <span className="font-medium text-slate-900 text-lg">
                               {item.detailsSummary}
                             </span>
                           </div>
                         )}
                       </td>
 
+                      {/* Pattern — สีไฮไลต์ตามลาย (ชุดสีเดียวกับคงเหลือฟอยล์แยกตามลายในแดชบอร์ด) */}
+                      <td className="px-5 py-5">
+                        {isFoil && item.rawFoil ? (
+                          <span
+                            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-xl border-2 font-black text-lg shadow-2xs ${
+                              patternStyle ? patternStyle.highlightClass : 'bg-slate-100 text-slate-800 border-slate-300'
+                            }`}
+                            title={patternStyle ? `${item.rawFoil.pattern || 'ลายมาตรฐาน'} (${patternStyle.colorName})` : undefined}
+                          >
+                            {patternStyle && (
+                              <span className={`w-4 h-4 rounded-full shrink-0 ring-2 ring-white/70 ${patternStyle.dotClass}`} />
+                            )}
+                            <span>{item.rawFoil.pattern || 'ลายมาตรฐาน'}</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 text-lg">-</span>
+                        )}
+                      </td>
+
+                      {/* Side option — ท้องเงิน / ท้องขาว */}
+                      <td className="px-5 py-5 text-center">
+                        {isFoil && item.rawFoil ? (
+                          <div className="inline-flex items-center gap-2">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-lg border-2 ${
+                                item.isSilverSide
+                                  ? 'bg-gradient-to-r from-slate-800 to-zinc-900 text-white border-amber-400 shadow-xs'
+                                  : 'text-slate-400 border-slate-200 bg-slate-50'
+                              }`}
+                            >
+                              <span className="w-4 h-4 rounded-full bg-gradient-to-r from-slate-200 to-zinc-400 border border-slate-400 shrink-0" />
+                              <span>ท้องเงิน</span>
+                              {item.isSilverSide && <span className="text-[15px] text-amber-300">✓</span>}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl font-bold text-lg border-2 ${
+                                item.isWhiteSide
+                                  ? 'bg-white text-slate-900 border-amber-400 shadow-xs'
+                                  : 'text-slate-400 border-slate-200 bg-slate-50'
+                              }`}
+                            >
+                              <span className="w-4 h-4 rounded-full bg-white border-2 border-slate-400 shrink-0" />
+                              <span>ท้องขาว</span>
+                              {item.isWhiteSide && <span className="text-[15px] text-emerald-600">✓</span>}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 text-lg">-</span>
+                        )}
+                      </td>
+
                       {/* Used Amount */}
-                      <td className="px-3 py-3 text-right font-mono font-black text-slate-900 text-sm">
+                      <td className="px-5 py-5 text-right font-mono font-black text-slate-900 text-[21px]">
                         {item.usedDisplay}
                       </td>
 
                       {/* NG Amount */}
-                      <td className={`px-3 py-3 text-right font-mono ${item.ngValue > 0 ? 'text-rose-600 font-black' : 'text-slate-400'}`}>
+                      <td className={`px-5 py-5 text-right font-mono text-lg ${item.ngValue > 0 ? 'text-rose-600 font-black' : 'text-slate-400'}`}>
                         {item.ngDisplay}
                       </td>
 
                       {/* Remaining / After Cut */}
-                      <td className="px-3 py-3 text-right font-mono text-slate-800 font-bold">
+                      <td className="px-5 py-5 text-right font-mono text-slate-800 font-bold text-lg">
                         <div>{item.remainingDisplay}</div>
                         {item.remainingBeforeDisplay && (
-                          <div className="text-[10px] text-slate-400 font-normal">
+                          <div className="text-[15px] text-slate-400 font-normal">
                             (ก่อน: {item.remainingBeforeDisplay})
                           </div>
                         )}
                       </td>
 
                       {/* Recorder */}
-                      <td className="px-3 py-3 text-slate-600 text-[11px] truncate max-w-[120px]">
+                      <td className="px-5 py-5 text-slate-600 text-[16px] truncate max-w-[200px]">
                         {item.recordedBy}
                       </td>
 
                       {/* Actions (Copy / Edit / Delete) */}
-                      <td className="px-3 py-3 text-center">
+                      <td className="px-5 py-5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           {/* Copy line text */}
                           <button
                             type="button"
                             onClick={() => handleCopySingle(item)}
                             title="คัดลอกข้อมูลสรุปเพื่อส่ง LINE"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+                            className="p-2.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
                           >
                             {copiedId === item.id ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              <Check className="w-5 h-5 text-emerald-600" />
                             ) : (
-                              <Copy className="w-3.5 h-3.5" />
+                              <Copy className="w-5 h-5" />
                             )}
                           </button>
 
@@ -1062,9 +1085,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               type="button"
                               onClick={() => setSelectedDetailRecord(item.rawFoil!)}
                               title="ดูรายละเอียดใบ SO ฟอยล์แบบเต็ม"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+                              className="p-2.5 rounded-lg text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
                             >
-                              <FileText className="w-3.5 h-3.5" />
+                              <FileText className="w-5 h-5" />
                             </button>
                           )}
 
@@ -1074,9 +1097,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               type="button"
                               onClick={() => setSelectedSandwichDetail(item.rawSandwich!)}
                               title="ดูรายละเอียดใบ SO แซนวิชแบบเต็ม"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                              className="p-2.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
                             >
-                              <FileText className="w-3.5 h-3.5" />
+                              <FileText className="w-5 h-5" />
                             </button>
                           )}
 
@@ -1086,9 +1109,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               type="button"
                               onClick={() => handleActionGuarded(() => onEditRecord(item.rawFoil!))}
                               title="แก้ไขรายการตัดฟอยล์"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer"
+                              className="p-2.5 rounded-lg text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer"
                             >
-                              <Pencil className="w-3.5 h-3.5" />
+                              <Pencil className="w-5 h-5" />
                             </button>
                           )}
                           {!isFoil && item.rawSandwich && onEditSandwichRecord && (
@@ -1096,9 +1119,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               type="button"
                               onClick={() => handleActionGuarded(() => onEditSandwichRecord(item.rawSandwich!))}
                               title="แก้ไขรายการตัด SO แซนวิช"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                              className="p-2.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
                             >
-                              <Pencil className="w-3.5 h-3.5" />
+                              <Pencil className="w-5 h-5" />
                             </button>
                           )}
 
@@ -1131,9 +1154,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               });
                             }}
                             title="ลบ/ยกเลิกรายการนี้"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            className="p-2.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-5 h-5" />
                           </button>
                         </div>
                       </td>
