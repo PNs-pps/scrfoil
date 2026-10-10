@@ -647,13 +647,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
               <thead className="bg-slate-50 border-b-2 border-slate-200 text-slate-700 sticky top-0 z-30">
                 <tr>
                   {/* STICKY SO HEADER (ตรึงซ้าย กะทัดรัด) */}
-                  {renderSortTh('so', 'รหัส SO (ตรึงซ้าย)', 'left', true)}
+                  {renderSortTh('so', 'รหัส SO', 'left', true)}
                   {renderSortTh('type', 'ประเภท', 'center')}
-                  {renderSortTh('details', 'หลอด / เบอร์ / กว้าง')}
-                  {renderSortTh('pattern', 'ท้อง (ลาย)')}
+                  {renderSortTh('details', 'ล็อต / เบอร์ / กว้าง')}
+                  {renderSortTh('pattern', 'ท้อง')}
                   {renderSortTh('used', 'ปริมาณที่ใช้', 'right')}
                   {renderSortTh('ng', 'NG ที่เสีย', 'right')}
-                  {renderSortTh('remaining', 'คงเหลือ / หลังตัด', 'right')}
+                  {renderSortTh('remaining', 'ก่อน / หลังตัด', 'right')}
                   {renderSortTh('recorder', 'ผู้บันทึก & หมายเหตุ')}
                   <th className="px-2.5 py-2 text-center text-xs font-bold text-slate-600 w-32 bg-slate-50/95">
                     จัดการ
