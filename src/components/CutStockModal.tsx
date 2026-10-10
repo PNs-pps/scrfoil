@@ -21,8 +21,10 @@ import {
   Wrench,
   ArrowRight,
   ShieldAlert,
-  Lock
+  Lock,
+  Calculator
 } from 'lucide-react';
+import { TouchNumpad, TouchNumpadTarget } from './TouchNumpad';
 
 interface CutOrderItem {
   id: string;
@@ -126,6 +128,55 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const [orders, setOrders] = useState<CutOrderItem[]>([
     createEmptyOrder(1, initialCutMode === 'non_so' ? 'non_so' : 'so')
   ]);
+
+  // Tablet Numpad State
+  const [showTabletNumpad, setShowTabletNumpad] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('pufoam_tablet_numpad_enabled') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [activeNumpadTargetId, setActiveNumpadTargetId] = useState<string>('');
+
+  const numpadTargets: TouchNumpadTarget[] = useMemo(() => {
+    const list: TouchNumpadTarget[] = [];
+    orders.forEach((o, idx) => {
+      const labelPrefix = orders.length > 1 ? `SO#${idx + 1}` : 'ม้วนนี้';
+      list.push({
+        id: `used-${o.id}`,
+        label: `${labelPrefix} เมตรที่ใช้`,
+        value: o.usedMeters,
+        unit: 'ม.',
+        isAccent: false,
+      });
+      list.push({
+        id: `ng-${o.id}`,
+        label: `${labelPrefix} เสีย NG`,
+        value: o.ngMeters,
+        unit: 'ม.',
+        isAccent: true,
+      });
+    });
+    return list;
+  }, [orders]);
+
+  const handleNumpadValueChange = (targetId: string, val: string) => {
+    if (targetId.startsWith('used-')) {
+      const orderId = targetId.replace('used-', '');
+      handleUpdateOrder(orderId, { usedMeters: val });
+    } else if (targetId.startsWith('ng-')) {
+      const orderId = targetId.replace('ng-', '');
+      handleUpdateOrder(orderId, { ngMeters: val });
+    }
+  };
+
+  const handleNextNumpadTarget = () => {
+    if (numpadTargets.length === 0) return;
+    const curIdx = numpadTargets.findIndex(t => t.id === activeNumpadTargetId);
+    const nextIdx = (curIdx + 1) % numpadTargets.length;
+    setActiveNumpadTargetId(numpadTargets[nextIdx].id);
+  };
 
   const recentOperators = getRecentOperators();
 
@@ -590,16 +641,42 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            aria-label={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่' : 'ปิดหน้าต่าง'}
-            className="text-slate-900/70 hover:text-slate-950 p-2 rounded-lg hover:bg-slate-950/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] flex items-center justify-center"
-            title={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่...' : 'ปิด'}
-          >
-            <X className="w-5 h-5" aria-hidden="true" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !showTabletNumpad;
+                setShowTabletNumpad(next);
+                try {
+                  localStorage.setItem('pufoam_tablet_numpad_enabled', String(next));
+                } catch {}
+                if (next && orders[0]) {
+                  setActiveNumpadTargetId(`used-${orders[0].id}`);
+                }
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                showTabletNumpad
+                  ? 'bg-slate-950 text-amber-300 ring-2 ring-slate-900'
+                  : 'bg-amber-400 hover:bg-amber-300 text-slate-950 border border-slate-950/20'
+              }`}
+              title="เปิด/ปิด แป้นพิมพ์ตัวเลขแท็บเล็ตขนาดใหญ่"
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">แป้นตัวเลขแท็บเล็ต</span>
+              <span className="sm:hidden">Numpad</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              aria-label={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่' : 'ปิดหน้าต่าง'}
+              className="text-slate-900/70 hover:text-slate-950 p-2 rounded-lg hover:bg-slate-950/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] flex items-center justify-center"
+              title={isSubmitting ? 'กำลังบันทึก กรุณารอสักครู่...' : 'ปิด'}
+            >
+              <X className="w-5 h-5" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Form Body */}
@@ -1002,6 +1079,12 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           tabIndex={2}
                           value={order.usedMeters}
                           onChange={(e) => handleUpdateOrder(order.id, { usedMeters: e.target.value })}
+                          onFocus={() => {
+                            setActiveNumpadTargetId(`used-${order.id}`);
+                          }}
+                          onClick={() => {
+                            setActiveNumpadTargetId(`used-${order.id}`);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
@@ -1014,7 +1097,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           }}
                           placeholder="เช่น 150.00"
                           required
-                          className="w-full px-3 py-2 text-base font-bold font-mono text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal"
+                          className={`w-full px-3 py-2 text-base font-bold font-mono text-slate-900 bg-white border rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal transition-all ${
+                            showTabletNumpad && (activeNumpadTargetId === `used-${order.id}` || (!activeNumpadTargetId && index === 0))
+                              ? 'border-amber-500 ring-2 ring-amber-400/80 bg-amber-50/20'
+                              : 'border-slate-300'
+                          }`}
                         />
                         <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
                       </div>
@@ -1037,8 +1124,18 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           tabIndex={3}
                           value={order.ngMeters}
                           onChange={(e) => handleUpdateOrder(order.id, { ngMeters: e.target.value })}
+                          onFocus={() => {
+                            setActiveNumpadTargetId(`ng-${order.id}`);
+                          }}
+                          onClick={() => {
+                            setActiveNumpadTargetId(`ng-${order.id}`);
+                          }}
                           placeholder="0.00"
-                          className="w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border border-slate-300 rounded-lg focus:border-rose-400 focus:ring-1 focus:ring-rose-400 placeholder:text-slate-400 placeholder:font-normal"
+                          className={`w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border rounded-lg focus:border-rose-400 focus:ring-1 focus:ring-rose-400 placeholder:text-slate-400 placeholder:font-normal transition-all ${
+                            showTabletNumpad && activeNumpadTargetId === `ng-${order.id}`
+                              ? 'border-rose-500 ring-2 ring-rose-400/80 bg-rose-50/20'
+                              : 'border-slate-300'
+                          }`}
                         />
                         <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
                       </div>
@@ -1186,6 +1283,20 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               </div>
             )}
           </div>
+
+          {/* Touch Numpad for Tablet */}
+          {showTabletNumpad && numpadTargets.length > 0 && (
+            <div className="pt-1">
+              <TouchNumpad
+                targets={numpadTargets}
+                activeTargetId={activeNumpadTargetId || numpadTargets[0]?.id || ''}
+                onSelectTarget={(id) => setActiveNumpadTargetId(id)}
+                onValueChange={handleNumpadValueChange}
+                onClose={() => setShowTabletNumpad(false)}
+                onNextTarget={handleNextNumpadTarget}
+              />
+            </div>
+          )}
 
           {/* Footer Action Buttons */}
           <div className="pt-2 flex items-center justify-end gap-3">

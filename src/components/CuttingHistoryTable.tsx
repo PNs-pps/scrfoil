@@ -22,7 +22,8 @@ import {
   Scissors,
   ArrowLeftRight,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileSpreadsheet
 } from 'lucide-react';
 import { exportCutRecordsToCSV, exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { formatMeters, compareLotAndRoll } from '../utils/formatters';
@@ -204,8 +205,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     // 2. PU Sandwich Records
     safePuRecords.forEach((s) => {
       const d = (s.productionDate || (s.createdAt ? s.createdAt.slice(0, 10) : '')).trim();
-      const details = `${s.coilColor || ''} ${s.thickness ? `${s.thickness}มม.` : ''} · คอยล์ #${s.coilNumber || '-'} (${s.steelOrigin || 'เหล็ก'})`;
-      const soLen = s.soLengthMeters ? ` (${formatMeters(s.soLengthMeters)} ม.)` : '';
+      const details = `คอยล์ #${s.coilNumber || '-'} · สี ${s.coilColor || '-'} ${s.thickness ? `${s.thickness}มม.` : ''} (${s.steelOrigin || 'เหล็ก'})`;
 
       list.push({
         id: `sandwich_${s.id}`,
@@ -215,14 +215,14 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         categoryLabel: 'แซนวิช',
         detailsSummary: details,
         subDetails: s.steelOrigin,
-        usedDisplay: `${formatMeters(s.weightUsed)} กก.${soLen}`,
-        usedValue: Number(s.weightUsed) || 0,
-        ngDisplay: (s.ngKg || 0) > 0 ? `${formatMeters(s.ngKg)} กก.${(s.ngMeters || 0) > 0 ? ` (${formatMeters(s.ngMeters)} ม.)` : ''}` : '—',
-        ngValue: Number(s.ngKg) || 0,
-        remainingDisplay: `หลังใช้ ${formatMeters(s.weightAfter)} กก.`,
-        remainingValue: Number(s.weightAfter) || 0,
-        remainingBeforeDisplay: s.weightBefore ? `${formatMeters(s.weightBefore)} กก.` : undefined,
-        remainingBeforeValue: Number(s.weightBefore) || 0,
+        usedDisplay: s.soLengthMeters ? `${formatMeters(s.soLengthMeters)} ม.` : `${formatMeters(s.weightUsed)} ม.`,
+        usedValue: Number(s.soLengthMeters || s.weightUsed) || 0,
+        ngDisplay: (s.ngMeters || 0) > 0 ? `${formatMeters(s.ngMeters)} ม.` : '—',
+        ngValue: Number(s.ngMeters) || 0,
+        remainingDisplay: '—',
+        remainingValue: 0,
+        remainingBeforeDisplay: undefined,
+        remainingBeforeValue: 0,
         recordedBy: s.recordedBy || '-',
         notes: s.notes,
         createdAt: s.createdAt || '',
@@ -471,7 +471,8 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           </div>
 
           {/* Quick Actions (Export CSV & Quick Cut) */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+
             <button
               type="button"
               onClick={handleExportCSV}
@@ -642,20 +643,19 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
             className="overflow-x-auto relative scroll-smooth focus:outline-none select-none md:select-auto cursor-grab active:cursor-grabbing"
             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}
           >
-            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[1350px]">
+            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[980px]">
               <thead className="bg-slate-50 border-b-2 border-slate-200 text-slate-700 sticky top-0 z-30">
                 <tr>
                   {/* STICKY SO HEADER (ตรึงซ้าย กะทัดรัด) */}
                   {renderSortTh('so', 'รหัส SO (ตรึงซ้าย)', 'left', true)}
                   {renderSortTh('type', 'ประเภท', 'center')}
-                  {renderSortTh('date', 'วันที่ผลิต/ตัด')}
-                  {renderSortTh('details', 'รายละเอียด / ล็อต / ม้วน')}
-                  {renderSortTh('pattern', 'ท้อง (ลาย) / ตัวเลือก')}
+                  {renderSortTh('details', 'หลอด / เบอร์ / กว้าง')}
+                  {renderSortTh('pattern', 'ท้อง (ลาย)')}
                   {renderSortTh('used', 'ปริมาณที่ใช้', 'right')}
                   {renderSortTh('ng', 'NG ที่เสีย', 'right')}
                   {renderSortTh('remaining', 'คงเหลือ / หลังตัด', 'right')}
                   {renderSortTh('recorder', 'ผู้บันทึก & หมายเหตุ')}
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-slate-600 w-36 bg-slate-50/95">
+                  <th className="px-2.5 py-2 text-center text-xs font-bold text-slate-600 w-32 bg-slate-50/95">
                     จัดการ
                   </th>
                 </tr>
@@ -668,7 +668,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                   return (
                     <tr key={item.id} className="group hover:bg-amber-50/40 transition-colors">
                       {/* 1. STICKY SO COLUMN (ตรึงตำแหน่งซ้าย มีเฉพาะรหัส SO เท่านั้น ไม่มีอิโมจิหรือไอคอน มาร์คเส้นแบ่งชัดเจน) */}
-                      <td className="sticky left-0 z-20 bg-white group-hover:bg-amber-50/90 transition-colors px-3 py-2.5 border-r-2 border-slate-300 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap w-28 min-w-[110px] max-w-[130px]">
+                      <td className="sticky left-0 z-20 bg-white group-hover:bg-amber-50/90 transition-colors px-2.5 py-2 border-r-2 border-slate-300 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap w-24 min-w-[95px] max-w-[120px]">
                         <button
                           type="button"
                           onClick={() => {
@@ -679,7 +679,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                             }
                           }}
                           title="คลิกเพื่อดูรายละเอียดใบ SO แบบเต็ม"
-                          className={`font-mono font-bold text-xs sm:text-sm px-2.5 py-1 rounded-lg border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer block w-full text-center truncate ${
+                          className={`font-mono font-bold text-xs px-2 py-1 rounded-lg border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer block w-full text-center truncate ${
                             isFoil
                               ? 'bg-amber-50 text-amber-950 border-amber-300 hover:bg-amber-100'
                               : 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100'
@@ -690,7 +690,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       </td>
 
                       {/* 2. ประเภท (Type Badge) */}
-                      <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                      <td className="px-2.5 py-2 text-center whitespace-nowrap">
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
                             isFoil
@@ -707,17 +707,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         </span>
                       </td>
 
-                      {/* 3. วันที่ผลิต/ตัด (Date) */}
-                      <td className="px-3 py-2.5 font-mono text-slate-700 font-semibold whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{item.date || '-'}</span>
-                        </div>
-                      </td>
-
-                      {/* 4. รายละเอียด / ล็อต / ม้วน (Details) */}
+                      {/* 3. รายละเอียด / หลอด, เบอร์, กว้าง (2 แถว คอลัมน์ชิดกัน) */}
                       <td
-                        className="px-3 py-2.5 cursor-pointer hover:bg-slate-100/60 transition-colors"
+                        className="px-2.5 py-2 cursor-pointer hover:bg-slate-100/60 transition-colors whitespace-nowrap"
                         onClick={() => {
                           if (isFoil && item.rawFoil) {
                             setSelectedDetailRecord(item.rawFoil);
@@ -728,116 +720,127 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         title="คลิกเพื่อดูรายละเอียดใบ SO"
                       >
                         {isFoil && item.rawFoil ? (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <div className="inline-flex items-center gap-1.5 bg-slate-900 text-white px-2.5 py-1 rounded-lg border border-slate-800 text-xs shrink-0">
-                              <span className="text-[10px] font-black uppercase text-amber-400">LOT.</span>
-                              <span className="lot-number-display font-mono font-bold text-white">
+                          <div className="flex flex-col gap-0.5">
+                            {/* แถว 1: เบอร์หลอด (LOT) & เบอร์ม้วน (NO.) */}
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-xs">
                                 {item.rawFoil.lotNumber}
                               </span>
-                              <span className="text-slate-600 font-bold">|</span>
-                              <span className="text-[10px] font-black uppercase text-amber-400">NO.</span>
-                              <span className="lot-number-display font-mono font-bold text-amber-300">
+                              <span className="font-mono font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 text-xs">
                                 #{item.rawFoil.rollNumber}
                               </span>
                             </div>
-                            <span className="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-xs">
-                              {item.rawFoil.width} มม.
-                            </span>
+                            {/* แถว 2: กว้าง (หน้ากว้างไม่ต้องใส่คำว่าหน้า) */}
+                            <div className="text-[11px] font-mono font-semibold text-slate-600">
+                              กว้าง {item.rawFoil.width} มม.
+                            </div>
+                          </div>
+                        ) : item.rawSandwich ? (
+                          <div className="flex flex-col gap-0.5">
+                            {/* แถว 1: เบอร์คอยล์ */}
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono font-bold text-emerald-950 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 text-xs">
+                                คอยล์ #{item.rawSandwich.coilNumber || '-'}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-sans">
+                                ({item.rawSandwich.steelOrigin || 'เหล็ก'})
+                              </span>
+                            </div>
+                            {/* แถว 2: สี และ ความหนา */}
+                            <div className="text-[11px] font-sans font-medium text-slate-600">
+                              สี {item.rawSandwich.coilColor || '-'} {item.rawSandwich.thickness ? `· ${item.rawSandwich.thickness} มม.` : ''}
+                            </div>
                           </div>
                         ) : (
-                          <div
-                            className="flex items-center gap-2 max-w-[380px] truncate"
-                            title={item.detailsSummary}
-                          >
-                            <span className="font-medium text-slate-900">
-                              {item.detailsSummary}
-                            </span>
+                          <div className="text-slate-500 truncate max-w-[200px]" title={item.detailsSummary}>
+                            {item.detailsSummary}
                           </div>
                         )}
                       </td>
 
-                      {/* 5. ท้อง (ลาย) / สีฟอยล์ + จุดสีแสดงตัวเลือก (เงิน/ขาว) ด้านหลังชื่อท้อง */}
-                      <td className="px-3 py-2.5 whitespace-nowrap">
+                      {/* 4. ท้อง (ลาย) - กรอบท้องคลุมแค่ขาว จุดสีอยู่นอกกรอบ ขาว/เงิน ไล่เชดสีไม่มีกรอบ */}
+                      <td className="px-2.5 py-2 whitespace-nowrap">
                         {isFoil && item.rawFoil ? (
                           <div className="inline-flex items-center gap-1.5">
+                            {/* กรอบท้องคลุมแค่ชื่อลาย/ขาว */}
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-bold text-xs shadow-2xs ${
+                              className={`px-2 py-0.5 rounded-md border font-bold text-xs shadow-2xs ${
                                 patternStyle
                                   ? patternStyle.highlightClass
                                   : 'bg-slate-100 text-slate-800 border-slate-300'
                               }`}
                               title={
                                 patternStyle
-                                  ? `${item.rawFoil.pattern || 'ลายมาตรฐาน'} (${patternStyle.colorName})`
+                                  ? `${item.rawFoil.pattern || 'ขาว'} (${patternStyle.colorName})`
                                   : undefined
                               }
                             >
-                              <span>{item.rawFoil.pattern || 'ลายมาตรฐาน'}</span>
-
-                              {/* จุดสีแสดงตัวเลือกด้านหลังท้องฟอยล์: ท้องเงิน (จุดสีเงิน) หรือ ท้องขาว (จุดสีขาว) */}
-                              {item.isSilverSide && (
-                                <span
-                                  className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-slate-200 via-slate-400 to-zinc-600 border-2 border-slate-500 shadow-2xs shrink-0 ring-1 ring-amber-400 ml-0.5"
-                                  title="ตัวเลือก: ท้องเงิน"
-                                />
-                              )}
-                              {item.isWhiteSide && (
-                                <span
-                                  className="w-3.5 h-3.5 rounded-full bg-white border-2 border-slate-400 shadow-2xs shrink-0 ring-1 ring-emerald-500 ml-0.5"
-                                  title="ตัวเลือก: ท้องขาว"
-                                />
-                              )}
+                              {item.rawFoil.pattern || 'ขาว'}
                             </span>
+
+                            {/* จุดสีอยู่นอกกรอบ: ขาว เงิน แบบไล่เชดสีไม่มีกรอบ */}
+                            {item.isSilverSide && (
+                              <span
+                                className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-slate-300 via-slate-100 to-zinc-400 shadow-sm shrink-0 border-0"
+                                title="ตัวเลือก: ท้องเงิน"
+                              />
+                            )}
+                            {item.isWhiteSide && (
+                              <span
+                                className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-300 shadow-sm shrink-0 border-0"
+                                title="ตัวเลือก: ท้องขาว"
+                              />
+                            )}
                           </div>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
 
-                        {/* 7. ปริมาณที่ใช้ (Used amount: .xx) */}
-                        <td className="px-3 py-2.5 text-right font-mono font-black text-slate-900 whitespace-nowrap">
-                          {item.usedDisplay}
-                        </td>
+                      {/* 5. ปริมาณที่ใช้ */}
+                      <td className="px-2.5 py-2 text-right font-mono font-black text-slate-900 whitespace-nowrap">
+                        {item.usedDisplay}
+                      </td>
 
-                        {/* 8. NG ที่เสีย (NG amount: .xx) */}
-                        <td
-                          className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${
-                            item.ngValue > 0 ? 'text-rose-600 font-black' : 'text-slate-400'
-                          }`}
-                        >
-                          {item.ngDisplay}
-                        </td>
+                      {/* 6. NG ที่เสีย */}
+                      <td
+                        className={`px-2.5 py-2 text-right font-mono whitespace-nowrap ${
+                          item.ngValue > 0 ? 'text-rose-600 font-black' : 'text-slate-400'
+                        }`}
+                      >
+                        {item.ngDisplay}
+                      </td>
 
-                        {/* 9. คงเหลือ / หลังตัด (Remaining: .xx) */}
-                        <td className="px-3 py-2.5 text-right font-mono text-slate-800 font-bold whitespace-nowrap">
-                          <div>{item.remainingDisplay}</div>
-                          {item.remainingBeforeDisplay && (
-                            <div className="text-[11px] text-slate-400 font-normal">
-                              (ก่อน: {item.remainingBeforeDisplay})
-                            </div>
-                          )}
-                        </td>
-
-                        {/* 10. ผู้บันทึก & หมายเหตุ (Recorder & Notes) */}
-                        <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5 max-w-[200px]">
-                            <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span className="font-semibold text-slate-800 truncate">
-                              {item.recordedBy}
-                            </span>
+                      {/* 7. คงเหลือ / หลังตัด */}
+                      <td className="px-2.5 py-2 text-right font-mono text-slate-800 font-bold whitespace-nowrap">
+                        <div>{item.remainingDisplay}</div>
+                        {item.remainingBeforeDisplay && (
+                          <div className="text-[11px] text-slate-400 font-normal">
+                            (ก่อน: {item.remainingBeforeDisplay})
                           </div>
-                          {item.notes && (
-                            <div
-                              className="text-[11px] text-slate-400 truncate max-w-[200px] mt-0.5"
-                              title={item.notes}
-                            >
-                              📝 {item.notes}
-                            </div>
-                          )}
-                        </td>
+                        )}
+                      </td>
 
-                        {/* 11. จัดการ (Actions: คัดลอก, ดูรายละเอียด, แก้ไข, ลบ อยู่ท้ายคอลัมน์) */}
-                        <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                      {/* 8. ผู้บันทึก & หมายเหตุ */}
+                      <td className="px-2.5 py-2 text-slate-600 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 max-w-[180px]">
+                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="font-semibold text-slate-800 truncate">
+                            {item.recordedBy}
+                          </span>
+                        </div>
+                        {item.notes && (
+                          <div
+                            className="text-[11px] text-slate-400 truncate max-w-[180px] mt-0.5"
+                            title={item.notes}
+                          >
+                            📝 {item.notes}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 9. จัดการ */}
+                      <td className="px-2.5 py-2 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1">
                             {/* คัดลอกสรุปส่ง LINE */}
                             <button

@@ -29,7 +29,8 @@ import {
   Bug,
   ClipboardList,
   Sparkles,
-  Cloud
+  Cloud,
+  FileSpreadsheet
 } from 'lucide-react';
 import { 
   AutoBackupConfig, 
@@ -91,10 +92,12 @@ interface SettingsBackupViewProps {
   onOpenSOAudit?: () => void;
   onOpenCycleCount?: () => void;
   onOpenCycleCountHistory?: () => void;
+  onOpenExcelExport?: () => void;
 }
 
 export type SettingsSubTab = 
   | 'backup'       // สำรอง & กู้คืน (Auto Backup, Snapshots, Export/Import JSON, Reset)
+  | 'excel'        // รายงาน Excel สำเร็จรูป (ฝ่ายบัญชี / ฝ่ายจัดซื้อ / สรุปภาพรวม)
   | 'cycle_count'  // ตรวจนับสต๊อกจริง (Physical Cycle Count & History comparison)
   | 'audit'        // ตรวจสอบ & บัค (Integrity Check & SO Audit Inspector)
   | 'cloud'        // คลาวด์ & D1 (Firebase Sync, Cloudflare D1, Force Full Fetch, Rules)
@@ -128,6 +131,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   onOpenSOAudit,
   onOpenCycleCount,
   onOpenCycleCountHistory,
+  onOpenExcelExport,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>('backup');
   
@@ -325,6 +329,18 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {onOpenExcelExport && (
+              <button
+                type="button"
+                onClick={onOpenExcelExport}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="ส่งออกรายงาน Excel สำเร็จรูป สำหรับฝ่ายบัญชีและฝ่ายจัดซื้อ"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-100" />
+                <span>รายงาน Excel</span>
+              </button>
+            )}
+
             <button
               onClick={handleCreateManualSnapshot}
               disabled={isBackingUpNow}
@@ -369,6 +385,21 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
           >
             <Clock className="w-4 h-4" />
             <span>สำรอง & กู้คืน</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('excel')}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeSubTab === 'excel'
+                ? 'bg-slate-900 text-amber-400 shadow-xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+            <span>รายงาน Excel</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-900 font-bold">
+              3 รายงาน
+            </span>
           </button>
 
           <button
@@ -532,6 +563,17 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
 
               {/* Export / Import File Actions */}
               <div className="pt-2 border-t border-slate-100 space-y-2">
+                {onOpenExcelExport && (
+                  <button
+                    type="button"
+                    onClick={onOpenExcelExport}
+                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 font-bold text-xs transition-colors cursor-pointer shadow-2xs group"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-700 group-hover:scale-110 transition-transform" />
+                    <span>สร้างรายงาน Excel สำเร็จรูป (บัญชี & จัดซื้อ)</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => exportFullBackupJSON(rolls, records)}
                   className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors cursor-pointer"
@@ -671,6 +713,187 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: EXCEL REPORTS (ระบบส่งออกรายงาน Excel ฝ่ายบัญชี / จัดซื้อ / ผลิต)      */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'excel' && (
+        <div className="space-y-6">
+          {/* Main Action Banner */}
+          <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-2xl p-5 sm:p-7 text-white shadow-md relative overflow-hidden">
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
+              <div className="max-w-2xl">
+                <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-white/10 text-emerald-300 text-xs font-mono mb-2">
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>ExcelJS Production Ready Exporter</span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                  ศูนย์สร้างรายงาน Excel สำเร็จรูป
+                </h3>
+                <p className="text-xs sm:text-sm text-emerald-100/90 mt-1.5 leading-relaxed">
+                  สร้างและดาวน์โหลดไฟล์รายงาน Excel (.xlsx) ที่จัดรูปแบบสำเร็จรูป พร้อมสูตรคำนวณ ตารางสรุปผลรวม 
+                  และหัวเอกสารบริษัท <strong>"หลังคาเย็นสยาม ร่มเกล้า"</strong> สำหรับส่งให้ฝ่ายบัญชีและฝ่ายจัดซื้อได้ทันที
+                </p>
+              </div>
+
+              {onOpenExcelExport && (
+                <button
+                  type="button"
+                  onClick={onOpenExcelExport}
+                  className="px-5 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 text-sm font-bold shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-slate-900" />
+                  <span>เปิดหน้าต่างดาวน์โหลดรายงาน Excel</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 3 Report Types Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* Card 1: Accounting */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-4">
+              <div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold mb-3">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div className="inline-block px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold font-mono mb-1">
+                  สำหรับฝ่ายบัญชี
+                </div>
+                <h4 className="font-bold text-slate-900 text-base">
+                  รายงานการเบิกใช้วัตถุดิบ
+                </h4>
+                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                  สรุปการเบิกตัดม้วนฟอยล์และงาน PU Sandwich แยกตามเลขที่ SO, รอบผลิต, ล็อต, เมตรตัดใช้, เมตรเสีย (NG) พร้อมคำนวณอัตรา % ของเสียและผลรวมสุทธิ
+                </p>
+                <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>ชีทเบิกใช้ฟอยล์ (ตัด SO และตัดไม่ใช้ SO)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>ชีทงานแซนวิช (น้ำหนักคอยล์เหล็ก ก่อน-หลัง)</span>
+                  </div>
+                </div>
+              </div>
+
+              {onOpenExcelExport && (
+                <button
+                  type="button"
+                  onClick={onOpenExcelExport}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 text-xs font-bold transition-colors cursor-pointer border border-slate-200"
+                >
+                  ส่งออกรายงานฝ่ายบัญชี &rarr;
+                </button>
+              )}
+            </div>
+
+            {/* Card 2: Purchasing */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-4">
+              <div>
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold mb-3">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div className="inline-block px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold font-mono mb-1">
+                  สำหรับฝ่ายจัดซื้อ
+                </div>
+                <h4 className="font-bold text-slate-900 text-base">
+                  รายงานสต๊อกคงเหลือ & จุดสั่งซื้อ
+                </h4>
+                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                  เช็คสต๊อกคงเหลือของม้วนฟอยล์ทุกล็อตและทุกหน้ากว้าง พร้อมแจ้งเตือนม้วนที่ใกล้หมด (Reorder Point &le; 100 เมตร) เพื่อวางแผนสั่งซื้อวัตถุดิบเข้าคลังล่วงหน้า
+                </p>
+                <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>แยกหน้ากว้าง 914, 1000, 1220 มม.</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>ไฮไลต์สีแจ้งเตือนม้วนใกล้หมดทันที</span>
+                  </div>
+                </div>
+              </div>
+
+              {onOpenExcelExport && (
+                <button
+                  type="button"
+                  onClick={onOpenExcelExport}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-800 hover:text-blue-900 text-xs font-bold transition-colors cursor-pointer border border-slate-200"
+                >
+                  ส่งออกรายงานฝ่ายจัดซื้อ &rarr;
+                </button>
+              )}
+            </div>
+
+            {/* Card 3: Executive & Production Summary */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-4">
+              <div>
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold mb-3">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div className="inline-block px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-[10px] font-bold font-mono mb-1">
+                  ภาพรวมผู้บริหาร & ผลิต
+                </div>
+                <h4 className="font-bold text-slate-900 text-base">
+                  รายงาน KPI และประสิทธิภาพการผลิต
+                </h4>
+                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                  รวมสถิติการใช้งานวัตถุดิบทั้งหมด, ปริมาณการผลิตรายวัน/รายเดือน, สัดส่วนของเสีย (Scrap Rate) และตัวชี้วัดประสิทธิภาพ (Yield %) ของโรงงาน
+                </p>
+                <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>การ์ด KPI Dashboard จำลองในตาราง Excel</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>รวมทุกชีทไว้ในไฟล์ Master เล่มเดียวได้</span>
+                  </div>
+                </div>
+              </div>
+
+              {onOpenExcelExport && (
+                <button
+                  type="button"
+                  onClick={onOpenExcelExport}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-amber-50 text-slate-800 hover:text-amber-900 text-xs font-bold transition-colors cursor-pointer border border-slate-200"
+                >
+                  ส่งออกรายงานสรุปภาพรวม &rarr;
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Standard Features of Excel Files */}
+          <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 text-xs text-slate-600 space-y-2">
+            <h5 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+              <Info className="w-4 h-4 text-emerald-600" />
+              <span>คุณสมบัติของไฟล์ Excel ที่สร้างโดยระบบ:</span>
+            </h5>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+              <div className="p-3 bg-white rounded-xl border border-slate-200">
+                <span className="font-bold text-slate-800 block">ชื่อบริษัทถูกต้อง</span>
+                <span className="text-slate-500 text-[11px]">พิมพ์หัวเอกสาร "หลังคาเย็นสยาม ร่มเกล้า" ทุกหน้า</span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200">
+                <span className="font-bold text-slate-800 block">สูตรคำนวณอัตโนมัติ</span>
+                <span className="text-slate-500 text-[11px]">ฝังสูตร Excel SUM และอัตรา % คำนวณตามจริง</span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200">
+                <span className="font-bold text-slate-800 block">ตรึงแนวหัวตาราง</span>
+                <span className="text-slate-500 text-[11px]">Freeze Panes เลื่อนดูข้อมูลได้สะดวก</span>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200">
+                <span className="font-bold text-slate-800 block">ฟิลเตอร์ช่วงวันที่</span>
+                <span className="text-slate-500 text-[11px]">เลือกวันนี้, 7 วัน, เดือนนี้ หรือเลือกวันที่เองได้</span>
+              </div>
             </div>
           </div>
         </div>

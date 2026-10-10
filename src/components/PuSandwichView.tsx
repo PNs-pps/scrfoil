@@ -314,7 +314,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
 
     return (
       <th
-        className={`py-3 px-3.5 cursor-pointer select-none hover:bg-slate-100/80 transition-colors ${
+        className={`py-2.5 px-3 cursor-pointer select-none hover:bg-slate-100/80 transition-colors ${
           align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
         } ${isActive ? 'text-emerald-800' : ''}`}
         onClick={() => handleToggleSort(field)}
@@ -594,66 +594,49 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-700 font-semibold">
+            <table className="w-full text-left text-xs whitespace-nowrap">
+              <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-700 font-semibold sticky top-0 z-10">
                 <tr>
                   {renderSortHeader('so', 'รหัส SO')}
                   {renderSortHeader('date', 'วันที่ตัด')}
-                  <th className="py-3 px-3.5">สีคอล์ย</th>
-                  {renderSortHeader('thickness', 'ความหนา')}
-                  {renderSortHeader('coil', 'เบอร์คอล์ย')}
-                  <th className="py-3 px-3.5">ชนิดเหล็ก</th>
-                  <th className="py-3 px-3.5 text-right">น้ำหนักก่อนใช้</th>
-                  <th className="py-3 px-3.5 text-right">น้ำหนักหลังใช้</th>
-                  {renderSortHeader('weight', 'ใช้จริง (กก.)', 'right')}
+                  {renderSortHeader('coil', 'เบอร์คอยล์ / สี')}
                   {renderSortHeader('soLength', 'งาน SO (ม.)', 'right')}
-                  {renderSortHeader('ngKg', 'ยอด NG (กก.)', 'right')}
                   {renderSortHeader('ngMeters', 'ยอด NG (ม.)', 'right')}
                   {renderSortHeader('recorder', 'ผู้บันทึก')}
-                  <th className="py-3 px-3.5">หมายเหตุ</th>
-                  <th className="py-3 px-3.5 text-center">จัดการ</th>
+                  <th className="py-2.5 px-3">หมายเหตุ</th>
+                  <th className="py-2.5 px-3 text-center">จัดการ</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-mono">
+              <tbody className="divide-y divide-slate-100 font-mono text-xs">
                 {filteredRecords.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-3.5 font-bold text-slate-900">
-                      <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200">
+                    <td className="py-2.5 px-3 font-bold text-slate-900 whitespace-nowrap">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-950 border border-emerald-200 font-bold">
                         {r.soNumber}
                       </span>
                     </td>
-                    <td className="py-3 px-3.5 font-sans text-slate-600 whitespace-nowrap">
+                    <td className="py-2.5 px-3 font-sans text-slate-600 whitespace-nowrap">
                       {r.productionDate}
                     </td>
-                    <td className="py-3 px-3.5 font-sans">
-                      <span className="font-semibold text-slate-800">{r.coilColor}</span>
+                    <td className="py-2.5 px-3 whitespace-nowrap">
+                      <div className="flex flex-col gap-0.5">
+                        {/* แถว 1: เบอร์คอยล์ */}
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-xs">
+                            #{r.coilNumber || '-'}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 font-sans">
+                            {r.steelOrigin}
+                          </span>
+                        </div>
+                        {/* แถว 2: สี และ ความหนา */}
+                        <div className="text-[11px] font-sans text-slate-600 font-medium">
+                          <span className="font-semibold text-slate-800">{r.coilColor}</span>
+                          {r.thickness && <span className="text-slate-500"> · {r.thickness} มม.</span>}
+                        </div>
+                      </div>
                     </td>
-                    <td className="py-3 px-3.5 text-slate-700">{r.thickness} มม.</td>
-                    <td className="py-3 px-3.5 font-bold text-slate-800">{r.coilNumber}</td>
-                    <td className="py-3 px-3.5 font-sans whitespace-nowrap">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                          r.steelOrigin === 'เหล็กBlue Scope'
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : r.steelOrigin === 'เหล็กนอก'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}
-                      >
-                        {r.steelOrigin}
-                        {r.customSteelOrigin ? ` (${r.customSteelOrigin})` : ''}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3.5 text-right text-slate-600">
-                      {r.weightBefore.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3.5 text-right text-slate-600">
-                      {r.weightAfter.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3.5 text-right font-black text-emerald-700 text-sm">
-                      {r.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-3.5 text-right font-bold text-teal-700">
+                    <td className="py-2.5 px-3 text-right font-bold text-teal-800 whitespace-nowrap font-mono">
                       {r.soLengthMeters ? (
                         <span>
                           {Number(r.soLengthMeters).toLocaleString('th-TH', {
@@ -666,34 +649,26 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                         <span className="text-slate-400 font-normal">-</span>
                       )}
                     </td>
-                    <td className="py-3 px-3.5 text-right">
-                      {(r.ngKg || 0) > 0 ? (
-                        <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
-                          {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 font-normal">0.00</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3.5 text-right">
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">
                       {(r.ngMeters || 0) > 0 ? (
                         <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
-                          {r.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {r.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                          ม.
                         </span>
                       ) : (
-                        <span className="text-slate-400 font-normal">0.00</span>
+                        <span className="text-slate-400 font-normal">0.00 ม.</span>
                       )}
                     </td>
-                    <td className="py-3 px-3.5 font-sans text-slate-600 whitespace-nowrap">
+                    <td className="py-2.5 px-3 font-sans text-slate-600 whitespace-nowrap">
                       {r.recordedBy}
                     </td>
                     <td
-                      className="py-3 px-3.5 font-sans text-slate-500 max-w-[150px] truncate"
+                      className="py-2.5 px-3 font-sans text-slate-500 max-w-[150px] truncate"
                       title={r.notes || ''}
                     >
                       {r.notes || '-'}
                     </td>
-                    <td className="py-3 px-3.5 text-center">
+                    <td className="py-2.5 px-3 text-center">
                       <div className="inline-flex items-center gap-1 justify-center">
                         {onEditRecord && (
                           <button

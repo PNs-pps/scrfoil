@@ -28,8 +28,10 @@ import {
   RotateCcw,
   Sparkles,
   ShieldAlert,
-  Lock
+  Lock,
+  Calculator
 } from 'lucide-react';
+import { TouchNumpad, TouchNumpadTarget } from './TouchNumpad';
 import { 
   COMMON_THICKNESSES,
   FACTORY_THICKNESS_SPECS, 
@@ -89,6 +91,38 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const [showCustomFactor, setShowCustomFactor] = useState(false);
   /** หน้าต่างยืนยันก่อนบันทึกตัดแซนวิช */
   const [showConfirmSummary, setShowConfirmSummary] = useState(false);
+
+  // Tablet Numpad State
+  const [showTabletNumpad, setShowTabletNumpad] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('pufoam_tablet_numpad_enabled') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [activeNumpadTargetId, setActiveNumpadTargetId] = useState<string>('weightBefore');
+
+  const numpadTargets: TouchNumpadTarget[] = [
+    { id: 'weightBefore', label: 'ก่อนใช้', value: weightBefore, unit: 'กก.', isAccent: false },
+    { id: 'weightAfter', label: 'หลังใช้', value: weightAfter, unit: 'กก.', isAccent: false },
+    { id: 'soLengthMeters', label: 'ยาว SO', value: soLengthMeters, unit: 'ม.', isAccent: false },
+    { id: 'ngKg', label: 'NG', value: ngKg, unit: 'กก.', isAccent: true },
+    { id: 'ngMeters', label: 'NG', value: ngMeters, unit: 'ม.', isAccent: true },
+  ];
+
+  const handleNumpadValueChange = (targetId: string, val: string) => {
+    if (targetId === 'weightBefore') setWeightBefore(val);
+    else if (targetId === 'weightAfter') setWeightAfter(val);
+    else if (targetId === 'soLengthMeters') setSoLengthMeters(val);
+    else if (targetId === 'ngKg') handleNgKgChange(val);
+    else if (targetId === 'ngMeters') handleNgMetersChange(val);
+  };
+
+  const handleNextNumpadTarget = () => {
+    const curIdx = numpadTargets.findIndex(t => t.id === activeNumpadTargetId);
+    const nextIdx = (curIdx + 1) % numpadTargets.length;
+    setActiveNumpadTargetId(numpadTargets[nextIdx].id);
+  };
 
   // History search state
   const [historySearch, setHistorySearch] = useState('');
@@ -464,6 +498,29 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
               </button>
             </div>
 
+            {activeTab === 'create' && (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !showTabletNumpad;
+                  setShowTabletNumpad(next);
+                  try {
+                    localStorage.setItem('pufoam_tablet_numpad_enabled', String(next));
+                  } catch {}
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                  showTabletNumpad
+                    ? 'bg-white text-emerald-900 shadow-md ring-2 ring-white/50'
+                    : 'bg-black/25 hover:bg-black/35 text-emerald-100 border border-white/15'
+                }`}
+                title="เปิด/ปิด แป้นพิมพ์ตัวเลขแท็บเล็ตขนาดใหญ่"
+              >
+                <Calculator className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">แป้นตัวเลขแท็บเล็ต</span>
+                <span className="sm:hidden">Numpad</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onClose}
@@ -556,8 +613,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       setSoLengthMeters(e.target.value);
                       setIsNgManuallyEdited(false);
                     }}
+                    onFocus={() => setActiveNumpadTargetId('soLengthMeters')}
+                    onClick={() => setActiveNumpadTargetId('soLengthMeters')}
                     placeholder="เช่น 120.00 หรือ 250"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                    className={`w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                      showTabletNumpad && activeNumpadTargetId === 'soLengthMeters'
+                        ? 'border-emerald-500 ring-2 ring-emerald-300 bg-emerald-50/20'
+                        : 'border-slate-300'
+                    }`}
                     required
                   />
                   {/* Quick Chips for SO Length */}
@@ -697,8 +760,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                         min="0"
                         value={weightBefore}
                         onChange={(e) => setWeightBefore(e.target.value)}
+                        onFocus={() => setActiveNumpadTargetId('weightBefore')}
+                        onClick={() => setActiveNumpadTargetId('weightBefore')}
                         placeholder="เช่น 2450.00"
-                        className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                          showTabletNumpad && activeNumpadTargetId === 'weightBefore'
+                            ? 'border-emerald-600 ring-2 ring-emerald-400 bg-emerald-50/20'
+                            : 'border-slate-300'
+                        }`}
                         required
                       />
                     </div>
@@ -715,8 +784,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                         min="0"
                         value={weightAfter}
                         onChange={(e) => setWeightAfter(e.target.value)}
+                        onFocus={() => setActiveNumpadTargetId('weightAfter')}
+                        onClick={() => setActiveNumpadTargetId('weightAfter')}
                         placeholder="เช่น 2120.00"
-                        className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                          showTabletNumpad && activeNumpadTargetId === 'weightAfter'
+                            ? 'border-emerald-600 ring-2 ring-emerald-400 bg-emerald-50/20'
+                            : 'border-slate-300'
+                        }`}
                         required
                       />
                     </div>
@@ -879,8 +954,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                         inputMode="decimal"
                         value={ngKg}
                         onChange={(e) => handleNgKgChange(e.target.value)}
+                        onFocus={() => setActiveNumpadTargetId('ngKg')}
+                        onClick={() => setActiveNumpadTargetId('ngKg')}
                         placeholder="0.00"
-                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs"
+                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs ${
+                          showTabletNumpad && activeNumpadTargetId === 'ngKg'
+                            ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
+                            : 'border-rose-300'
+                        }`}
                       />
                       {/* Quick Chips for NG กก. */}
                       <div className="flex flex-wrap gap-1 mt-2">
@@ -915,8 +996,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                         inputMode="decimal"
                         value={ngMeters}
                         onChange={(e) => handleNgMetersChange(e.target.value)}
+                        onFocus={() => setActiveNumpadTargetId('ngMeters')}
+                        onClick={() => setActiveNumpadTargetId('ngMeters')}
                         placeholder="0.0"
-                        className="w-full px-3 py-2.5 bg-white border border-rose-300 rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs"
+                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs ${
+                          showTabletNumpad && activeNumpadTargetId === 'ngMeters'
+                            ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
+                            : 'border-rose-300'
+                        }`}
                       />
                       {/* Quick Chips for NG เมตร */}
                       <div className="flex flex-wrap gap-1 mt-2">
@@ -1080,6 +1167,20 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Touch Numpad for Tablet */}
+              {showTabletNumpad && (
+                <div className="pt-2">
+                  <TouchNumpad
+                    targets={numpadTargets}
+                    activeTargetId={activeNumpadTargetId}
+                    onSelectTarget={(id) => setActiveNumpadTargetId(id)}
+                    onValueChange={handleNumpadValueChange}
+                    onClose={() => setShowTabletNumpad(false)}
+                    onNextTarget={handleNextNumpadTarget}
+                  />
+                </div>
+              )}
 
               {/* Submit Buttons */}
               <div className="flex items-center justify-end gap-3 pt-2">

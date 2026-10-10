@@ -1,0 +1,6 @@
+{
+  "summary":  "อัปเดตแผนพัฒนาระบบตรวจสอบประวัติ SO (SO History Audit Trail & Change Diff): ตัดฟังก์ชันการบันทึกประวัติการ \"ลบ\" (DELETE) ออกตามคำขอของผู้ใช้ โดยเน้นบันทึกเฉพาะประวัติการ \"แก้ไข\" (UPDATE/Edit) เท่านั้น พร้อม Full Diff, ผู้แก้ไข และเวลาบันทึก",
+  "updatedAt":  "2026-10-10T14:54:27.694677620Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

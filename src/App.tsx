@@ -55,6 +55,7 @@ import { CutStockModal } from './components/CutStockModal';
 import { EditSOCutModal } from './components/EditSOCutModal';
 import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
 import { MonthlySummaryModal } from './components/MonthlySummaryModal';
+import { ExcelExportModal } from './components/ExcelExportModal';
 import { SOBatchImportModal } from './components/SOBatchImportModal';
 import { SettingsBackupView } from './components/SettingsBackupView';
 import { PuSandwichModal } from './components/PuSandwichModal';
@@ -106,6 +107,7 @@ export default function App() {
   const [records, setRecords] = useState<StockCutRecord[]>([]);
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
   const [isDailyFlowOpen, setIsDailyFlowOpen] = useState(false);
+  const [isExcelExportOpen, setIsExcelExportOpen] = useState(false);
   const [historyInitialCategory, setHistoryInitialCategory] = useState<'all' | 'foil' | 'sandwich'>('all');
   
   // Persistent activeTab so that reloading keeps the user on the exact page being viewed
@@ -1987,6 +1989,7 @@ const updated = [newRoll, ...rolls];
         soBugCount={soBugCount}
         currentUserEmail={currentUserEmail}
         onSignOut={handleSignOut}
+        onOpenExcelExport={() => setIsExcelExportOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -2145,6 +2148,7 @@ const updated = [newRoll, ...rolls];
             onOpenSOAudit={() => handleOpenSOAudit()}
             onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
             onOpenCycleCountHistory={() => setIsCycleCountHistoryOpen(true)}
+            onOpenExcelExport={() => setIsExcelExportOpen(true)}
           />
         )}
       </main>
@@ -2305,6 +2309,15 @@ const updated = [newRoll, ...rolls];
             setDetailRoll(target);
           }
         }}
+      />
+
+      {/* Excel Professional Export Modal for Accounting and Purchasing */}
+      <ExcelExportModal
+        isOpen={isExcelExportOpen}
+        onClose={() => setIsExcelExportOpen(false)}
+        rolls={[...rolls, ...archivedRolls]}
+        records={records}
+        puRecords={puSandwichRecords}
       />
 
       {/* Batch Import SO Modal */}
