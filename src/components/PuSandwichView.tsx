@@ -173,8 +173,8 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       otherSteelKg: Math.round(otherSteelKg * 100) / 100,
       otherPct: Math.round(otherPct * 10) / 10,
       totalNgKg: Math.round(totalNgKg * 100) / 100,
-      totalNgMeters: Math.round(totalNgMeters * 10) / 10,
-      totalSoLength: Math.round(totalSoLength * 10) / 10,
+      totalNgMeters: Math.round(totalNgMeters * 100) / 100,
+      totalSoLength: Math.round(totalSoLength * 100) / 100,
       ngPercent: Math.round(ngPercent * 100) / 100,
     };
   }, [modalRecords]);
@@ -187,9 +187,9 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
       `📅 ${monthText}`,
       `─────────────────────────`,
       `📦 ยอดใบงานทั้งหมด: ${modalStats.count} SO`,
-      `⚖️ น้ำหนักเหล็กที่ใช้จริง: ${modalStats.totalKg.toLocaleString('th-TH')} กก. (${modalStats.totalTons} ตัน)`,
-      `📏 ยอดความยาวงานผลิต SO รวม: ${modalStats.totalSoLength.toLocaleString('th-TH')} เมตร`,
-      `⚠️ ยอด NG (ของเสีย): ${modalStats.totalNgKg.toLocaleString('th-TH')} กก. (${modalStats.totalNgMeters.toLocaleString('th-TH')} ม.)`,
+      `⚖️ น้ำหนักเหล็กที่ใช้จริง: ${modalStats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก. (${modalStats.totalTons} ตัน)`,
+      `📏 ยอดความยาวงานผลิต SO รวม: ${modalStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} เมตร`,
+      `⚠️ ยอด NG (ของเสีย): ${modalStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก. (${modalStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.)`,
       `📉 สัดส่วน NG เสีย: ${modalStats.ngPercent}%`,
       `─────────────────────────`,
       `🔩 สัดส่วนประเภทเหล็กที่ใช้:`,
@@ -657,7 +657,8 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                       {r.soLengthMeters ? (
                         <span>
                           {Number(r.soLengthMeters).toLocaleString('th-TH', {
-                            maximumFractionDigits: 1,
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
                           })}{' '}
                           ม.
                         </span>
@@ -668,7 +669,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                     <td className="py-3 px-3.5 text-right">
                       {(r.ngKg || 0) > 0 ? (
                         <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
-                          {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          {r.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       ) : (
                         <span className="text-slate-400 font-normal">0.00</span>
@@ -677,10 +678,10 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
                     <td className="py-3 px-3.5 text-right">
                       {(r.ngMeters || 0) > 0 ? (
                         <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold">
-                          {r.ngMeters?.toLocaleString('th-TH', { maximumFractionDigits: 1 })}
+                          {r.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       ) : (
-                        <span className="text-slate-400 font-normal">0.0</span>
+                        <span className="text-slate-400 font-normal">0.00</span>
                       )}
                     </td>
                     <td className="py-3 px-3.5 font-sans text-slate-600 whitespace-nowrap">

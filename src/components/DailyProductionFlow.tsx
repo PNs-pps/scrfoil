@@ -181,8 +181,8 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
       totalKg: Math.round(totalKg * 100) / 100,
       totalTons: Math.round((totalKg / 1000) * 100) / 100,
       totalNgKg: Math.round(totalNgKg * 100) / 100,
-      totalNgMeters: Math.round(totalNgMeters * 10) / 10,
-      totalSoLength: Math.round(totalSoLength * 10) / 10,
+      totalNgMeters: Math.round(totalNgMeters * 100) / 100,
+      totalSoLength: Math.round(totalSoLength * 100) / 100,
       ngPercent: Math.round(ngPercent * 100) / 100,
     };
   }, [dayPuRecords]);
@@ -285,8 +285,8 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
       lines.push(
         `🥪 [สายผลิต PU แซนวิช (ไม่ใช้ฟอยล์)]:`,
         `  • น้ำหนักเหล็กใช้จริง: ${puStats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (${puStats.totalTons} ตัน)`,
-        `  • ยอดงานผลิตตาม SO รวม: ${puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 })} เมตร`,
-        `  • ยอด NG เสีย: ${puStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (${puStats.totalNgMeters} ม.)`,
+        `  • ยอดงานผลิตตาม SO รวม: ${puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} เมตร`,
+        `  • ยอด NG เสีย: ${puStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก. (${puStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.)`,
         `  • สัดส่วน NG เสีย: ${puStats.ngPercent}%`,
         `  • จำนวน: ${puStats.soCount} SO (${puStats.count} รายการ)`,
         `─────────────────────────`
@@ -301,8 +301,8 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
         lines.push(
           `${idx + 1}. [ฟอยล์] SO: ${r.soNumber} | ล็อต ${r.lotNumber} #${r.rollNumber}` +
           `\n   - ลาย ${r.pattern}${sideText} หน้า ${r.width}มม.` +
-          `\n   - ตัดได้: ${r.usedMeters.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ม.` +
-          (r.ngMeters > 0 ? ` (NG: ${r.ngMeters} ม.)` : '') +
+          `\n   - ตัดได้: ${r.usedMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.` +
+          (r.ngMeters > 0 ? ` (NG: ${r.ngMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.)` : '') +
           ` | โดย: ${r.recordedBy || '-'}`
         );
       } else {
@@ -310,9 +310,9 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
         lines.push(
           `${idx + 1}. [PU แซนวิช] SO: ${p.soNumber} | สี ${p.coilColor} #${p.coilNumber} (${p.thickness}มม.)` +
           `\n   - ชนิด: ${p.steelOrigin}` +
-          `\n   - ใช้จริง: ${p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.` +
-          (p.soLengthMeters ? ` | งาน SO: ${p.soLengthMeters} ม.` : '') +
-          (p.ngKg > 0 ? ` (NG: ${p.ngKg} กก. / ${p.ngMeters} ม.)` : '') +
+          `\n   - ใช้จริง: ${p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก.` +
+          (p.soLengthMeters ? ` | งาน SO: ${Number(p.soLengthMeters).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.` : '') +
+          ((p.ngKg || 0) > 0 ? ` (NG: ${Number(p.ngKg).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก. / ${Number(p.ngMeters || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.)` : '') +
           ` | โดย: ${p.recordedBy || '-'}`
         );
       }
@@ -652,7 +652,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               icon: <AlertTriangle className="w-4 h-4" />,
               iconClass: 'bg-rose-50 text-rose-600',
               valueClass: puStats.totalNgKg > 0 ? 'text-rose-600' : 'text-slate-400',
-              footer: `${puStats.ngPercent.toFixed(1)}% · ${puStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.`,
+              footer: `${puStats.ngPercent.toFixed(1)}% · ${puStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.`,
             },
           ]}
         />

@@ -20,8 +20,6 @@ import {
   ArrowDown,
   Filter,
   Scissors,
-  LayoutGrid,
-  Table as TableIcon,
   ArrowLeftRight,
   ChevronLeft,
   ChevronRight
@@ -107,15 +105,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // Row Density: 'spacious' (แถวใหญ่พิเศษ +50% ปัดซ้ายขวา ตรึง SO) vs 'compact' (แถวกระชับ ปัดซ้ายขวา ตรึง SO)
-  const [rowDensity, setRowDensity] = useState<'spacious' | 'compact'>(() => {
-    try {
-      const saved = localStorage.getItem('foil_history_density');
-      if (saved === 'spacious' || saved === 'compact') return saved;
-    } catch {}
-    return 'spacious';
-  });
-
   // Table horizontal scrolling & swipe controls
   const tableScrollRef = React.useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -123,6 +112,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   const isDraggingRef = React.useRef(false);
   const dragStartXRef = React.useRef(0);
   const dragScrollLeftRef = React.useRef(0);
+  const hasMovedRef = React.useRef(false);
 
   const checkScroll = React.useCallback(() => {
     if (!tableScrollRef.current) return;
@@ -143,21 +133,25 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     if ((e.target as HTMLElement).closest('button, a, input, select')) return;
     if (!tableScrollRef.current) return;
     isDraggingRef.current = true;
+    hasMovedRef.current = false;
     dragStartXRef.current = e.pageX - tableScrollRef.current.offsetLeft;
     dragScrollLeftRef.current = tableScrollRef.current.scrollLeft;
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDraggingRef.current || !tableScrollRef.current) return;
-    e.preventDefault();
     const x = e.pageX - tableScrollRef.current.offsetLeft;
     const walk = (x - dragStartXRef.current) * 1.5;
-    tableScrollRef.current.scrollLeft = dragScrollLeftRef.current - walk;
-    checkScroll();
+    if (Math.abs(walk) > 3) {
+      hasMovedRef.current = true;
+      tableScrollRef.current.scrollLeft = dragScrollLeftRef.current - walk;
+      checkScroll();
+    }
   };
 
   const handleMouseUpOrLeave = () => {
     isDraggingRef.current = false;
+    hasMovedRef.current = false;
   };
 
   // Sort State
@@ -187,7 +181,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         recordedDate: r.recordedDate,
         categoryLabel: 'ฟอยล์',
         detailsSummary: details,
-        subDetails: `หน้ากว้าง ${r.width} มม.`,
+        subDetails: `${r.width} มม.`,
         width: r.width,
         pattern: r.pattern,
         isSilverSide: r.isSilverSide,
@@ -211,7 +205,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     safePuRecords.forEach((s) => {
       const d = (s.productionDate || (s.createdAt ? s.createdAt.slice(0, 10) : '')).trim();
       const details = `${s.coilColor || ''} ${s.thickness ? `${s.thickness}มม.` : ''} · คอยล์ #${s.coilNumber || '-'} (${s.steelOrigin || 'เหล็ก'})`;
-      const soLen = s.soLengthMeters ? ` (${Number(s.soLengthMeters).toLocaleString()} ม.)` : '';
+      const soLen = s.soLengthMeters ? ` (${formatMeters(s.soLengthMeters)} ม.)` : '';
 
       list.push({
         id: `sandwich_${s.id}`,
@@ -221,13 +215,13 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         categoryLabel: 'แซนวิช',
         detailsSummary: details,
         subDetails: s.steelOrigin,
-        usedDisplay: `${Number(s.weightUsed || 0).toLocaleString()} กก.${soLen}`,
+        usedDisplay: `${formatMeters(s.weightUsed)} กก.${soLen}`,
         usedValue: Number(s.weightUsed) || 0,
-        ngDisplay: (s.ngKg || 0) > 0 ? `${s.ngKg} กก. (${s.ngMeters || 0}ม.)` : '—',
+        ngDisplay: (s.ngKg || 0) > 0 ? `${formatMeters(s.ngKg)} กก.${(s.ngMeters || 0) > 0 ? ` (${formatMeters(s.ngMeters)} ม.)` : ''}` : '—',
         ngValue: Number(s.ngKg) || 0,
-        remainingDisplay: `หลังใช้ ${Number(s.weightAfter || 0).toLocaleString()} กก.`,
+        remainingDisplay: `หลังใช้ ${formatMeters(s.weightAfter)} กก.`,
         remainingValue: Number(s.weightAfter) || 0,
-        remainingBeforeDisplay: s.weightBefore ? `${Number(s.weightBefore).toLocaleString()} กก.` : undefined,
+        remainingBeforeDisplay: s.weightBefore ? `${formatMeters(s.weightBefore)} กก.` : undefined,
         remainingBeforeValue: Number(s.weightBefore) || 0,
         recordedBy: s.recordedBy || '-',
         notes: s.notes,
@@ -378,9 +372,10 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         `\n📊 คงเหลือ: ${formatMeters(f.remainingAfter)} ม.\n👤 ผู้บันทึก: ${f.recordedBy || '-'}`;
     } else if (item.type === 'sandwich' && item.rawSandwich) {
       const s = item.rawSandwich;
-      text = `🥪 [PU แซนวิช] SO: ${s.soNumber}\n📅 วันที่: ${item.date}\n🔩 ${item.detailsSummary}\n⚖️ เหล็กที่ใช้: ${Number(s.weightUsed).toLocaleString()} กก.` +
-        (s.soLengthMeters ? ` (${Number(s.soLengthMeters).toLocaleString()} ม.)` : '') +
-        (s.ngKg ? ` | NG: ${s.ngKg} กก.` : '') +
+      text = `🥪 [PU แซนวิช] SO: ${s.soNumber}\n📅 วันที่: ${item.date}\n🔩 ${item.detailsSummary}\n⚖️ เหล็กที่ใช้: ${formatMeters(s.weightUsed)} กก.` +
+        (s.soLengthMeters ? ` (${formatMeters(s.soLengthMeters)} ม.)` : '') +
+        ((s.ngKg || 0) > 0 ? ` | NG: ${formatMeters(s.ngKg)} กก.` : '') +
+        ((s.ngMeters || 0) > 0 ? ` (${formatMeters(s.ngMeters)} ม.)` : '') +
         `\n👤 ผู้บันทึก: ${s.recordedBy || '-'}`;
     }
     if (text) {
@@ -397,22 +392,22 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     return (
       <th
         onClick={() => handleToggleSort(field)}
-        className={`${rowDensity === 'spacious' ? 'px-5 py-4.5 text-lg' : 'px-4 py-3 text-base'} font-bold select-none cursor-pointer transition-colors ${
+        className={`px-3 py-2.5 text-xs font-bold select-none cursor-pointer transition-colors ${
           stickyLeft
-            ? 'sticky left-0 top-0 z-40 bg-slate-100/95 backdrop-blur-xs border-r-2 border-slate-200/90 shadow-[5px_0_15px_-3px_rgba(0,0,0,0.12)]'
-            : 'bg-slate-50/95 backdrop-blur-xs hover:bg-slate-100'
+            ? 'sticky left-0 top-0 z-40 bg-slate-100 border-r-2 border-slate-300 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap'
+            : 'bg-slate-50/95 hover:bg-slate-100'
         } ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'}`}
       >
-        <div className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
+        <div className={`inline-flex items-center gap-1 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
           <span className={isCurrent ? 'text-slate-950 font-black' : 'text-slate-600'}>{label}</span>
           {isCurrent ? (
             sortDirection === 'asc' ? (
-              <ArrowUp className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+              <ArrowUp className="w-3.5 h-3.5 text-amber-600 shrink-0" />
             ) : (
-              <ArrowDown className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+              <ArrowDown className="w-3.5 h-3.5 text-amber-600 shrink-0" />
             )
           ) : (
-            <ArrowUpDown className="w-4 h-4 text-slate-400 opacity-60 shrink-0" />
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-60 shrink-0" />
           )}
         </div>
       </th>
@@ -577,43 +572,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap ml-auto">
-            {/* Row Density Toggle: แถวใหญ่พิเศษ (+50%) vs แถวกระชับ (ทั้งสองโหมดอยู่ในแถวเดียวกัน ปัดซ้ายขวา ตรึง SO) */}
-            <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-xl border border-slate-200 shadow-2xs font-sans text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  setRowDensity('spacious');
-                  try { localStorage.setItem('foil_history_density', 'spacious'); } catch {}
-                }}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  rowDensity === 'spacious'
-                    ? 'bg-amber-400 text-slate-950 shadow-xs ring-1 ring-amber-500/20'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="แสดงแถวใหญ่พิเศษ (+50%) ข้อมูลครบในแถวเดียว ปัดซ้ายขวา ตรึง SO"
-              >
-                <LayoutGrid className="w-3.5 h-3.5 text-amber-950 shrink-0" />
-                <span>แถวใหญ่พิเศษ (+50%)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setRowDensity('compact');
-                  try { localStorage.setItem('foil_history_density', 'compact'); } catch {}
-                }}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  rowDensity === 'compact'
-                    ? 'bg-white text-slate-950 shadow-xs border border-slate-200'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="แสดงแถวกระชับ ข้อมูลครบในแถวเดียว ปัดซ้ายขวา ตรึง SO"
-              >
-                <TableIcon className="w-3.5 h-3.5 text-slate-700 shrink-0" />
-                <span>แถวกระชับ</span>
-              </button>
-            </div>
-
             {stats.foilCount > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-200 font-bold text-[11px]">
                 ฟอยล์ใช้ {formatMeters(stats.totalFoilUsed)} ม. {stats.totalFoilNg > 0 ? `(NG ${formatMeters(stats.totalFoilNg)} ม.)` : ''}
@@ -621,7 +579,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
             )}
             {stats.sandwichCount > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-950 border border-emerald-200 font-bold text-[11px]">
-                เหล็กใช้ {stats.totalSandwichKg.toLocaleString()} กก. {stats.totalSandwichNgKg > 0 ? `(NG ${stats.totalSandwichNgKg} กก.)` : ''}
+                เหล็กใช้ {formatMeters(stats.totalSandwichKg)} กก. {stats.totalSandwichNgKg > 0 ? `(NG ${formatMeters(stats.totalSandwichNgKg)} กก.)` : ''}
               </span>
             )}
           </div>
@@ -681,135 +639,85 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUpOrLeave}
             onMouseLeave={handleMouseUpOrLeave}
-            className="overflow-x-auto relative scroll-smooth focus:outline-none select-none md:select-auto touch-pan-x cursor-grab active:cursor-grabbing"
+            className="overflow-x-auto relative scroll-smooth focus:outline-none select-none md:select-auto cursor-grab active:cursor-grabbing"
+            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}
           >
-            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[2150px]">
+            <table className="w-full text-left border-collapse whitespace-nowrap min-w-[1350px]">
               <thead className="bg-slate-50 border-b-2 border-slate-200 text-slate-700 sticky top-0 z-30">
                 <tr>
-                  {/* STICKY SO HEADER (ตรึงซ้าย) */}
+                  {/* STICKY SO HEADER (ตรึงซ้าย กะทัดรัด) */}
                   {renderSortTh('so', 'รหัส SO (ตรึงซ้าย)', 'left', true)}
                   {renderSortTh('type', 'ประเภท', 'center')}
                   {renderSortTh('date', 'วันที่ผลิต/ตัด')}
                   {renderSortTh('details', 'รายละเอียด / ล็อต / ม้วน')}
-                  {renderSortTh('pattern', 'ท้อง (ลาย) / สีฟอยล์')}
-                  {renderSortTh('side', 'ตัวเลือก เงิน / ขาว', 'center')}
+                  {renderSortTh('pattern', 'ท้อง (ลาย) / ตัวเลือก')}
                   {renderSortTh('used', 'ปริมาณที่ใช้', 'right')}
                   {renderSortTh('ng', 'NG ที่เสีย', 'right')}
                   {renderSortTh('remaining', 'คงเหลือ / หลังตัด', 'right')}
                   {renderSortTh('recorder', 'ผู้บันทึก & หมายเหตุ')}
-                  <th
-                    className={`${
-                      rowDensity === 'spacious' ? 'px-5 py-4.5 text-lg' : 'px-4 py-3 text-base'
-                    } text-center font-bold text-slate-600 w-48 bg-slate-50/95`}
-                  >
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-slate-600 w-36 bg-slate-50/95">
                     จัดการ
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
                 {sortedItems.map((item) => {
                   const isFoil = item.type === 'foil';
                   const patternStyle = isFoil && item.pattern ? getPatternStyle(item.pattern) : null;
 
                   return (
-                    <tr
-                      key={item.id}
-                      className="group hover:bg-amber-50/40 transition-colors"
-                    >
-                      {/* 1. STICKY SO COLUMN (ตรึงตำแหน่งซ้าย + ปุ่มใหญ่ +50% ชัดเจน) */}
-                      <td
-                        className={`sticky left-0 z-20 bg-white group-hover:bg-amber-50/90 transition-colors px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } border-r-2 border-slate-200/90 shadow-[5px_0_15px_-3px_rgba(0,0,0,0.12)]`}
-                      >
-                        <div className="flex items-center gap-2 min-w-[230px]">
-                          {/* Large prominent SO Button */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (isFoil && item.rawFoil) {
-                                setSelectedDetailRecord(item.rawFoil);
-                              } else if (!isFoil && item.rawSandwich) {
-                                setSelectedSandwichDetail(item.rawSandwich);
-                              }
-                            }}
-                            title="คลิกเพื่อดูรายละเอียดใบ SO แบบเต็ม"
-                            className={`font-mono font-black ${
-                              rowDensity === 'spacious'
-                                ? 'text-xl sm:text-2xl px-4 py-2'
-                                : 'text-lg px-3 py-1.5'
-                            } rounded-xl border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-2 text-left ${
-                              isFoil
-                                ? 'bg-amber-50 text-amber-950 border-amber-300 hover:bg-amber-100 hover:border-amber-400'
-                                : 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400'
-                            }`}
-                          >
-                            <span>{item.soNumber}</span>
-                            <FileText className="w-4.5 h-4.5 opacity-60 ml-0.5 shrink-0" />
-                          </button>
-
-                          {/* Quick copy LINE button */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCopySingle(item);
-                            }}
-                            title="คัดลอกข้อมูลเพื่อส่ง LINE"
-                            className="p-2 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer shrink-0 border border-transparent hover:border-slate-200"
-                          >
-                            {copiedId === item.id ? (
-                              <Check className="w-4.5 h-4.5 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-4.5 h-4.5" />
-                            )}
-                          </button>
-                        </div>
+                    <tr key={item.id} className="group hover:bg-amber-50/40 transition-colors">
+                      {/* 1. STICKY SO COLUMN (ตรึงตำแหน่งซ้าย มีเฉพาะรหัส SO เท่านั้น ไม่มีอิโมจิหรือไอคอน มาร์คเส้นแบ่งชัดเจน) */}
+                      <td className="sticky left-0 z-20 bg-white group-hover:bg-amber-50/90 transition-colors px-3 py-2.5 border-r-2 border-slate-300 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.08)] whitespace-nowrap w-28 min-w-[110px] max-w-[130px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isFoil && item.rawFoil) {
+                              setSelectedDetailRecord(item.rawFoil);
+                            } else if (!isFoil && item.rawSandwich) {
+                              setSelectedSandwichDetail(item.rawSandwich);
+                            }
+                          }}
+                          title="คลิกเพื่อดูรายละเอียดใบ SO แบบเต็ม"
+                          className={`font-mono font-bold text-xs sm:text-sm px-2.5 py-1 rounded-lg border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer block w-full text-center truncate ${
+                            isFoil
+                              ? 'bg-amber-50 text-amber-950 border-amber-300 hover:bg-amber-100'
+                              : 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {item.soNumber}
+                        </button>
                       </td>
 
                       {/* 2. ประเภท (Type Badge) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } text-center`}
-                      >
+                      <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         <span
-                          className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full ${
-                            rowDensity === 'spacious' ? 'text-base font-bold' : 'text-sm font-semibold'
-                          } ${
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
                             isFoil
-                              ? 'bg-amber-100/90 text-amber-950 border border-amber-300'
-                              : 'bg-emerald-100/90 text-emerald-950 border border-emerald-300'
+                              ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                              : 'bg-emerald-100 text-emerald-950 border border-emerald-300'
                           }`}
                         >
                           {isFoil ? (
-                            <Scissors className="w-4 h-4 text-amber-700" />
+                            <Scissors className="w-3 h-3 text-amber-700" />
                           ) : (
-                            <Factory className="w-4 h-4 text-emerald-700" />
+                            <Factory className="w-3 h-3 text-emerald-700" />
                           )}
                           <span>{item.categoryLabel}</span>
                         </span>
                       </td>
 
                       {/* 3. วันที่ผลิต/ตัด (Date) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } font-mono text-slate-700 font-semibold ${
-                          rowDensity === 'spacious' ? 'text-lg' : 'text-base'
-                        }`}
-                      >
+                      <td className="px-3 py-2.5 font-mono text-slate-700 font-semibold whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
-                          <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span>{item.date || '-'}</span>
                         </div>
                       </td>
 
                       {/* 4. รายละเอียด / ล็อต / ม้วน (Details) */}
                       <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } cursor-pointer hover:bg-slate-100/60 transition-colors`}
+                        className="px-3 py-2.5 cursor-pointer hover:bg-slate-100/60 transition-colors"
                         onClick={() => {
                           if (isFoil && item.rawFoil) {
                             setSelectedDetailRecord(item.rawFoil);
@@ -820,292 +728,212 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         title="คลิกเพื่อดูรายละเอียดใบ SO"
                       >
                         {isFoil && item.rawFoil ? (
-                          <div className="flex items-center gap-2.5 flex-wrap">
-                            <div className="inline-flex items-center gap-1.5 bg-black text-white px-3 py-1.5 rounded-lg border border-slate-800 shadow-2xs shrink-0">
-                              <span className="text-xs font-black uppercase text-amber-400">LOT.</span>
-                              <span
-                                className={`lot-number-display font-black text-white ${
-                                  rowDensity === 'spacious' ? 'text-lg' : 'text-base'
-                                }`}
-                              >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div className="inline-flex items-center gap-1.5 bg-slate-900 text-white px-2.5 py-1 rounded-lg border border-slate-800 text-xs shrink-0">
+                              <span className="text-[10px] font-black uppercase text-amber-400">LOT.</span>
+                              <span className="lot-number-display font-mono font-bold text-white">
                                 {item.rawFoil.lotNumber}
                               </span>
                               <span className="text-slate-600 font-bold">|</span>
-                              <span className="text-xs font-black uppercase text-amber-400">NO.</span>
-                              <span
-                                className={`lot-number-display font-black text-amber-300 ${
-                                  rowDensity === 'spacious' ? 'text-lg' : 'text-base'
-                                }`}
-                              >
+                              <span className="text-[10px] font-black uppercase text-amber-400">NO.</span>
+                              <span className="lot-number-display font-mono font-bold text-amber-300">
                                 #{item.rawFoil.rollNumber}
                               </span>
                             </div>
-                            <span
-                              className={`font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 ${
-                                rowDensity === 'spacious' ? 'text-base' : 'text-sm'
-                              }`}
-                            >
-                              หน้า {item.rawFoil.width} มม.
+                            <span className="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-xs">
+                              {item.rawFoil.width} มม.
                             </span>
                           </div>
                         ) : (
                           <div
-                            className="flex items-center gap-2 max-w-[420px] truncate"
+                            className="flex items-center gap-2 max-w-[380px] truncate"
                             title={item.detailsSummary}
                           >
-                            <span
-                              className={`font-medium text-slate-900 ${
-                                rowDensity === 'spacious' ? 'text-lg' : 'text-base'
-                              }`}
-                            >
+                            <span className="font-medium text-slate-900">
                               {item.detailsSummary}
                             </span>
                           </div>
                         )}
                       </td>
 
-                      {/* 5. ท้อง (ลาย) / สีฟอยล์ (Pattern with dashboard color highlight) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        }`}
-                      >
+                      {/* 5. ท้อง (ลาย) / สีฟอยล์ + จุดสีแสดงตัวเลือก (เงิน/ขาว) ด้านหลังชื่อท้อง */}
+                      <td className="px-3 py-2.5 whitespace-nowrap">
                         {isFoil && item.rawFoil ? (
-                          <span
-                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl border-2 font-black ${
-                              rowDensity === 'spacious' ? 'text-lg' : 'text-base'
-                            } shadow-2xs ${
-                              patternStyle
-                                ? patternStyle.highlightClass
-                                : 'bg-slate-100 text-slate-800 border-slate-300'
-                            }`}
-                            title={
-                              patternStyle
-                                ? `${item.rawFoil.pattern || 'ลายมาตรฐาน'} (${patternStyle.colorName})`
-                                : undefined
-                            }
-                          >
-                            {patternStyle && (
-                              <span
-                                className={`w-3.5 h-3.5 rounded-full shrink-0 ring-2 ring-white/70 ${patternStyle.dotClass}`}
-                              />
-                            )}
-                            <span>{item.rawFoil.pattern || 'ลายมาตรฐาน'}</span>
-                          </span>
-                        ) : (
-                          <span className="text-slate-300 text-base">-</span>
-                        )}
-                      </td>
-
-                      {/* 6. ตัวเลือก เงิน / ขาว (Silver / White options displayed) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } text-center`}
-                      >
-                        {isFoil && item.rawFoil ? (
-                          <div className="inline-flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 shadow-2xs">
-                            {/* ตัวเลือก ท้องเงิน */}
+                          <div className="inline-flex items-center gap-1.5">
                             <span
-                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-black transition-all ${
-                                rowDensity === 'spacious' ? 'text-base' : 'text-sm'
-                              } ${
-                                item.isSilverSide
-                                  ? 'bg-gradient-to-r from-slate-800 to-zinc-900 text-white border border-amber-400 shadow-xs ring-1 ring-amber-400/50'
-                                  : 'text-slate-400 bg-transparent'
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-bold text-xs shadow-2xs ${
+                                patternStyle
+                                  ? patternStyle.highlightClass
+                                  : 'bg-slate-100 text-slate-800 border-slate-300'
                               }`}
-                              title={item.isSilverSide ? 'เลือกเป็นท้องเงิน' : ''}
-                            >
-                              <span className="w-3.5 h-3.5 rounded-full bg-gradient-to-r from-slate-200 to-zinc-400 border border-slate-400 shrink-0" />
-                              <span>ท้องเงิน</span>
-                              {item.isSilverSide && (
-                                <span className="text-amber-300 font-bold ml-0.5">✓</span>
-                              )}
-                              {!item.isSilverSide && !item.isWhiteSide && (
-                                <span className="text-[10px] text-slate-400 font-normal ml-0.5">
-                                  (มาตรฐาน)
-                                </span>
-                              )}
-                            </span>
-
-                            {/* ตัวเลือก ท้องขาว */}
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg font-black transition-all ${
-                                rowDensity === 'spacious' ? 'text-base' : 'text-sm'
-                              } ${
-                                item.isWhiteSide
-                                  ? 'bg-white text-slate-900 border-2 border-slate-400 shadow-xs ring-1 ring-amber-400/50'
-                                  : 'text-slate-400 bg-transparent'
-                              }`}
-                              title={item.isWhiteSide ? 'เลือกเป็นท้องขาว' : ''}
-                            >
-                              <span className="w-3.5 h-3.5 rounded-full bg-white border-2 border-slate-400 shrink-0" />
-                              <span>ท้องขาว</span>
-                              {item.isWhiteSide && (
-                                <span className="text-emerald-600 font-bold ml-0.5">✓</span>
-                              )}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-300 text-base">-</span>
-                        )}
-                      </td>
-
-                      {/* 7. ปริมาณที่ใช้ (Used amount) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } text-right font-mono font-black text-slate-900 ${
-                          rowDensity === 'spacious' ? 'text-xl sm:text-2xl' : 'text-lg'
-                        }`}
-                      >
-                        {item.usedDisplay}
-                      </td>
-
-                      {/* 8. NG ที่เสีย (NG amount) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } text-right font-mono ${
-                          item.ngValue > 0 ? 'text-rose-600 font-black' : 'text-slate-400'
-                        } ${rowDensity === 'spacious' ? 'text-lg sm:text-xl' : 'text-base'}`}
-                      >
-                        {item.ngDisplay}
-                      </td>
-
-                      {/* 9. คงเหลือ / หลังตัด (Remaining) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } text-right font-mono text-slate-800 font-bold ${
-                          rowDensity === 'spacious' ? 'text-lg' : 'text-base'
-                        }`}
-                      >
-                        <div>{item.remainingDisplay}</div>
-                        {item.remainingBeforeDisplay && (
-                          <div className="text-xs text-slate-400 font-normal">
-                            (ก่อน: {item.remainingBeforeDisplay})
-                          </div>
-                        )}
-                      </td>
-
-                      {/* 10. ผู้บันทึก & หมายเหตุ (Recorder & Notes) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } text-slate-600 ${
-                          rowDensity === 'spacious' ? 'text-base' : 'text-sm'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 max-w-[220px]">
-                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="font-semibold text-slate-800 truncate">
-                            {item.recordedBy}
-                          </span>
-                        </div>
-                        {item.notes && (
-                          <div
-                            className="text-xs text-slate-400 truncate max-w-[220px] mt-0.5"
-                            title={item.notes}
-                          >
-                            📝 {item.notes}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* 11. จัดการ (Actions) */}
-                      <td
-                        className={`px-4 sm:px-5 ${
-                          rowDensity === 'spacious' ? 'py-5' : 'py-3.5'
-                        } text-center`}
-                      >
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* Full detail pop-up — foil */}
-                          {isFoil && item.rawFoil && (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedDetailRecord(item.rawFoil!)}
-                              title="ดูรายละเอียดใบ SO ฟอยล์แบบเต็ม"
-                              className="p-2 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer border border-slate-200"
-                            >
-                              <FileText className="w-4.5 h-4.5" />
-                            </button>
-                          )}
-
-                          {/* Full detail pop-up — sandwich */}
-                          {!isFoil && item.rawSandwich && (
-                            <button
-                              type="button"
-                              onClick={() => setSelectedSandwichDetail(item.rawSandwich!)}
-                              title="ดูรายละเอียดใบ SO แซนวิชแบบเต็ม"
-                              className="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer border border-slate-200"
-                            >
-                              <FileText className="w-4.5 h-4.5" />
-                            </button>
-                          )}
-
-                          {/* Edit */}
-                          {isFoil && item.rawFoil && onEditRecord && (
-                            <button
-                              type="button"
-                              onClick={() => handleActionGuarded(() => onEditRecord(item.rawFoil!))}
-                              title="แก้ไขรายการตัดฟอยล์"
-                              className="p-2 rounded-lg text-slate-500 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer border border-slate-200"
-                            >
-                              <Pencil className="w-4.5 h-4.5" />
-                            </button>
-                          )}
-                          {!isFoil && item.rawSandwich && onEditSandwichRecord && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleActionGuarded(() => onEditSandwichRecord(item.rawSandwich!))
+                              title={
+                                patternStyle
+                                  ? `${item.rawFoil.pattern || 'ลายมาตรฐาน'} (${patternStyle.colorName})`
+                                  : undefined
                               }
-                              title="แก้ไขรายการตัด SO แซนวิช"
-                              className="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer border border-slate-200"
                             >
-                              <Pencil className="w-4.5 h-4.5" />
-                            </button>
-                          )}
+                              <span>{item.rawFoil.pattern || 'ลายมาตรฐาน'}</span>
 
-                          {/* Delete */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleActionGuarded(async () => {
-                                if (isFoil && item.rawFoil) {
-                                  if (
-                                    await confirmAction({
-                                      title: 'ยกเลิกรายการตัดฟอยล์',
-                                      message: `ต้องการยกเลิกรายการตัดฟอยล์ SO ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอดเข้าม้วนเดิมอัตโนมัติ)`,
-                                      confirmLabel: 'ยกเลิกรายการ',
-                                    })
-                                  ) {
-                                    onDeleteRecord(item.rawFoil.id);
-                                  }
-                                } else if (!isFoil && item.rawSandwich && onDeleteSandwichRecord) {
-                                  if (
-                                    await confirmAction({
-                                      title: 'ลบรายการตัด SO แซนวิช',
-                                      message: `ต้องการลบรายการตัด SO แซนวิช ${item.soNumber} หรือไม่?`,
-                                      confirmLabel: 'ลบรายการ',
-                                    })
-                                  ) {
-                                    onDeleteSandwichRecord(item.rawSandwich.id);
-                                  }
-                                }
-                              });
-                            }}
-                            title="ลบ/ยกเลิกรายการนี้"
-                            className="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer border border-slate-200"
-                          >
-                            <Trash2 className="w-4.5 h-4.5" />
-                          </button>
-                        </div>
+                              {/* จุดสีแสดงตัวเลือกด้านหลังท้องฟอยล์: ท้องเงิน (จุดสีเงิน) หรือ ท้องขาว (จุดสีขาว) */}
+                              {item.isSilverSide && (
+                                <span
+                                  className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-slate-200 via-slate-400 to-zinc-600 border-2 border-slate-500 shadow-2xs shrink-0 ring-1 ring-amber-400 ml-0.5"
+                                  title="ตัวเลือก: ท้องเงิน"
+                                />
+                              )}
+                              {item.isWhiteSide && (
+                                <span
+                                  className="w-3.5 h-3.5 rounded-full bg-white border-2 border-slate-400 shadow-2xs shrink-0 ring-1 ring-emerald-500 ml-0.5"
+                                  title="ตัวเลือก: ท้องขาว"
+                                />
+                              )}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
                       </td>
-                    </tr>
-                  );
-                })}
+
+                        {/* 7. ปริมาณที่ใช้ (Used amount: .xx) */}
+                        <td className="px-3 py-2.5 text-right font-mono font-black text-slate-900 whitespace-nowrap">
+                          {item.usedDisplay}
+                        </td>
+
+                        {/* 8. NG ที่เสีย (NG amount: .xx) */}
+                        <td
+                          className={`px-3 py-2.5 text-right font-mono whitespace-nowrap ${
+                            item.ngValue > 0 ? 'text-rose-600 font-black' : 'text-slate-400'
+                          }`}
+                        >
+                          {item.ngDisplay}
+                        </td>
+
+                        {/* 9. คงเหลือ / หลังตัด (Remaining: .xx) */}
+                        <td className="px-3 py-2.5 text-right font-mono text-slate-800 font-bold whitespace-nowrap">
+                          <div>{item.remainingDisplay}</div>
+                          {item.remainingBeforeDisplay && (
+                            <div className="text-[11px] text-slate-400 font-normal">
+                              (ก่อน: {item.remainingBeforeDisplay})
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 10. ผู้บันทึก & หมายเหตุ (Recorder & Notes) */}
+                        <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5 max-w-[200px]">
+                            <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="font-semibold text-slate-800 truncate">
+                              {item.recordedBy}
+                            </span>
+                          </div>
+                          {item.notes && (
+                            <div
+                              className="text-[11px] text-slate-400 truncate max-w-[200px] mt-0.5"
+                              title={item.notes}
+                            >
+                              📝 {item.notes}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 11. จัดการ (Actions: คัดลอก, ดูรายละเอียด, แก้ไข, ลบ อยู่ท้ายคอลัมน์) */}
+                        <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            {/* คัดลอกสรุปส่ง LINE */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopySingle(item);
+                              }}
+                              title="คัดลอกข้อมูลเพื่อส่ง LINE"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200"
+                            >
+                              {copiedId === item.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+
+                            {/* ดูรายละเอียดเต็ม */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isFoil && item.rawFoil) {
+                                  setSelectedDetailRecord(item.rawFoil);
+                                } else if (!isFoil && item.rawSandwich) {
+                                  setSelectedSandwichDetail(item.rawSandwich);
+                                }
+                              }}
+                              title="ดูรายละเอียดใบ SO แบบเต็ม"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer border border-slate-200"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* แก้ไข */}
+                            {isFoil && item.rawFoil && onEditRecord && (
+                              <button
+                                type="button"
+                                onClick={() => handleActionGuarded(() => onEditRecord(item.rawFoil!))}
+                                title="แก้ไขรายการตัดฟอยล์"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer border border-slate-200"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {!isFoil && item.rawSandwich && onEditSandwichRecord && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleActionGuarded(() => onEditSandwichRecord(item.rawSandwich!))
+                                }
+                                title="แก้ไขรายการตัด SO แซนวิช"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer border border-slate-200"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* ลบ / ยกเลิก */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleActionGuarded(async () => {
+                                  if (isFoil && item.rawFoil) {
+                                    if (
+                                      await confirmAction({
+                                        title: 'ยกเลิกรายการตัดฟอยล์',
+                                        message: `ต้องการยกเลิกรายการตัดฟอยล์ SO ${item.soNumber} หรือไม่?\n(ระบบจะคืนยอดเข้าม้วนเดิมอัตโนมัติ)`,
+                                        confirmLabel: 'ยกเลิกรายการ',
+                                      })
+                                    ) {
+                                      onDeleteRecord(item.rawFoil.id);
+                                    }
+                                  } else if (!isFoil && item.rawSandwich && onDeleteSandwichRecord) {
+                                    if (
+                                      await confirmAction({
+                                        title: 'ลบรายการตัด SO แซนวิช',
+                                        message: `ต้องการลบรายการตัด SO แซนวิช ${item.soNumber} หรือไม่?`,
+                                        confirmLabel: 'ลบรายการ',
+                                      })
+                                    ) {
+                                      onDeleteSandwichRecord(item.rawSandwich.id);
+                                    }
+                                  }
+                                });
+                              }}
+                              title="ลบ/ยกเลิกรายการนี้"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer border border-slate-200"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
@@ -1197,19 +1025,19 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                 <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 text-center">
                   <div className="text-[10px] font-bold text-emerald-700">ก่อนใช้ (กก.)</div>
                   <div className="font-mono font-bold text-emerald-900 text-base mt-0.5">
-                    {Number(selectedSandwichDetail.weightBefore || 0).toLocaleString()}
+                    {formatMeters(selectedSandwichDetail.weightBefore)}
                   </div>
                 </div>
                 <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 text-center">
                   <div className="text-[10px] font-bold text-slate-600">หลังใช้ (กก.)</div>
                   <div className="font-mono font-bold text-slate-900 text-base mt-0.5">
-                    {Number(selectedSandwichDetail.weightAfter || 0).toLocaleString()}
+                    {formatMeters(selectedSandwichDetail.weightAfter)}
                   </div>
                 </div>
                 <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-center">
                   <div className="text-[10px] font-bold text-amber-700">ใช้ไป (กก.)</div>
                   <div className="font-mono font-bold text-amber-900 text-base mt-0.5">
-                    {Number(selectedSandwichDetail.weightUsed || 0).toLocaleString()}
+                    {formatMeters(selectedSandwichDetail.weightUsed)}
                   </div>
                 </div>
               </div>
@@ -1222,16 +1050,16 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                   {selectedSandwichDetail.soLengthMeters != null && (
                     <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                       <div className="text-[10px] font-bold text-slate-500">ความยาวตาม SO (ม.)</div>
-                      <div className="font-mono font-bold mt-0.5">
-                        {Number(selectedSandwichDetail.soLengthMeters).toLocaleString()}
+                      <div className="font-mono font-bold mt-0.5 text-slate-900">
+                        {formatMeters(selectedSandwichDetail.soLengthMeters)}
                       </div>
                     </div>
                   )}
                   {selectedSandwichDetail.lengthMeters != null && (
                     <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                       <div className="text-[10px] font-bold text-slate-500">ความยาวที่ผลิต (ม.)</div>
-                      <div className="font-mono font-bold mt-0.5">
-                        {Number(selectedSandwichDetail.lengthMeters).toLocaleString()}
+                      <div className="font-mono font-bold mt-0.5 text-slate-900">
+                        {formatMeters(selectedSandwichDetail.lengthMeters)}
                       </div>
                     </div>
                   )}
@@ -1239,7 +1067,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                     <div className="rounded-xl bg-rose-50 border border-rose-100 p-3">
                       <div className="text-[10px] font-bold text-rose-600">NG (กก.)</div>
                       <div className="font-mono font-bold text-rose-800 mt-0.5">
-                        {Number(selectedSandwichDetail.ngKg).toLocaleString()}
+                        {formatMeters(selectedSandwichDetail.ngKg)}
                       </div>
                     </div>
                   )}
@@ -1247,7 +1075,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                     <div className="rounded-xl bg-rose-50 border border-rose-100 p-3">
                       <div className="text-[10px] font-bold text-rose-600">NG (ม.)</div>
                       <div className="font-mono font-bold text-rose-800 mt-0.5">
-                        {Number(selectedSandwichDetail.ngMeters).toLocaleString()}
+                        {formatMeters(selectedSandwichDetail.ngMeters)}
                       </div>
                     </div>
                   )}

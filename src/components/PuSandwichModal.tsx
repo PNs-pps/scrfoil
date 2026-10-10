@@ -802,7 +802,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           </button>
                         </div>
                         <div className="font-mono font-bold text-slate-900 text-base">
-                          {numSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 })} <span className="text-xs font-normal text-slate-500">ม.</span>
+                          {numSoLength.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-500">ม.</span>
                         </div>
                         <span className="text-[10px] text-emerald-700 font-mono block truncate">
                           ≈ {theoreticalSoWeight.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (เหล็ก {thickness || '0.35'} มม.)
@@ -816,7 +816,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           <span className="text-xs font-bold text-rose-600">กก.</span>
                         </div>
                         <span className="text-[10px] text-rose-800 font-mono block truncate">
-                          ≈ {autoCalculatedNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} เมตรตัดตก/เสีย
+                          ≈ {autoCalculatedNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} เมตรตัดตก/เสีย
                         </span>
                       </div>
                     </div>
@@ -1162,7 +1162,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     </strong>
                     {totalNgMetersAll > 0 && (
                       <span className="text-rose-600 text-[11px] ml-1">
-                        ({totalNgMetersAll.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.)
+                        ({totalNgMetersAll.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.)
                       </span>
                     )}
                   </div>
@@ -1243,12 +1243,12 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                               {rec.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                             </td>
                             <td className="py-2.5 px-3 text-right font-bold text-teal-700">
-                              {rec.soLengthMeters ? `${rec.soLengthMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม.` : '-'}
+                              {rec.soLengthMeters ? `${rec.soLengthMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.` : '-'}
                             </td>
                             <td className="py-2.5 px-3 text-right">
                               {(rec.ngKg || 0) > 0 ? (
                                 <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[11px]">
-                                  {rec.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                  {rec.ngKg?.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
                               ) : (
                                 <span className="text-slate-400 text-[11px]">0.00</span>
@@ -1257,10 +1257,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                             <td className="py-2.5 px-3 text-right">
                               {(rec.ngMeters || 0) > 0 ? (
                                 <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold text-[11px]">
-                                  {rec.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 1 })}
+                                  {rec.ngMeters?.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
                               ) : (
-                                <span className="text-slate-400 text-[11px]">0.0</span>
+                                <span className="text-slate-400 text-[11px]">0.00</span>
                               )}
                             </td>
                             <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px]">
@@ -1365,16 +1365,16 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
               <div className="flex justify-between gap-2 pt-1">
                 <span className="text-slate-500 text-xs">ความยาวตาม SO</span>
                 <span className="font-mono font-bold text-teal-800 text-xs">
-                  {numSoLength > 0 ? `${numSoLength.toLocaleString('th-TH')} ม.` : '—'}
+                  {numSoLength > 0 ? `${numSoLength.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.` : '—'}
                 </span>
               </div>
               {(parseFloat(ngKg) > 0 || parseFloat(ngMeters) > 0) && (
                 <div className="flex justify-between gap-2">
                   <span className="text-rose-600 text-xs font-semibold">ยอด NG</span>
                   <span className="font-mono font-bold text-rose-700 text-xs">
-                    {(parseFloat(ngKg) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
+                    {(parseFloat(ngKg) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก.
                     {(parseFloat(ngMeters) || 0) > 0
-                      ? ` / ${(parseFloat(ngMeters) || 0).toLocaleString('th-TH')} ม.`
+                      ? ` / ${(parseFloat(ngMeters) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.`
                       : ''}
                   </span>
                 </div>
