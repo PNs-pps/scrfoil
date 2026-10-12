@@ -57,7 +57,6 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-white/20 transition-colors text-white"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -167,7 +166,6 @@ export const FirebaseRulesModal: React.FC<FirebaseRulesModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-medium"
           >
-            aria-label="ปิดหน้าต่าง"
             ปิดหน้าต่างนี้ (ใช้งานออฟไลน์/Local ชั่วคราว)
           </button>
           <div className="flex items-center gap-2">

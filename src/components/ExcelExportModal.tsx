@@ -11,7 +11,8 @@ import {
   FileText,
   Clock,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  ArrowLeft
 } from 'lucide-react';
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
 import { 
@@ -144,16 +145,25 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 py-4 bg-linear-to-r from-emerald-800 via-teal-800 to-slate-900 text-white flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-white/10 text-emerald-300">
+        <div className="px-4 sm:px-5 py-3.5 sm:py-4 bg-linear-to-r from-emerald-800 via-teal-800 to-slate-900 text-white flex items-center justify-between gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
+              title="ย้อนกลับ / ปิด"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>ย้อนกลับ</span>
+            </button>
+            <div className="p-2 rounded-xl bg-white/10 text-emerald-300 shrink-0">
               <FileSpreadsheet className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="text-base font-bold text-white leading-tight">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-bold text-white leading-tight truncate">
                 ส่งออกรายงาน Excel สำเร็จรูป
               </h2>
-              <p className="text-xs text-emerald-200/90 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-emerald-200/90 mt-0.5 truncate">
                 ออกแบบเฉพาะสำหรับฝ่ายบัญชี ฝ่ายจัดซื้อ และสรุปภาพรวมการผลิต
               </p>
             </div>
@@ -161,7 +171,8 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+            title="ปิดหน้าต่าง"
           >
             <X className="w-5 h-5" />
           </button>

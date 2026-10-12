@@ -198,3 +198,41 @@ export function isRollUnused(roll: FoilRoll): boolean {
     (!roll.recentCuts || roll.recentCuts.length === 0)
   );
 }
+
+/**
+ * โครงสร้างข้อมูลความแตกต่าง (Diff) ระหว่างค่าเดิมและค่าใหม่ของฟิลด์ที่แก้ไข
+ */
+export interface SOAuditDiff {
+  field: string;               // ชื่อฟิลด์ เช่น usedMeters, ngMeters, soNumber, notes
+  label: string;               // ป้ายชื่อภาษาไทย เช่น เมตรใช้งาน, เมตรเสีย (NG), หมายเหตุ
+  oldValue: string | number | null | undefined;
+  newValue: string | number | null | undefined;
+  unit?: string;               // หน่วย เช่น ม., กก.
+  delta?: number;              // ผลต่างเชิงตัวเลข เช่น -5.0 หรือ +10
+}
+
+/**
+ * ข้อมูลบันทึกประวัติการตรวจสอบการแก้ไข SO (SO Audit Trail Log Item)
+ * บันทึกเฉพาะเหตุการณ์ UPDATE (การแก้ไข) ตามคำสั่งของผู้ใช้ (ไม่บันทึกการลบ)
+ */
+export interface SOAuditLogItem {
+  id: string;                  // รหัสบันทึก Audit (UUID)
+  timestamp: string;           // วันที่และเวลา ISO 8601
+  action: 'UPDATE';            // ประเภทเหตุการณ์: UPDATE
+  recordType: 'foil' | 'sandwich'; // ประเภทวัตถุดิบ
+  recordId: string;            // รหัสใบตัดต้นทาง
+  soNumber: string;            // รหัส SO หรือเหตุผล Non-SO
+  operator: string;            // ผู้ดำเนินการ/ผู้แก้ไข
+  rollInfo?: {
+    lotNumber?: string;
+    rollNumber?: string;
+    width?: number | string;
+    pattern?: string;
+    coilColor?: string;
+    coilNumber?: string;
+  };
+  reason?: string;             // สาเหตุการแก้ไข (ถ้ามี)
+  diffs: SOAuditDiff[];        // รายการความแตกต่างก่อน vs หลังแก้ไข
+  summary: string;             // ข้อความสรุปย่อภาษาไทย
+}
+

@@ -43,7 +43,6 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
               title="ย้อนกลับ / ปิด"
             >
-            aria-label="ปิดหน้าต่าง"
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>ย้อนกลับ</span>
             </button>
@@ -66,7 +65,6 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
             title="ปิด"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>

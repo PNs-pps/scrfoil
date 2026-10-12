@@ -169,7 +169,6 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -383,7 +382,6 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
             >
-            aria-label="ปิดหน้าต่าง"
               ยกเลิก
             </button>
             <button

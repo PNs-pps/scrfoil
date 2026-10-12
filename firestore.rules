@@ -101,5 +101,11 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isStaff();
     }
+
+    // SO Audit logs (Audit Trail & Change Diff)
+    match /so_audit_logs/{logId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
   }
 }

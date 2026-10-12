@@ -23,7 +23,8 @@ import {
   Wrench,
   Sparkles,
   ShieldCheck,
-  Info
+  Info,
+  ArrowLeft
 } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { subscribeToRollCutHistory } from '../lib/firebase';
@@ -333,30 +334,40 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
-        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs">
-              <Layers className="w-5 h-5" />
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-900 text-white flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
+              title="ย้อนกลับ / ปิด"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>ย้อนกลับ</span>
+            </button>
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-xs shrink-0">
+              <Layers className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold">
                   ประวัติการใช้งานฟอยล์รายลูก
                 </span>
-                <span className="text-xs text-slate-400 font-mono">
+                <span className="text-xs text-slate-400 font-mono truncate">
                   ล็อต {roll.lotNumber} | เบอร์ #{roll.rollNumber}
                 </span>
               </div>
-              <h2 className="text-base sm:text-lg font-bold text-white leading-tight mt-0.5">
+              <h2 className="text-sm sm:text-lg font-bold text-white leading-tight mt-0.5 truncate">
                 ประวัติใบสั่งซื้อ / ใบงานที่ใช้ตัดม้วนนี้
               </h2>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+            title="ปิดหน้าต่าง"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -925,7 +936,6 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
             >
-            aria-label="ปิดหน้าต่าง"
               ปิดหน้าต่าง
             </button>
           </div>

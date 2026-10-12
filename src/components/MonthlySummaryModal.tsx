@@ -464,7 +464,6 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1004,7 +1003,6 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
             onClick={onClose}
             className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer ml-auto"
           >
-            aria-label="ปิดหน้าต่าง"
             ปิดหน้าต่าง
           </button>
         </div>

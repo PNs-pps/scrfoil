@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileEdit,
+  ArrowLeft,
 } from 'lucide-react';
 import { FoilRoll, CycleCountLine, CycleCountSession } from '../types';
 import { formatMeters, round2 } from '../utils/formatters';
@@ -345,10 +346,20 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
         ref={panelRef}
         tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[94dvh] flex flex-col overflow-hidden border border-slate-200">
         {/* Header — โทนเดียวกับแอป */}
-        <div className="px-4 sm:px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-2.5 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
-              <ClipboardList className="w-5 h-5 text-amber-400" />
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer disabled:opacity-40 shrink-0"
+              title="ย้อนกลับ / ปิด"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>ย้อนกลับ</span>
+            </button>
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+              <ClipboardList className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
             </div>
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-bold leading-tight truncate">
@@ -365,7 +376,6 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             disabled={isSubmitting}
             className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-white/10 disabled:opacity-40 cursor-pointer shrink-0"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -743,7 +753,6 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             disabled={isSubmitting}
             className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40 cursor-pointer transition-colors"
           >
-            aria-label="ปิดหน้าต่าง"
             ปิด
           </button>
           <button

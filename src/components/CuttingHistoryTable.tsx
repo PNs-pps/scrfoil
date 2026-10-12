@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { confirmAction } from '../utils/confirmAction';
-import { StockCutRecord, FoilRoll, PuSandwichCutRecord } from '../types';
+import { StockCutRecord, FoilRoll, PuSandwichCutRecord, SOAuditLogItem } from '../types';
 import { 
   Search, 
   Download, 
@@ -23,10 +23,16 @@ import {
   ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
-  FileSpreadsheet
+  FileSpreadsheet,
+  History,
+  ArrowRight,
+  Clock,
+  ShieldCheck,
+  RotateCcw
 } from 'lucide-react';
 import { exportCutRecordsToCSV, exportPuSandwichRecordsToCSV } from '../utils/storage';
-import { formatMeters, compareLotAndRoll } from '../utils/formatters';
+import { formatMeters, compareLotAndRoll, formatThaiDateTime, formatThaiDate } from '../utils/formatters';
+import { exportAuditLogsToCSV } from '../utils/auditLogger';
 import { UserMode } from '../utils/auth';
 import { getPatternStyle } from '../utils/patternStyles';
 import { SODetailModal } from './SODetailModal';
@@ -80,6 +86,7 @@ interface CuttingHistoryTableProps {
   initialCategory?: HistoryCategory;
   userMode?: UserMode;
   onRequestUnlock?: (action?: () => void) => void;
+  auditLogs?: SOAuditLogItem[];
 }
 
 export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
@@ -95,7 +102,16 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   initialCategory = 'all',
   userMode = 'visitor',
   onRequestUnlock,
+  auditLogs = [],
 }) => {
+  // Main Mode: 'records' (ตารางตัดสต๊อกปกติ) | 'audit' (ตรวจสอบประวัติการแก้ไข SO)
+  const [historyMode, setHistoryMode] = useState<'records' | 'audit'>('records');
+
+  // Audit Trail Filters
+  const [auditSearchQuery, setAuditSearchQuery] = useState('');
+  const [auditTypeFilter, setAuditTypeFilter] = useState<'all' | 'foil' | 'sandwich'>('all');
+  const [auditTimeFilter, setAuditTimeFilter] = useState<'all' | 'today' | '7days' | 'month'>('all');
+
   // Category Tab: All, Foil, Sandwich
   const [categoryFilter, setCategoryFilter] = useState<HistoryCategory>(initialCategory);
   const [selectedDetailRecord, setSelectedDetailRecord] = useState<StockCutRecord | null>(null);
@@ -414,9 +430,109 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     );
   };
 
+  // Filtered Audit Logs
+  const filteredAuditLogs = useMemo(() => {
+    let list = auditLogs;
+    if (auditTypeFilter !== 'all') {
+      list = list.filter((l) => l.recordType === auditTypeFilter);
+    }
+    if (auditTimeFilter !== 'all') {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      if (auditTimeFilter === 'today') {
+        list = list.filter((l) => new Date(l.timestamp).getTime() >= startOfToday);
+      } else if (auditTimeFilter === '7days') {
+        const sevenDaysAgo = startOfToday - 7 * 24 * 60 * 60 * 1000;
+        list = list.filter((l) => new Date(l.timestamp).getTime() >= sevenDaysAgo);
+      } else if (auditTimeFilter === 'month') {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        list = list.filter((l) => new Date(l.timestamp).getTime() >= startOfMonth);
+      }
+    }
+    if (auditSearchQuery.trim()) {
+      const q = auditSearchQuery.toLowerCase().trim();
+      list = list.filter((l) => {
+        const soMatch = (l.soNumber || '').toLowerCase().includes(q);
+        const opMatch = (l.operator || '').toLowerCase().includes(q);
+        const summaryMatch = (l.summary || '').toLowerCase().includes(q);
+        const lotMatch = (l.rollInfo?.lotNumber || '').toLowerCase().includes(q);
+        const rollMatch = (l.rollInfo?.rollNumber || '').toLowerCase().includes(q);
+        const colorMatch = (l.rollInfo?.coilColor || '').toLowerCase().includes(q);
+        const diffMatch = (l.diffs || []).some(
+          (d) =>
+            (d.label || '').toLowerCase().includes(q) ||
+            String(d.oldValue || '').toLowerCase().includes(q) ||
+            String(d.newValue || '').toLowerCase().includes(q)
+        );
+        return soMatch || opMatch || summaryMatch || lotMatch || rollMatch || colorMatch || diffMatch;
+      });
+    }
+    return list;
+  }, [auditLogs, auditTypeFilter, auditTimeFilter, auditSearchQuery]);
+
   return (
     <div className="space-y-4">
-      {/* Category Tab Selector (ชัดเจน: ตัดสต๊อกรวม, ฟอยล์, แซนวิช) */}
+      {/* Top Header & Mode Switcher: ตัดสต๊อก vs ตรวจสอบประวัติการแก้ไข SO (Audit Trail) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-3 sm:p-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 overflow-x-auto text-xs">
+            <button
+              type="button"
+              onClick={() => setHistoryMode('records')}
+              className={`px-4 py-2 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
+                historyMode === 'records'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Scissors className={`w-4 h-4 ${historyMode === 'records' ? 'text-amber-400' : 'text-slate-500'}`} />
+              <span>รายการตัดสต๊อก (Cuts)</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                historyMode === 'records' ? 'bg-slate-800 text-amber-300' : 'bg-slate-200 text-slate-800'
+              }`}>
+                {unifiedItems.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setHistoryMode('audit')}
+              className={`px-4 py-2 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
+                historyMode === 'audit'
+                  ? 'bg-amber-400 text-slate-950 shadow-xs font-black'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <History className={`w-4 h-4 ${historyMode === 'audit' ? 'text-amber-950' : 'text-amber-600'}`} />
+              <span>ตรวจสอบประวัติการแก้ไข SO (Audit Trail & Diff)</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                historyMode === 'audit' ? 'bg-amber-950 text-amber-200' : 'bg-amber-100 text-amber-950'
+              }`}>
+                {auditLogs.length}
+              </span>
+            </button>
+          </div>
+
+          {historyMode === 'audit' && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => exportAuditLogsToCSV(filteredAuditLogs)}
+                disabled={filteredAuditLogs.length === 0}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                title="ส่งออกรายงานประวัติการแก้ไขเป็นไฟล์ CSV/Excel"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-100" />
+                <span>ส่งออกรายงาน Audit (Excel/CSV)</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Category Tab Selector & Normal Records Table */}
+      {historyMode === 'records' && (
+      <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-3 sm:p-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           {/* Category Tabs */}
@@ -468,40 +584,6 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                 {safePuRecords.length}
               </span>
             </button>
-          </div>
-
-          {/* Quick Actions (Export CSV & Quick Cut) */}
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
-
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              title="ส่งออกประวัติเป็นไฟล์ CSV"
-              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold cursor-pointer border border-slate-200 flex items-center gap-1.5 transition-colors"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-600" />
-              <span>ส่งออก CSV</span>
-            </button>
-
-            {categoryFilter === 'sandwich' && onOpenPuSandwichModal ? (
-              <button
-                type="button"
-                onClick={onOpenPuSandwichModal}
-                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <Factory className="w-3.5 h-3.5 text-emerald-200" />
-                <span>ตัด SO แซนวิชใหม่</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onOpenCutModal}
-                className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <Scissors className="w-3.5 h-3.5 text-amber-400" />
-                <span>ตัดสต็อกฟอยล์ใหม่</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -942,6 +1024,290 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           </div>
         </div>
       )}
+      </div>
+      )}
+
+      {/* SO Audit Trail & Diff Mode (ตรวจสอบประวัติการแก้ไข SO) */}
+      {historyMode === 'audit' && (
+        <div className="space-y-4">
+          {/* Audit Controls & Filter Bar */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-4 space-y-3">
+            {/* Search & Date Filters */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={auditSearchQuery}
+                  onChange={(e) => setAuditSearchQuery(e.target.value)}
+                  placeholder="ค้นหาตามรหัส SO, ผู้แก้ไข, ล็อต, เบอร์ม้วน, คอยล์, ค่าที่เปลี่ยน..."
+                  className="w-full pl-9 pr-8 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50/60 focus:bg-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all font-mono"
+                />
+                {auditSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setAuditSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Material Type Pills */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs shrink-0 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setAuditTypeFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    auditTypeFilter === 'all'
+                      ? 'bg-white text-slate-950 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  ทั้งหมด ({auditLogs.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditTypeFilter('foil')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    auditTypeFilter === 'foil'
+                      ? 'bg-amber-400 text-slate-950 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  ฟอยล์ ({auditLogs.filter((l) => l.recordType === 'foil').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditTypeFilter('sandwich')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    auditTypeFilter === 'sandwich'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  แซนวิช ({auditLogs.filter((l) => l.recordType === 'sandwich').length})
+                </button>
+              </div>
+
+              {/* Time Range Pills */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs shrink-0 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setAuditTimeFilter('all')}
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    auditTimeFilter === 'all' ? 'bg-white text-slate-950 shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  ทุกช่วงเวลา
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditTimeFilter('today')}
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    auditTimeFilter === 'today' ? 'bg-white text-slate-950 shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  วันนี้
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditTimeFilter('7days')}
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    auditTimeFilter === '7days' ? 'bg-white text-slate-950 shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  7 วันล่าสุด
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuditTimeFilter('month')}
+                  className={`px-2.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                    auditTimeFilter === 'month' ? 'bg-white text-slate-950 shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  เดือนนี้
+                </button>
+              </div>
+            </div>
+
+            {/* Explanation & Info Banner */}
+            <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3 text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>
+                  <strong>ระบบ SO Audit Trail & Diff:</strong> บันทึกประวัติเปรียบเทียบค่าเดิม vs ค่าใหม่ ทุกครั้งที่มีการแก้ไขรายการตัด SO (ไม่บันทึกประวัติการลบตามคำสั่ง)
+                </span>
+              </div>
+              <span className="font-mono text-[11px] text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md self-start sm:self-auto font-bold">
+                แสดงผล {filteredAuditLogs.length} รายการ
+              </span>
+            </div>
+          </div>
+
+          {/* Audit Logs Cards List */}
+          {filteredAuditLogs.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-10 text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                <History className="w-7 h-7" />
+              </div>
+              <h3 className="text-base font-bold text-slate-800">
+                {auditSearchQuery || auditTypeFilter !== 'all' || auditTimeFilter !== 'all'
+                  ? 'ไม่พบประวัติการแก้ไขที่ตรงกับเงื่อนไขการค้นหา'
+                  : 'ยังไม่มีประวัติการแก้ไขรายการตัด SO'}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                เมื่อมีเจ้าหน้าที่กดปุ่มแก้ไขรายการตัด SO ในระบบ ข้อมูลการเปลี่ยนแปลงค่าก่อนหน้า vs ค่าใหม่ (Change Diff) พร้อมชื่อผู้แก้ไขและวันเวลาจะถูกบันทึกและแสดงที่นี่โดยอัตโนมัติ
+              </p>
+              {(auditSearchQuery || auditTypeFilter !== 'all' || auditTimeFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuditSearchQuery('');
+                    setAuditTypeFilter('all');
+                    setAuditTimeFilter('all');
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                >
+                  ล้างตัวกรองทั้งหมด
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredAuditLogs.map((log) => {
+                const isFoil = log.recordType === 'foil';
+                return (
+                  <div
+                    key={log.id}
+                    className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-sm hover:border-slate-300 transition-all p-4 sm:p-5 space-y-3"
+                  >
+                    {/* Log Card Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Action Badge */}
+                        <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-200 flex items-center gap-1">
+                          <Pencil className="w-3 h-3 text-amber-700" />
+                          <span>แก้ไขข้อมูล</span>
+                        </span>
+
+                        {/* Material Type Badge */}
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                            isFoil
+                              ? 'bg-slate-100 text-slate-800 border border-slate-200'
+                              : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          }`}
+                        >
+                          {isFoil ? 'ตัดฟอยล์' : 'PU แซนวิช'}
+                        </span>
+
+                        {/* SO Number Badge */}
+                        <span className="font-mono font-bold text-xs bg-slate-900 text-amber-300 px-2.5 py-0.5 rounded-md">
+                          SO: {log.soNumber}
+                        </span>
+                      </div>
+
+                      {/* Operator & Timestamp */}
+                      <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                        <span className="flex items-center gap-1 font-semibold text-slate-700">
+                          <User className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{log.operator || '-'}</span>
+                        </span>
+                        <span className="flex items-center gap-1 font-mono text-slate-500">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{formatThaiDateTime(log.timestamp)}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Roll / Coil Context */}
+                    {log.rollInfo && (
+                      <div className="text-xs text-slate-600 bg-slate-50/90 rounded-xl px-3 py-2 border border-slate-200/70 flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-700">
+                          {isFoil ? '📦 ข้อมูลม้วนฟอยล์:' : '🥪 ข้อมูลคอยล์แซนวิช:'}
+                        </span>
+                        {isFoil ? (
+                          <>
+                            <span>ล็อต: <strong className="font-mono">{log.rollInfo.lotNumber || '-'}</strong></span>
+                            <span>•</span>
+                            <span>เบอร์: <strong className="font-mono">#{log.rollInfo.rollNumber || '-'}</strong></span>
+                            {log.rollInfo.width && (
+                              <>
+                                <span>•</span>
+                                <span>หน้ากว้าง: <strong className="font-mono">{log.rollInfo.width} มม.</strong></span>
+                              </>
+                            )}
+                            {log.rollInfo.pattern && (
+                              <>
+                                <span>•</span>
+                                <span>ลาย: <strong>{log.rollInfo.pattern}</strong></span>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <span>สีคอยล์: <strong className="font-mono">{log.rollInfo.coilColor || '-'}</strong></span>
+                            <span>•</span>
+                            <span>เบอร์คอยล์: <strong className="font-mono">#{log.rollInfo.coilNumber || '-'}</strong></span>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Diff Items Grid */}
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                        รายการที่เปลี่ยนแปลง ({log.diffs.length} ฟิลด์):
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {log.diffs.map((diff, dIdx) => (
+                          <div
+                            key={dIdx}
+                            className="p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/80 flex flex-col justify-between gap-1.5"
+                          >
+                            <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                              <span>{diff.label}</span>
+                              {diff.delta !== undefined && (
+                                <span className={`font-mono text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                                  diff.delta > 0
+                                    ? 'bg-emerald-100 text-emerald-900'
+                                    : 'bg-rose-100 text-rose-900'
+                                }`}>
+                                  {diff.delta > 0 ? `+${diff.delta}` : diff.delta} {diff.unit || ''}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 text-xs">
+                              <span className="line-through text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 font-mono truncate max-w-[45%]" title={String(diff.oldValue)}>
+                                {String(diff.oldValue ?? '-')} {diff.unit || ''}
+                              </span>
+                              <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-mono truncate max-w-[45%]" title={String(diff.newValue)}>
+                                {String(diff.newValue ?? '-')} {diff.unit || ''}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Summary row */}
+                    {log.summary && (
+                      <div className="text-xs text-slate-500 italic bg-slate-50/50 rounded-lg px-2.5 py-1.5 border border-slate-100 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate">สรุป: {log.summary}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pop-up Modal: Foil SO Cut Details */}
       {selectedDetailRecord && (
@@ -954,6 +1320,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           onEditRecord={onEditRecord}
           userMode={userMode}
           onRequestUnlock={onRequestUnlock}
+          auditLogs={auditLogs}
         />
       )}
 

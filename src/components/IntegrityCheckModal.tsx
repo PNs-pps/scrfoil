@@ -15,7 +15,8 @@ import {
   ArrowRight,
   Sparkles,
   Info,
-  Bug
+  Bug,
+  ArrowLeft
 } from 'lucide-react';
 import { IntegrityMismatch } from '../utils/integrityCheck';
 import { formatMeters } from '../utils/formatters';
@@ -119,9 +120,18 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
         tabIndex={-1} className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90dvh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 bg-slate-900 text-white">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${
+        <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-slate-100 bg-slate-900 text-white gap-2.5">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
+              title="ย้อนกลับ / ปิด"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>ย้อนกลับ</span>
+            </button>
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
               isAllGood ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
             }`}>
               {isAllGood ? (
@@ -130,25 +140,26 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
                 <ShieldCheck className="w-5 h-5" />
               )}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white leading-tight">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-white leading-tight truncate">
                   ตรวจสอบและปรับยอดคงเหลือตามใบตัด SO
                 </h2>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 font-medium">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 font-medium shrink-0">
                   Auto-Reconcile
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">
                 ตรวจสอบล่าสุด: {checkedAt ? new Date(checkedAt).toLocaleString('th-TH') : '-'}
               </p>
             </div>
           </div>
           <button 
+            type="button"
             onClick={onClose} 
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+            title="ปิดหน้าต่าง"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -440,7 +451,6 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold transition-colors text-xs cursor-pointer"
             >
-            aria-label="ปิดหน้าต่าง"
               ปิดหน้าต่าง
             </button>
 

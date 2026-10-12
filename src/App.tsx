@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from './types';
+import { FoilRoll, StockCutRecord, PuSandwichCutRecord, SOAuditLogItem, CycleCountSession } from './types';
 import { 
   getStoredRolls, 
   saveStoredRolls, 
@@ -13,9 +13,18 @@ import {
   exportPuSandwichRecordsToCSV
 } from './utils/storage';
 import { 
+  loadStoredSOAuditLogs, 
+  saveStoredSOAuditLogs, 
+  computeCutRecordDiff, 
+  computeSandwichCutDiff, 
+  buildSOAuditLogItem 
+} from './utils/auditLogger';
+import { 
   subscribeToFoilRolls, 
   subscribeToStockCutRecords, 
   subscribeToPuSandwichCuts,
+  subscribeSOAuditLogs,
+  saveSOAuditLogInFirestore,
   isRecentLocalWrite,
   savePuSandwichCutToFirestore,
   deletePuSandwichCutFromFirestore,
@@ -41,7 +50,6 @@ import {
   signOutUser,
   subscribeToAuthState,
 } from './lib/firebase';
-import { CycleCountSession } from './types';
 import { Navbar } from './components/Navbar';
 import { FirebaseSyncBar } from './components/FirebaseSyncBar';
 import { FirebaseRulesModal } from './components/FirebaseRulesModal';
@@ -243,6 +251,7 @@ export default function App() {
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
   const [isCycleCountOpen, setIsCycleCountOpen] = useState(false);
   const [isCycleCountHistoryOpen, setIsCycleCountHistoryOpen] = useState(false);
+  const [soAuditLogs, setSoAuditLogs] = useState<SOAuditLogItem[]>(() => loadStoredSOAuditLogs());
 
   // Error Alert Modal State
   const [errorAlert, setErrorAlert] = useState<{
@@ -451,10 +460,34 @@ export default function App() {
       }
     );
 
+    // 5. Realtime listener for SO Audit Logs
+    const unsubAudit = subscribeSOAuditLogs(
+      (cloudLogs) => {
+        if (cloudLogs && cloudLogs.length > 0) {
+          setSoAuditLogs((prev) => {
+            const map = new Map<string, SOAuditLogItem>();
+            cloudLogs.forEach((l) => map.set(l.id, l));
+            prev.forEach((l) => {
+              if (!map.has(l.id)) map.set(l.id, l);
+            });
+            const merged = Array.from(map.values()).sort(
+              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+            saveStoredSOAuditLogs(merged);
+            return merged;
+          });
+        }
+      },
+      (err: any) => {
+        console.warn('SO audit logs sync note:', err?.message || err);
+      }
+    );
+
     return () => {
       unsubRolls();
       unsubRecords();
       unsubSandwich();
+      unsubAudit();
     };
   }, []);
 
@@ -1251,6 +1284,34 @@ const updated = [newRoll, ...rolls];
     setPuSandwichRecords(updated);
     saveStoredPuSandwichRecords(updated);
 
+    // Audit Trail: Record diff if editing an existing sandwich cut (no delete logging)
+    if (exists) {
+      const oldRecord = previous.find((r) => r.id === record.id);
+      if (oldRecord) {
+        const diffs = computeSandwichCutDiff(oldRecord, record);
+        if (diffs.length > 0) {
+          const operator = currentUserEmail || record.recordedBy || 'เจ้าหน้าที่';
+          const auditItem = buildSOAuditLogItem({
+            recordType: 'sandwich',
+            recordId: record.id,
+            soNumber: record.soNumber || oldRecord.soNumber || '-',
+            operator,
+            diffs,
+            rollInfo: {
+              coilColor: record.coilColor,
+              coilNumber: record.coilNumber,
+            },
+          });
+          setSoAuditLogs((prev) => {
+            const next = [auditItem, ...prev];
+            saveStoredSOAuditLogs(next);
+            return next;
+          });
+          saveSOAuditLogInFirestore(auditItem);
+        }
+      }
+    }
+
     // Firestore does not retry `permission-denied` — the record would sit in
     // localStorage forever while the UI claimed it was merely "pending". Route
     // through trackCloudWrite so a terminal rejection is reported as such and
@@ -1513,6 +1574,31 @@ const updated = [newRoll, ...rolls];
 
       updateRecordsState(nextRecords);
       updateRollsState(nextRolls);
+
+      // SO Audit Trail: Record Diff (no delete logging per user specification)
+      const diffs = computeCutRecordDiff(oldRecord, updatedRecord);
+      if (diffs.length > 0) {
+        const operator = currentUserEmail || updatedRecord.recordedBy || 'เจ้าหน้าที่';
+        const auditItem = buildSOAuditLogItem({
+          recordType: 'foil',
+          recordId: finalRec.id,
+          soNumber: finalRec.soNumber || oldRecord.soNumber || '-',
+          operator,
+          diffs,
+          rollInfo: {
+            lotNumber: matchingRoll?.lotNumber || oldRecord.lotNumber,
+            rollNumber: matchingRoll?.rollNumber || oldRecord.rollNumber,
+            width: matchingRoll?.width || oldRecord.width,
+            pattern: matchingRoll?.pattern || oldRecord.pattern,
+          },
+        });
+        setSoAuditLogs((prev) => {
+          const next = [auditItem, ...prev];
+          saveStoredSOAuditLogs(next);
+          return next;
+        });
+        saveSOAuditLogInFirestore(auditItem);
+      }
 
       setEditingCutRecord(null);
       const finalRoll = nextRolls.find((r) => r.id === finalRec.foilId) || updatedRoll;
@@ -2110,6 +2196,7 @@ const updated = [newRoll, ...rolls];
             })}
             userMode={userMode}
             onRequestUnlock={(action) => requireEditorPermission(typeof action === 'function' ? action : () => {})}
+            auditLogs={soAuditLogs}
           />
         )}
 
@@ -2149,6 +2236,7 @@ const updated = [newRoll, ...rolls];
             onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
             onOpenCycleCountHistory={() => setIsCycleCountHistoryOpen(true)}
             onOpenExcelExport={() => setIsExcelExportOpen(true)}
+            onBack={() => setActiveTab('rolls')}
           />
         )}
       </main>

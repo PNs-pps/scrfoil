@@ -37,7 +37,7 @@ import {
   Auth, 
   User 
 } from 'firebase/auth';
-import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession } from '../types';
+import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession, SOAuditLogItem } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 
 // User's custom configuration as requested
@@ -2081,4 +2081,51 @@ export async function applyCycleCountAdjustments(
 
   return { updatedRolls, createdRecords };
 }
+
+export const SO_AUDIT_COLLECTION = 'so_audit_logs';
+
+/**
+ * บันทึกรายการ SO Audit Log เข้า Firestore
+ */
+export async function saveSOAuditLogInFirestore(auditItem: SOAuditLogItem): Promise<void> {
+  if (!db) return;
+  try {
+    const docRef = doc(db, SO_AUDIT_COLLECTION, auditItem.id);
+    await setDoc(docRef, sanitizeForFirestore(auditItem));
+  } catch (err: any) {
+    console.warn('⚠️ [Firestore] Failed to save SO audit log:', err?.message || err);
+  }
+}
+
+/**
+ * ติดตาม (Subscribe) รายการ SO Audit Logs แบบ Real-time
+ */
+export function subscribeSOAuditLogs(
+  onUpdate: (logs: SOAuditLogItem[]) => void,
+  onError?: (err: any) => void
+): () => void {
+  if (!db) return () => {};
+  try {
+    const colRef = collection(db, SO_AUDIT_COLLECTION);
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const items = snapshot.docs.map((docSnap) => ({
+          ...docSnap.data(),
+          id: docSnap.id,
+        })) as SOAuditLogItem[];
+        items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        onUpdate(items);
+      },
+      (err) => {
+        console.warn('⚠️ [Firestore] so_audit_logs listener error:', err?.message || err);
+        if (onError) onError(err);
+      }
+    );
+  } catch (err: any) {
+    console.warn('⚠️ [Firestore] Exception initializing so_audit_logs listener:', err);
+    return () => {};
+  }
+}
+
 

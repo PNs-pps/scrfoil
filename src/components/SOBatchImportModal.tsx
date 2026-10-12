@@ -299,7 +299,6 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            aria-label="ปิดหน้าต่าง"
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -528,7 +527,6 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
           >
-            aria-label="ปิดหน้าต่าง"
             ยกเลิก
           </button>
 

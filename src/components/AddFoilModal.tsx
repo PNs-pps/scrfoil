@@ -746,7 +746,6 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
                 disabled={isSubmitting}
                 className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer"
               >
-            aria-label="ปิดหน้าต่าง"
                 ยกเลิก
               </button>
               <button

@@ -192,6 +192,32 @@ export const formatThaiDate = (dateStr: string | null | undefined): string => {
 };
 
 /**
+ * แปลงวันเวลาเป็นรูปแบบภาษาไทย พ.ศ. พร้อมเวลา (เช่น 11 ต.ค. 2569 เวลา 14:35 น.)
+ */
+export const formatThaiDateTime = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return '-';
+  try {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      const d = date.toLocaleDateString('th-TH', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+      const t = date.toLocaleTimeString('th-TH', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      return `${d} เวลา ${t} น.`;
+    }
+  } catch {
+    // fallback
+  }
+  return dateStr;
+};
+
+
+/**
  * เรียงลำดับม้วนฟอยล์ตามข้อกำหนด:
  * 1. ฟอล์ยที่หมดแล้วให้ไปอยู่ข้างล่างม้วนที่ใช้อยู่
  * 2. สำหรับม้วนที่หมดแล้ว เรียงจากหมดนานแล้วจะอยู่ล่างสุด พึ่งหมดจะอยู่บน (เวลาหมดล่าสุด -> เก่าสุด)

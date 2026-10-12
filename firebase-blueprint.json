@@ -213,6 +213,22 @@
         }
       },
       "required": ["id", "soNumber", "coilColor", "thickness", "coilNumber", "weightBefore", "weightAfter", "steelOrigin"]
+    },
+    "SOAuditLog": {
+      "title": "SOAuditLog",
+      "description": "Audit trail log records for changes made to SO cuts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "action": { "type": "string", "enum": ["UPDATE"] },
+        "recordType": { "type": "string", "enum": ["foil", "sandwich"] },
+        "recordId": { "type": "string" },
+        "soNumber": { "type": "string" },
+        "operator": { "type": "string" },
+        "summary": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "action", "recordType", "recordId", "soNumber", "operator", "summary"]
     }
   },
   "firestore": {
@@ -233,6 +249,12 @@
         "$ref": "#/entities/PuSandwichCutRecord"
       },
       "description": "Collection of PU Sandwich cuts without foil"
+    },
+    "/so_audit_logs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/SOAuditLog"
+      },
+      "description": "Collection of SO audit trail logs"
     }
   }
 }

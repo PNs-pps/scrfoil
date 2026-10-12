@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { confirmAction } from '../utils/confirmAction';
 import { useModalA11y } from '../hooks/useModalA11y';
-import { StockCutRecord, FoilRoll, WIDTH_SPECIFICATIONS } from '../types';
+import { StockCutRecord, FoilRoll, WIDTH_SPECIFICATIONS, SOAuditLogItem } from '../types';
 import { 
   X, 
   ArrowLeft, 
@@ -19,9 +19,11 @@ import {
   Check,
   Trash2,
   Lock,
-  Pencil
+  Pencil,
+  History,
+  ArrowRight
 } from 'lucide-react';
-import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
+import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate, formatThaiDateTime } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 import { UserMode } from '../utils/auth';
 
@@ -34,6 +36,7 @@ interface SODetailModalProps {
   onEditRecord?: (record: StockCutRecord) => void;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
+  auditLogs?: SOAuditLogItem[];
 }
 
 export const SODetailModal: React.FC<SODetailModalProps> = ({
@@ -45,9 +48,18 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   onEditRecord,
   userMode = 'visitor',
   onRequestUnlock,
+  auditLogs = [],
 }) => {
   const [currentView, setCurrentView] = useState<'so' | 'roll'>('so');
   const [copied, setCopied] = useState(false);
+
+  // Filter audit logs specifically for this SO cut record
+  const soAuditHistory = React.useMemo(() => {
+    if (!record || !auditLogs) return [];
+    return auditLogs.filter(
+      (l) => l.recordId === record.id || (l.soNumber && l.soNumber === record.soNumber)
+    );
+  }, [record, auditLogs]);
 
   // MUST be called unconditionally every render to obey Rules of Hooks
   const panelRef = useModalA11y(Boolean(record), onClose, 'รายละเอียด SO');
@@ -137,7 +149,6 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium text-xs transition-colors cursor-pointer shrink-0"
                 title="ย้อนกลับ / ปิดหน้าต่าง"
               >
-            aria-label="ปิดหน้าต่าง"
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>ย้อนกลับ</span>
               </button>
@@ -175,7 +186,6 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               title="ปิด"
             >
-            aria-label="ปิดหน้าต่าง"
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -321,6 +331,58 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                   {record.recordedDate || record.createdAt ? `เวลา: ${record.recordedDate || record.createdAt}` : ''}
                 </div>
               </div>
+
+              {/* SO Audit Revision History Section */}
+              {soAuditHistory.length > 0 && (
+                <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+                      <History className="w-4 h-4 text-amber-700" />
+                      <span>ประวัติการแก้ไข SO นี้ ({soAuditHistory.length} ครั้ง)</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full font-bold">
+                      Audit Trail
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {soAuditHistory.map((log) => (
+                      <div key={log.id} className="p-2.5 bg-white rounded-xl border border-amber-200/70 text-xs space-y-1.5 shadow-2xs">
+                        <div className="flex items-center justify-between gap-1 text-[11px] text-slate-500">
+                          <span className="font-semibold text-slate-700 flex items-center gap-1">
+                            <User className="w-3 h-3 text-slate-400" />
+                            <span>{log.operator || '-'}</span>
+                          </span>
+                          <span className="font-mono text-[10px] text-slate-400">
+                            {formatThaiDateTime(log.timestamp)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-1">
+                          {log.diffs.map((diff, dIdx) => (
+                            <div key={dIdx} className="flex items-center justify-between gap-1.5 text-[11px] bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                              <span className="font-bold text-slate-700">{diff.label}:</span>
+                              <div className="flex items-center gap-1">
+                                <span className="line-through text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded font-mono">
+                                  {String(diff.oldValue ?? '-')} {diff.unit || ''}
+                                </span>
+                                <ArrowRight className="w-3 h-3 text-slate-400" />
+                                <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-mono">
+                                  {String(diff.newValue ?? '-')} {diff.unit || ''}
+                                </span>
+                                {diff.delta !== undefined && (
+                                  <span className="font-mono text-[10px] font-bold px-1 rounded bg-amber-100 text-amber-900">
+                                    {diff.delta > 0 ? `+${diff.delta}` : diff.delta} {diff.unit || ''}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Action Buttons: Edit & Delete */}
               <div className="pt-2 flex items-center justify-end gap-2 flex-wrap">
