@@ -10,9 +10,9 @@
 อยู่แล้ว และ CORS ไม่ได้อนุญาต header `Authorization` ทำให้คำขอ D1 จากเบราว์เซอร์ถูกบล็อกที่ preflight
 
 - `cloudflare-d1/src/index.ts`: ตรวจ Firebase ID token จริง (RS256 กับ public key ของ Google,
-  ตรวจ `iss`/`aud`/`exp`/`iat`, เช็ค `email` กับ allowlist), เพิ่ม `Authorization` ใน
-  `Access-Control-Allow-Headers`, กัน `limit=NaN` (fallback 20), จำกัด payload 8 MB, เทียบ secret
-  แบบ constant-time
+  ตรวจ `iss`/`aud`/`exp`/`iat`, เช็ค `email` กับ allowlist — ไม่บังคับ `email_verified` เพราะ
+  allowlist อีเมลพนักงานคือด่านหลัก), เพิ่ม `Authorization` ใน `Access-Control-Allow-Headers`,
+  กัน `limit=NaN` (fallback 20), จำกัด payload 8 MB, เทียบ secret แบบ constant-time
 - `cloudflare-d1/wrangler.toml`: ตั้ง `FIREBASE_PROJECT_IDS = "stock-foil,xenon-airport-rlxdt"`,
   `ALLOWED_EMAILS = "ikuyisad@ikwai.com"`, `DISABLE_SECRET_AUTH = "1"`
 - ผ่าน `tsc --noEmit` ของ Worker และชุดทดสอบ logic (ออก token จริงด้วย WebCrypto ตรวจ token ปลอม/

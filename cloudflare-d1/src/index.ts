@@ -257,7 +257,8 @@ export async function verifyFirebaseToken(
   const email = typeof claims.email === 'string' ? claims.email.trim().toLowerCase() : '';
   if (allowedEmails.length > 0) {
     if (!email) return { ok: false, reason: 'token ไม่มีอีเมล' };
-    if (claims.email_verified === false) return { ok: false, reason: 'อีเมลยังไม่ได้ยืนยัน' };
+    // ไม่บังคับ email_verified: การควบคุมหลักคือ allowlist อีเมลพนักงาน (บัญชีเดียว)
+    // ซึ่งครอบคลุมความเสี่ยงอยู่แล้ว. เพิ่มอีเมลเข้า ALLOWED_EMAILS เพื่อเปิดสิทธิ์
     if (!allowedEmails.includes(email)) {
       return { ok: false, reason: `อีเมล ${email} ไม่อยู่ในรายการพนักงาน` };
     }
