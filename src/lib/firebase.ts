@@ -14,6 +14,7 @@ import {
   writeBatch, 
   runTransaction,
   getDocs,
+  getDocsFromServer,
   query,
   limit,
   orderBy,
@@ -39,6 +40,8 @@ import {
 } from 'firebase/auth';
 import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession, SOAuditLogItem } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
+import { isCycleCountRecord, signedTotalDeducted } from '../utils/cutDeduction';
+import { summarizeRollDeduction } from '../utils/integrityCheck';
 
 // User's custom configuration as requested
 export const USER_FIREBASE_CONFIG = {
@@ -311,6 +314,14 @@ export function subscribeToFoilRolls(
       (snapshot) => {
         options?.onFromCache?.(snapshot.metadata.fromCache);
 
+        // An EMPTY result served from cache is not evidence that the collection is
+        // empty — it is what a cold/cleared cache looks like while offline. Treating
+        // it as authoritative would wipe the rolls this device already has. The
+        // real answer arrives as a non-cache snapshot.
+        if (snapshot.metadata.fromCache && snapshot.empty) {
+          return;
+        }
+
         // Detect changes that came from another device (see comment above the
         // recentLocalWriteIds tracker). Skip the very first snapshot (initial
         // load is not "an update"), and skip our own writes echoing back.
@@ -408,12 +419,24 @@ export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
 export function subscribeToStockCutRecords(
   onUpdate: (records: StockCutRecord[], removedIds: string[]) => void,
   onError?: (err: Error) => void,
-  options?: SubscriptionOptions & { onExternalChange?: () => void }
+  options?: SubscriptionOptions & {
+    onExternalChange?: () => void;
+    /**
+     * Ids confirmed deleted on the server. Only used for windowed (limitCount)
+     * queries, where a `removed` change can also just mean "pushed out of the
+     * window by a newer record" — see the verification below.
+     */
+    onConfirmedRemoval?: (ids: string[]) => void;
+  }
 ): () => void {
   try {
+    // A window must be the NEWEST records. Without orderBy, Firestore orders by
+    // document id and `limit` returned an arbitrary slice that did not include
+    // recent cuts once there were more than `limitCount` records.
     const q = options?.limitCount
-      ? query(collection(db, RECORDS_COLLECTION), limit(options.limitCount))
+      ? query(collection(db, RECORDS_COLLECTION), orderBy('createdAt', 'desc'), limit(options.limitCount))
       : query(collection(db, RECORDS_COLLECTION));
+    const windowed = Boolean(options?.limitCount);
 
     let isFirstSnapshot = true;
 
@@ -421,6 +444,11 @@ export function subscribeToStockCutRecords(
       q,
       (snapshot) => {
         options?.onFromCache?.(snapshot.metadata.fromCache);
+
+        // Empty-from-cache is "cache not warmed", not "no records" (see rolls).
+        if (snapshot.metadata.fromCache && snapshot.empty) {
+          return;
+        }
 
         if (!isFirstSnapshot && !snapshot.metadata.hasPendingWrites) {
           const externalChange = snapshot.docChanges().some(
@@ -432,15 +460,33 @@ export function subscribeToStockCutRecords(
         }
         isFirstSnapshot = false;
 
-        // Track ids removed from this query window so callers merging this
-        // windowed result with a broader local cache can actually drop them —
-        // otherwise a record deleted on the server (e.g. cancelling an SO cut)
-        // would never disappear locally, since a naive "union with existing
-        // cache" merge only ever adds/updates and never removes.
-        const removedIds = snapshot
+        // Ids that left this query window. For an unwindowed query that means the
+        // document was deleted. For a windowed query it ALSO happens every time a
+        // newer record pushes the oldest one out, so those ids must not be
+        // dropped from the local history on sight — verify against the server first.
+        const leftWindow = snapshot
           .docChanges()
           .filter((change) => change.type === 'removed')
           .map((change) => change.doc.id);
+        const removedIds = windowed ? [] : leftWindow;
+
+        if (windowed && leftWindow.length > 0 && options?.onConfirmedRemoval) {
+          const candidates = leftWindow.slice(0, 50);
+          void Promise.all(
+            candidates.map(async (id) => {
+              try {
+                const snap = await getDocFromServer(doc(db, RECORDS_COLLECTION, id));
+                return snap.exists() ? null : id;
+              } catch {
+                // Offline / error: cannot prove it was deleted, so keep it.
+                return null;
+              }
+            })
+          ).then((results) => {
+            const deleted = results.filter((id): id is string => id !== null);
+            if (deleted.length > 0) options.onConfirmedRemoval!(deleted);
+          });
+        }
 
         const records: StockCutRecord[] = [];
         snapshot.forEach((docSnap) => {
@@ -911,6 +957,16 @@ export async function revertCutRecordInFirestore(
     const record = recordSnap.data() as StockCutRecord;
     const serverRoll = rollSnap.data() as FoilRoll;
 
+    // A reserved record never deducted stock, and a cancelled one already gave it
+    // back. Restoring for either would invent meters on the roll, so just remove
+    // the record and leave the roll as it is.
+    if (record.cutStatus === 'reserved' || record.cutStatus === 'cancelled') {
+      tx.delete(recordRef);
+      tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', recordId));
+      tx.delete(doc(db, ROLLS_COLLECTION, rollId, 'cuts', recordId));
+      return serverRoll;
+    }
+
     const restoredRemaining = Math.min(
       Number(serverRoll.totalMeters || 0),
       Number(serverRoll.remainingMeters || 0) + Number(record.totalDeducted || 0)
@@ -941,6 +997,48 @@ export async function revertCutRecordInFirestore(
   markLocalWrite([rollId, recordId]);
 
   return updatedRoll;
+}
+
+/** Every cut record of one roll, read from the server (never from cache). */
+export async function fetchCutRecordsForRollFromServer(rollId: string): Promise<StockCutRecord[]> {
+  const snap = await getDocsFromServer(
+    query(collection(db, RECORDS_COLLECTION), where('foilId', '==', rollId))
+  );
+  return snap.docs.map((d) => ({ ...(d.data() as StockCutRecord), id: d.id }));
+}
+
+/**
+ * Recompute each adjustment's expected remaining / used / ng from the roll's
+ * complete record set on the server.
+ *
+ * The integrity screen derives its proposal from records cached in the browser,
+ * which can be a partial window (history is loaded on demand). Applying a proposal
+ * built from a partial set sets the roll's remaining meters too high — the
+ * missing cuts are never subtracted. Throws if Cloud cannot be read, so a repair
+ * is never applied blind.
+ */
+export async function recomputeAdjustmentsFromServer(
+  adjustments: RollAdjustmentItem[]
+): Promise<RollAdjustmentItem[]> {
+  const out: RollAdjustmentItem[] = [];
+  for (const adj of adjustments) {
+    const [rollSnap, records] = await Promise.all([
+      getDocFromServer(doc(db, ROLLS_COLLECTION, adj.rollId)),
+      fetchCutRecordsForRollFromServer(adj.rollId),
+    ]);
+    if (!rollSnap.exists()) {
+      throw new Error(`ไม่พบม้วน ${adj.rollId} บน Cloud — ยกเลิกการปรับยอด`);
+    }
+    const server = rollSnap.data() as FoilRoll;
+    const d = summarizeRollDeduction(records);
+    out.push({
+      ...adj,
+      expectedRemaining: round2(Number(server.totalMeters || 0) - d.total),
+      sumUsed: d.used,
+      sumNg: d.ng,
+    });
+  }
+  return out;
 }
 
 export interface RollAdjustmentItem {
@@ -1021,7 +1119,14 @@ export async function realignRollCutChainInFirestore(
   }
 
   const rollRef = doc(db, ROLLS_COLLECTION, rollId);
-  const recordRefs = recordIds.map((id) => doc(db, RECORDS_COLLECTION, id));
+
+  // The caller's id list comes from the browser cache and can be incomplete. The
+  // chain sets the roll's remaining to totalMeters minus everything IN the chain,
+  // so a missing record means a wrong final remaining. Ask the server for the
+  // roll's full record set (a transaction cannot run a query) and merge it in.
+  const serverRecords = await fetchCutRecordsForRollFromServer(rollId);
+  const allIds = Array.from(new Set([...recordIds, ...serverRecords.map((r) => r.id)]));
+  const recordRefs = allIds.map((id) => doc(db, RECORDS_COLLECTION, id));
 
   const result = await runTransaction(db, async (tx) => {
     // 1. All reads first
@@ -1047,8 +1152,15 @@ export async function realignRollCutChainInFirestore(
       throw new Error('ไม่พบรายการตัดในระบบที่สามารถปรับความต่อเนื่องได้');
     }
 
+    // Reserved / cancelled records never deducted stock (the integrity check skips
+    // them too). Chaining them subtracted reserved meters from the roll and
+    // re-wrote cut_history rows for cancelled cuts, so leave them untouched.
+    const chainRecords = records.filter(
+      (r) => r.cutStatus !== 'reserved' && r.cutStatus !== 'cancelled'
+    );
+
     // เรียงตามวันใบงาน (usageDate) เป็นหลัก → recordedDate → createdAt
-    const sortedRecords = [...records].sort((a, b) => {
+    const sortedRecords = [...chainRecords].sort((a, b) => {
       const tA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
       const tB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
       if (tA !== tB) return tA - tB;
@@ -1156,7 +1268,7 @@ export async function realignRollCutChainInFirestore(
   });
 
   // กัน realtime/cache ทับยอดใหม่ ~45 วินาที
-  markLocalWrite([rollId, ...recordIds, ...result.updatedRecords.map((r) => r.id)]);
+  markLocalWrite([rollId, ...allIds, ...result.updatedRecords.map((r) => r.id)]);
   return result;
 }
 
@@ -1354,7 +1466,17 @@ export function subscribeToRollCutHistory(
       const data = docSnap.data();
       const cutMeters = Math.abs(Number(data.cutMeters ?? data.usedMeters ?? 0));
       const ngMeters = Math.abs(Number(data.ngMeters ?? 0));
-      const totalDeducted = Math.abs(Number(data.totalDeducted ?? (cutMeters + ngMeters)));
+      // Cycle Count returns stock with a NEGATIVE totalDeducted, and the history
+      // modal relies on that sign to show them as returns. Math.abs turned every
+      // return into a deduction.
+      const totalDeducted = signedTotalDeducted({
+        id: docSnap.id,
+        soNumber: data.soNumber,
+        notes: data.notes,
+        usedMeters: cutMeters,
+        ngMeters,
+        totalDeducted: data.totalDeducted,
+      });
 
       return {
         id: docSnap.id,
@@ -1464,27 +1586,47 @@ export function subscribeToRollCutHistory(
  */
 export async function uploadAllToFirestore(
   rolls: FoilRoll[],
-  records: StockCutRecord[]
+  records: StockCutRecord[],
+  options?: {
+    /**
+     * Only create documents that are missing on the server; never touch existing
+     * ones. Used by the unattended background backup, which must not be able to
+     * overwrite anything another device changed.
+     */
+    createOnly?: boolean;
+  }
 ): Promise<{
   rollsUploaded: number;
   recordsUploaded: number;
+  /** Existing server rolls whose stock fields were kept as Cloud has them. */
   rollsStockProtected: number;
   recordsSkippedExisting: number;
+  /** Docs skipped because the server could not be read (offline/error) — NOT written. */
+  unverifiedSkipped: number;
 }> {
   const CHUNK_SIZE = 200;
+  const createOnly = options?.createOnly === true;
   let rollsUploaded = 0;
   let rollsStockProtected = 0;
   let recordsUploaded = 0;
   let recordsSkippedExisting = 0;
+  let unverifiedSkipped = 0;
+
+  // A failed read must stay distinguishable from "document does not exist".
+  // getDocFromServer always returns a snapshot for a document that is merely
+  // missing (snap.exists() === false), so `null` here can ONLY mean the read
+  // failed. The old `.catch(() => null)` was then treated as "missing", so being
+  // offline made every roll look new and the whole local copy — stock fields
+  // included — was queued to overwrite the server.
+  const readServerDoc = (ref: ReturnType<typeof doc>) =>
+    getDocFromServer(ref).catch((): null => null);
 
   try {
-    // ---- Rolls: เปรียบเทียบกับ server ทีละก้อน ----
+    // ---- Rolls ----
     for (let i = 0; i < rolls.length; i += CHUNK_SIZE) {
       const chunk = rolls.slice(i, i + CHUNK_SIZE);
       const serverSnaps = await Promise.all(
-        chunk.map((r) =>
-          getDocFromServer(doc(db, ROLLS_COLLECTION, r.id)).catch(() => null)
-        )
+        chunk.map((r) => readServerDoc(doc(db, ROLLS_COLLECTION, r.id)))
       );
 
       const batch = writeBatch(db);
@@ -1494,47 +1636,45 @@ export async function uploadAllToFirestore(
         const snap = serverSnaps[idx];
         const ref = doc(db, ROLLS_COLLECTION, local.id);
 
-        if (!snap || !snap.exists()) {
+        if (snap === null) {
+          unverifiedSkipped += 1;
+          return;
+        }
+
+        if (!snap.exists()) {
           batch.set(ref, sanitizeForFirestore(local), { merge: true });
           rollsUploaded += 1;
           batchCount += 1;
           return;
         }
 
-        const server = snap.data() as FoilRoll;
-        const serverActivity =
-          Math.abs(Number(server.usedMeters || 0)) +
-          Math.abs(Number(server.ngMeters || 0)) +
-          (Array.isArray(server.recentCuts) ? server.recentCuts.length : 0);
-        const localActivity =
-          Math.abs(Number(local.usedMeters || 0)) +
-          Math.abs(Number(local.ngMeters || 0)) +
-          (Array.isArray(local.recentCuts) ? local.recentCuts.length : 0);
+        if (createOnly) return;
 
-        // server นำหน้าด้านสต๊อก → ไม่ทับยอดคงเหลือ / used / ng / status
-        if (serverActivity > localActivity + 0.05) {
-          const { remainingMeters, usedMeters, ngMeters, status, isZeroedOut, recentCuts, isUnused, manualZeroedOriginalMeters, ...safeLocal } =
-            local as FoilRoll & Record<string, unknown>;
-          batch.set(
-            ref,
-            sanitizeForFirestore({
-              ...safeLocal,
-              // คงสต๊อกจาก server
-              remainingMeters: server.remainingMeters,
-              usedMeters: server.usedMeters,
-              ngMeters: server.ngMeters,
-              status: server.status,
-              isZeroedOut: server.isZeroedOut,
-              recentCuts: server.recentCuts,
-              isUnused: server.isUnused,
-              manualZeroedOriginalMeters: server.manualZeroedOriginalMeters,
-            }),
-            { merge: true }
-          );
-          rollsStockProtected += 1;
-        } else {
-          batch.set(ref, sanitizeForFirestore(local), { merge: true });
-        }
+        // The roll already exists on the server. Stock fields (remaining / used /
+        // ng / status / recent cuts) are only ever changed by cut transactions, so
+        // the server copy is always the authority for them. The old rule compared a
+        // "activity" score (used + ng + recentCuts count) and let the local copy win
+        // on a tie or when recentCuts had saturated at its 50-item cap, which could
+        // overwrite newer Cloud stock with an older local figure.
+        const server = snap.data() as FoilRoll;
+        const { remainingMeters, usedMeters, ngMeters, status, isZeroedOut, recentCuts, isUnused, manualZeroedOriginalMeters, ...safeLocal } =
+          local as FoilRoll & Record<string, unknown>;
+        batch.set(
+          ref,
+          sanitizeForFirestore({
+            ...safeLocal,
+            remainingMeters: server.remainingMeters,
+            usedMeters: server.usedMeters,
+            ngMeters: server.ngMeters,
+            status: server.status,
+            isZeroedOut: server.isZeroedOut,
+            recentCuts: server.recentCuts,
+            isUnused: server.isUnused,
+            manualZeroedOriginalMeters: server.manualZeroedOriginalMeters,
+          }),
+          { merge: true }
+        );
+        rollsStockProtected += 1;
         rollsUploaded += 1;
         batchCount += 1;
       });
@@ -1542,13 +1682,11 @@ export async function uploadAllToFirestore(
       if (batchCount > 0) await batch.commit();
     }
 
-    // ---- Records: เขียนเฉพาะใบที่ยังไม่มีบน server ----
+    // ---- Records: write only the ones missing on the server ----
     for (let i = 0; i < records.length; i += CHUNK_SIZE) {
       const chunk = records.slice(i, i + CHUNK_SIZE);
       const serverSnaps = await Promise.all(
-        chunk.map((rec) =>
-          getDocFromServer(doc(db, RECORDS_COLLECTION, rec.id)).catch(() => null)
-        )
+        chunk.map((rec) => readServerDoc(doc(db, RECORDS_COLLECTION, rec.id)))
       );
 
       const batch = writeBatch(db);
@@ -1556,7 +1694,11 @@ export async function uploadAllToFirestore(
 
       chunk.forEach((rec, idx) => {
         const snap = serverSnaps[idx];
-        if (snap && snap.exists()) {
+        if (snap === null) {
+          unverifiedSkipped += 1;
+          return;
+        }
+        if (snap.exists()) {
           recordsSkippedExisting += 1;
           return;
         }
@@ -1574,6 +1716,7 @@ export async function uploadAllToFirestore(
       recordsUploaded,
       rollsStockProtected,
       recordsSkippedExisting,
+      unverifiedSkipped,
     };
   } catch (err: any) {
     console.warn('Notice: Upload all to Firestore incomplete:', err?.message || err);
@@ -1621,7 +1764,7 @@ export async function fetchAllCutRecordsFromFirestore(): Promise<StockCutRecord[
 export const PU_SANDWICH_COLLECTION = 'pu_sandwich_cuts';
 
 export function subscribeToPuSandwichCuts(
-  callback: (records: PuSandwichCutRecord[]) => void,
+  callback: (records: PuSandwichCutRecord[], removedIds?: string[]) => void,
   onError?: (error: any) => void
 ): () => void {
   try {
@@ -1629,12 +1772,20 @@ export function subscribeToPuSandwichCuts(
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        // Unwindowed query, so `removed` really means deleted (on this or another
+        // device, or a local write Cloud rolled back). Without reporting it the
+        // merge in the caller could only ever add rows, never drop them.
+        if (snapshot.metadata.fromCache && snapshot.empty) return;
+        const removedIds = snapshot
+          .docChanges()
+          .filter((change) => change.type === 'removed')
+          .map((change) => change.doc.id);
         const items: PuSandwichCutRecord[] = [];
         snapshot.forEach((docSnap) => {
           items.push(docSnap.data() as PuSandwichCutRecord);
         });
         items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        callback(items);
+        callback(items, removedIds);
       },
       (error) => {
         console.warn('Notice: PU Sandwich real-time sync snapshot error:', error?.message || error);
@@ -1911,6 +2062,21 @@ export interface CycleCountAdjustmentLine {
   width?: number | string;
   pattern?: string;
   reason?: string;
+  /** เวลา (ISO) ที่กรอกยอดนับจริง — ถ้ามี จะตรวจว่ามีการตัดสต๊อกหลังเวลานี้หรือไม่ */
+  countedAt?: string;
+}
+
+export interface CycleCountConflict {
+  rollId: string;
+  lotNumber?: string;
+  rollNumber?: string;
+  /** why the line was not applied */
+  reason: 'stock_changed' | 'cut_after_count';
+  physicalCount: number;
+  /** the system figure the count was compared against */
+  countedAgainst: number;
+  /** what Cloud holds now */
+  serverRemaining?: number;
 }
 
 /**
@@ -1924,9 +2090,18 @@ export interface CycleCountAdjustmentLine {
 export async function applyCycleCountAdjustments(
   lines: CycleCountAdjustmentLine[],
   meta?: { period?: string; countedBy?: string }
-): Promise<{ updatedRolls: FoilRoll[]; createdRecords: StockCutRecord[] }> {
+): Promise<{
+  updatedRolls: FoilRoll[];
+  createdRecords: StockCutRecord[];
+  /** Lines NOT applied because the roll changed after it was counted. Nothing was written for these. */
+  conflicts: CycleCountConflict[];
+  /** Lines that errored (network, rules). Lines before them were applied and are in createdRecords. */
+  failures: { rollId: string; message: string }[];
+}> {
   const updatedRolls: FoilRoll[] = [];
   const createdRecords: StockCutRecord[] = [];
+  const conflicts: CycleCountConflict[] = [];
+  const failures: { rollId: string; message: string }[] = [];
   const periodLabel = meta?.period || todayLocalISO().slice(0, 7);
   const countedBy = (meta?.countedBy || 'Cycle Count').trim() || 'Cycle Count';
   const today = todayLocalISO();
@@ -1941,6 +2116,41 @@ export async function applyCycleCountAdjustments(
     const deduct = Math.round((systemBefore - safePhysical) * 100) / 100;
     if (Math.abs(deduct) < 0.001) continue;
 
+    // The adjustment SETS the roll to the physical figure. That is only right if
+    // nothing was cut between counting and now; otherwise it silently erases those
+    // cuts (stock appears out of nowhere). A line that carries its count time is
+    // checked against the roll's cut records.
+    if (line.countedAt) {
+      try {
+        const snap = await getDocsFromServer(
+          query(collection(db, RECORDS_COLLECTION), where('foilId', '==', line.rollId))
+        );
+        const cutAfter = snap.docs
+          .map((d) => d.data() as StockCutRecord)
+          .some(
+            (r) =>
+              !isCycleCountRecord(r) &&
+              r.cutStatus !== 'reserved' &&
+              r.cutStatus !== 'cancelled' &&
+              String(r.createdAt || '') > String(line.countedAt)
+          );
+        if (cutAfter) {
+          conflicts.push({
+            rollId: line.rollId,
+            lotNumber: line.lotNumber,
+            rollNumber: line.rollNumber,
+            reason: 'cut_after_count',
+            physicalCount: safePhysical,
+            countedAgainst: systemBefore,
+          });
+          continue;
+        }
+      } catch (err: any) {
+        failures.push({ rollId: line.rollId, message: err?.message || 'ตรวจประวัติตัดหลังนับไม่ได้' });
+        continue;
+      }
+    }
+
     const recordId = `cc_${line.rollId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const soNumber = `นับสต๊อก ${periodLabel}`;
     const reasonText =
@@ -1949,14 +2159,25 @@ export async function applyCycleCountAdjustments(
         ? `Cycle Count: ของจริงน้อยกว่าระบบ ${Math.abs(deduct)} ม.`
         : `Cycle Count: ของจริงมากกว่าระบบ ${Math.abs(deduct)} ม.`);
 
-    const result = await runTransaction(db, async (tx) => {
+    let result:
+      | { kind: 'applied'; next: FoilRoll; record: StockCutRecord }
+      | { kind: 'conflict'; serverRemaining: number }
+      | undefined;
+    try {
+    result = await runTransaction(db, async (tx) => {
       const snap = await tx.get(rollRef);
-      if (!snap.exists()) return;
+      if (!snap.exists()) return undefined;
       const serverRoll = snap.data() as FoilRoll;
       const remainingBefore = Number(serverRoll.remainingMeters || 0);
+      // The count was taken against `systemBefore`. If Cloud no longer agrees, stock
+      // moved since (another device cut, or this device's copy is stale) and the
+      // physical figure cannot be trusted to describe the roll as it is now.
+      if (Math.abs(remainingBefore - systemBefore) > 0.05) {
+        return { kind: 'conflict' as const, serverRemaining: remainingBefore };
+      }
       // ใช้ยอดจริงบน server ณ ตอนปรับ เพื่อ consistency
       const effectiveDeduct = Math.round((remainingBefore - safePhysical) * 100) / 100;
-      if (Math.abs(effectiveDeduct) < 0.001) return;
+      if (Math.abs(effectiveDeduct) < 0.001) return undefined;
 
       // กันบันทึกนับสต๊อกซ้ำงวดเดียวกัน: ถ้า recentCuts มีใบ cc_ งวดนี้อยู่แล้ว ให้ข้าม
       const alreadyCc = (serverRoll.recentCuts || []).some((c: any) => {
@@ -1972,7 +2193,7 @@ export async function applyCycleCountAdjustments(
         console.warn(
           `Skip duplicate cycle count for roll ${line.rollId} period ${periodLabel}`
         );
-        return;
+        return undefined;
       }
 
       const usedPart = effectiveDeduct > 0 ? effectiveDeduct : 0;
@@ -2063,14 +2284,32 @@ export async function applyCycleCountAdjustments(
         sanitizeForFirestore(historyItem)
       );
 
-      return { next, record };
+      return { kind: 'applied' as const, next, record };
     });
+    } catch (err: any) {
+      // One failed line must not discard the lines already committed before it:
+      // they are real writes the caller has to record, or the session would never
+      // learn their ids (and could not undo them later).
+      console.warn(`Cycle count adjustment failed for roll ${line.rollId}:`, err?.message || err);
+      failures.push({ rollId: line.rollId, message: err?.message || 'ปรับยอดไม่สำเร็จ' });
+      continue;
+    }
 
     // Firestore may retry a transaction callback. Keep UI/result arrays outside
     // the callback so retries cannot append duplicate entries.
-    if (result) {
+    if (result?.kind === 'applied') {
       updatedRolls.push(result.next);
       createdRecords.push(result.record);
+    } else if (result?.kind === 'conflict') {
+      conflicts.push({
+        rollId: line.rollId,
+        lotNumber: line.lotNumber,
+        rollNumber: line.rollNumber,
+        reason: 'stock_changed',
+        physicalCount: safePhysical,
+        countedAgainst: systemBefore,
+        serverRemaining: result.serverRemaining,
+      });
     }
   }
 
@@ -2079,7 +2318,7 @@ export async function applyCycleCountAdjustments(
     ...createdRecords.map((r) => r.id),
   ]);
 
-  return { updatedRolls, createdRecords };
+  return { updatedRolls, createdRecords, conflicts, failures };
 }
 
 export const SO_AUDIT_COLLECTION = 'so_audit_logs';
@@ -2127,5 +2366,221 @@ export function subscribeSOAuditLogs(
     return () => {};
   }
 }
+export async function saveReservationRecordInFirestore(record: StockCutRecord): Promise<void> {
+  if (!db) return;
+  const safeRecord: StockCutRecord = {
+    ...record,
+    cutStatus: 'reserved',
+    createdAt: record.createdAt || new Date().toISOString(),
+  };
 
+  const batch = writeBatch(db);
+  batch.set(doc(db, RECORDS_COLLECTION, record.id), sanitizeForFirestore(safeRecord));
+  
+  const historyItem: CutHistoryItem = {
+    id: record.id,
+    soNumber: record.soNumber || '',
+    cutMeters: record.usedMeters,
+    usedMeters: record.usedMeters,
+    ngMeters: record.ngMeters,
+    totalDeducted: record.totalDeducted,
+    remainingBefore: record.remainingBefore,
+    remainingAfter: record.remainingAfter,
+    cutDate: record.usageDate || record.recordedDate || todayLocalISO(),
+    usageDate: record.usageDate || record.recordedDate || todayLocalISO(),
+    recordedDate: record.recordedDate || todayLocalISO(),
+    recordedBy: record.recordedBy || 'ช่างคุมเครื่อง',
+    notes: record.notes || '',
+    createdAt: record.createdAt || new Date().toISOString(),
+    cutType: record.cutType || 'so',
+    rollId: record.foilId,
+    lotNumber: record.lotNumber,
+    rollNumber: record.rollNumber,
+    width: record.width,
+    pattern: record.pattern,
+  };
 
+  batch.set(doc(db, ROLLS_COLLECTION, record.foilId, 'cut_history', record.id), sanitizeForFirestore(historyItem));
+  await batch.commit();
+  markLocalWrite([record.id, record.foilId]);
+}
+
+/**
+ * ยืนยันว่าผลิตจริงแล้ว สำหรับ SO ที่อยู่ในสถานะจองรอตัด (หักสต๊อกม้วนฟอยล์จริง)
+ */
+export async function confirmProductionInFirestore(
+  recordId: string,
+  confirmedBy?: string
+): Promise<{ roll: FoilRoll; record: StockCutRecord }> {
+  const recordRef = doc(db, RECORDS_COLLECTION, recordId);
+  const result = await runTransaction(db, async (tx) => {
+    const recordSnap = await tx.get(recordRef);
+    if (!recordSnap.exists()) {
+      throw new Error('ไม่พบรายการ SO นี้ในระบบ');
+    }
+    const record = recordSnap.data() as StockCutRecord;
+    const rollRef = doc(db, ROLLS_COLLECTION, record.foilId);
+    const rollSnap = await tx.get(rollRef);
+
+    if (!rollSnap.exists()) {
+      throw new Error(`ไม่พบม้วนฟอยล์ ${record.lotNumber} #${record.rollNumber} ในระบบ`);
+    }
+
+    const serverRoll = rollSnap.data() as FoilRoll;
+    const totalDeduct = Math.abs(Number(record.totalDeducted || (record.usedMeters + record.ngMeters)));
+    const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
+
+    if (totalDeduct > freshRemaining + 0.01) {
+      throw new Error(
+        `สต๊อกม้วน ${serverRoll.lotNumber} #${serverRoll.rollNumber} ไม่พอตัดจริง! คงเหลือ ${freshRemaining} ม. แต่ต้องใช้ ${totalDeduct} ม.`
+      );
+    }
+
+    const newRemaining = round2(Math.max(0, freshRemaining - totalDeduct));
+    const newUsed = round2((serverRoll.usedMeters || 0) + Number(record.usedMeters || 0));
+    const newNg = round2((serverRoll.ngMeters || 0) + Number(record.ngMeters || 0));
+
+    const updatedRecord: StockCutRecord = {
+      ...record,
+      cutStatus: 'completed',
+      confirmedAt: new Date().toISOString(),
+      confirmedBy: confirmedBy || 'ผู้ควบคุมงาน',
+      remainingBefore: freshRemaining,
+      remainingAfter: newRemaining,
+    };
+
+    const updatedRoll: FoilRoll = {
+      ...serverRoll,
+      remainingMeters: newRemaining,
+      usedMeters: newUsed,
+      ngMeters: newNg,
+      status: newRemaining <= 0 ? 'depleted' : 'active',
+      depletedAt: newRemaining <= 0 ? (serverRoll.depletedAt || new Date().toISOString()) : undefined,
+      isUnused: false,
+    };
+
+    tx.set(recordRef, sanitizeForFirestore(updatedRecord), { merge: true });
+    tx.set(rollRef, sanitizeForFirestore(updatedRoll), { merge: true });
+    tx.set(doc(db, ROLLS_COLLECTION, record.foilId, 'cut_history', record.id), sanitizeForFirestore({
+      remainingBefore: freshRemaining,
+      remainingAfter: newRemaining,
+    }), { merge: true });
+
+    return { roll: updatedRoll, record: updatedRecord };
+  });
+
+  markLocalWrite([recordId, result.record.foilId]);
+  return result;
+}
+
+/**
+ * สลับเปลี่ยนม้วนฟอยล์สำหรับรายการ SO (ย้ายการจองไปยังม้วนใหม่)
+ */
+export async function reallocateReservationRollInFirestore(
+  recordId: string,
+  newRoll: FoilRoll
+): Promise<StockCutRecord> {
+  const recordRef = doc(db, RECORDS_COLLECTION, recordId);
+  const result = await runTransaction(db, async (tx) => {
+    const recordSnap = await tx.get(recordRef);
+    if (!recordSnap.exists()) {
+      throw new Error('ไม่พบรายการ SO นี้ในระบบ');
+    }
+    const oldRecord = recordSnap.data() as StockCutRecord;
+    const oldRollId = oldRecord.foilId;
+
+    const updatedRecord: StockCutRecord = {
+      ...oldRecord,
+      foilId: newRoll.id,
+      lotNumber: newRoll.lotNumber,
+      rollNumber: newRoll.rollNumber,
+      width: newRoll.width,
+      pattern: newRoll.pattern,
+      reallocatedFromRollId: oldRollId,
+      reallocatedAt: new Date().toISOString(),
+    };
+
+    tx.set(recordRef, sanitizeForFirestore(updatedRecord), { merge: true });
+    // Remove from old roll subcollection if exists, add to new roll subcollection
+    tx.delete(doc(db, ROLLS_COLLECTION, oldRollId, 'cut_history', recordId));
+    tx.set(doc(db, ROLLS_COLLECTION, newRoll.id, 'cut_history', recordId), sanitizeForFirestore(updatedRecord));
+
+    return updatedRecord;
+  });
+
+  markLocalWrite([recordId, newRoll.id]);
+  return result;
+}
+
+/**
+ * ยกเลิกการผลิต SO (หากเป็นรายการจอง ให้ยกเลิกคิว; หากเป็นรายการตัดจริง ให้คืนสต๊อก)
+ */
+export async function cancelProductionInFirestore(
+  recordId: string,
+  reason?: string,
+  cancelledBy?: string
+): Promise<{ roll?: FoilRoll; record: StockCutRecord }> {
+  const recordRef = doc(db, RECORDS_COLLECTION, recordId);
+  const result = await runTransaction(db, async (tx) => {
+    const recordSnap = await tx.get(recordRef);
+    if (!recordSnap.exists()) {
+      throw new Error('ไม่พบรายการ SO นี้ในระบบ');
+    }
+    const record = recordSnap.data() as StockCutRecord;
+    // Cycle Count adjustments are not production cuts. Their totalDeducted can be
+    // negative (stock returned), and the restore below takes its absolute value,
+    // so cancelling one would move the roll the wrong way. They are removed through
+    // the Cycle Count history instead.
+    if (isCycleCountRecord(record)) {
+      throw new Error('รายการนี้เป็นการปรับยอดจากนับสต๊อก ยกเลิกแบบการผลิตไม่ได้ — กรุณาลบงวดนับสต๊อกจากเมนู Cycle Count');
+    }
+    const wasCompleted = record.cutStatus === 'completed' || !record.cutStatus;
+
+    let updatedRoll: FoilRoll | undefined;
+
+    if (wasCompleted) {
+      // คืนสต๊อกให้ม้วน
+      const rollRef = doc(db, ROLLS_COLLECTION, record.foilId);
+      const rollSnap = await tx.get(rollRef);
+      if (rollSnap.exists()) {
+        const serverRoll = rollSnap.data() as FoilRoll;
+        const totalDeduct = Math.abs(Number(record.totalDeducted || 0));
+        const restoredRemaining = round2(
+          Math.min(Number(serverRoll.totalMeters || 0), (serverRoll.remainingMeters || 0) + totalDeduct)
+        );
+        const restoredUsed = Math.max(0, round2((serverRoll.usedMeters || 0) - Number(record.usedMeters || 0)));
+        const restoredNg = Math.max(0, round2((serverRoll.ngMeters || 0) - Number(record.ngMeters || 0)));
+
+        updatedRoll = {
+          ...serverRoll,
+          remainingMeters: restoredRemaining,
+          usedMeters: restoredUsed,
+          ngMeters: restoredNg,
+          status: restoredRemaining > 0 ? 'active' : 'depleted',
+          // The cut is void, so it must leave the roll's recent-cuts list too.
+          // Only the cut_history doc was being deleted, so a cancelled cut kept
+          // showing up on the roll.
+          recentCuts: (serverRoll.recentCuts || []).filter((c) => c.id !== recordId),
+        };
+        tx.set(rollRef, sanitizeForFirestore(updatedRoll), { merge: true });
+      }
+    }
+
+    const updatedRecord: StockCutRecord = {
+      ...record,
+      cutStatus: 'cancelled',
+      cancelledAt: new Date().toISOString(),
+      cancelledBy: cancelledBy || 'ผู้ควบคุมงาน',
+      cancelReason: reason || 'ยกเลิกการผลิต',
+    };
+
+    tx.set(recordRef, sanitizeForFirestore(updatedRecord), { merge: true });
+    // Remove from active cut history subcollection of the roll
+    tx.delete(doc(db, ROLLS_COLLECTION, record.foilId, 'cut_history', recordId));
+
+    return { roll: updatedRoll, record: updatedRecord };
+  });
+
+  markLocalWrite([recordId, result.record.foilId]);
+  return result;
+}
