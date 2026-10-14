@@ -29,3 +29,39 @@
 - "บันทึกขึ้น Cloud" ไม่เปลี่ยนยอดสต๊อกของม้วนที่มีใน Cloud แล้ว
 - records window 200 ใช้ orderBy createdAt (รายการไม่มี createdAt จะไม่เข้า window)
 - Cycle Count: ไม่ปรับถ้ามีการตัดหลังนับ/ยอด Cloud เปลี่ยน
+
+## รอบที่ 2 — บั๊กข้อมูลพัง/ข้อมูลหายเงียบ/ยอดรวมผิด (A+B)
+รัน `npm run lint` (tsc), `npm test` (69 tests / 9 ไฟล์) และ `npm run build` ผ่านทั้งหมด
+(ต้องตั้ง `NODE_OPTIONS=--max-old-space-size=4096` ตอน lint)
+
+### ยอดรวมที่ผิด (ตัด reserved/cancelled + คงเครื่องหมาย Cycle Count)
+- `src/components/DashboardOverview.tsx`, `MonthlySummaryModal.tsx`: ใช้กฎหักยอดกลาง
+  `summarizeRollDeduction` / `signedTotalDeducted` — ข้าม `reserved`/`cancelled` และคงเครื่องหมาย
+  `totalDeducted` (Cycle Count คืนยอดติดลบ)
+- `src/components/MonthlyFoilUsageBarChart.tsx`: เดิมรวมทุก record และใช้ `used+ng` — แก้ให้ข้าม
+  `reserved`/`cancelled`, ใช้ `Math.abs` กับ used/ng และใช้ `signedTotalDeducted` กับยอดตัด
+- `src/utils/dateGrouping.ts` (`groupCutsByDate`): ตัด `reserved`/`cancelled` + ใช้ `signedTotalDeducted`
+
+### ข้อมูลหายเงียบ / เขียนทับกัน
+- `src/lib/firebase.ts`:
+  - `confirmProductionInFirestore` มี idempotency guard (completed แล้วคืนค่า server; cancelled โยน error) + แก้ string-concat bug
+  - `saveFoilRollToFirestore` เป็น compare-and-set transaction คืน `{ stockProtected }` — ไม่ทับยอดที่เครื่องอื่นตัดไปแล้ว
+  - **ออฟไลน์**: transaction ไม่ถูก replay โดย offline outbox ของ Firestore จึง fallback เป็นเขียนเฉพาะ metadata
+    (`setDoc` merge) ซึ่งเข้าคิว outbox ได้ และไม่ทับยอดสต๊อก
+  - retry queue สำหรับ `saveSOAuditLogInFirestore` (cap 500, flush อัตโนมัติ)
+- `src/utils/pendingRecordEditQueue.ts` (ใหม่): คิวแก้ไข record แบบถาวร — realtime merge จะข้าม record/roll
+  ที่ยังแก้ค้าง (`getPendingRecordEditIds` / `getPendingRecordEditRollIds`) ไม่ให้ snapshot เก่าทับ
+- `src/App.tsx`:
+  - `flushPendingRecordEdits` (คู่กับ `flushPendingCuts`): replay ใบแก้ไขที่ค้างผ่าน transaction เดิม
+    (idempotent), retry เมื่อเน็ตไม่พร้อม, ทิ้ง+ดึงค่าจริงเมื่อ error ถาวร; เรียกทุก 30 วิ / ตอน `online`
+    พร้อมแถบเตือน "ส่งตอนนี้" และตัวนับ
+  - `handleEditCutRecord`: แยก non-recoverable ออกจากออฟไลน์จริง, บันทึกคิวก่อนปิดว่า "รอซิงค์", ปฏิเสธถ้าเก็บคิวไม่ได้
+  - `handleDeleteRoll`, `handleVerifyRecord`, `handleUpdateRoll`: async + rollback/revert เมื่อ Cloud ปฏิเสธ,
+    ใช้ compare-and-set (`expectedStock`) กันทับยอด
+  - merge snapshot ใช้ `getPendingCutRollIds()` / `getPendingRecordEditRollIds()`; commit ใช้ functional updaters
+    (`commitRolls`/`commitRecords`) ที่ sync refs
+  - ออฟไลน์: snapshot `before_cut` ก่อน commit; D1 mark slot ใน `.then` + error toast
+- `src/utils/autoBackup.ts`: `parseAndValidateBackupJSON` ไม่ทิ้ง record ที่ coerce ได้ + คืนสรุปการ coerce
+- `src/components/EditFoilModal.tsx`: แก้ effect reset ฟอร์มกลางคัน (`initializedForRef`)
+- `src/components/SettingsBackupView.tsx`: แสดงหมายเหตุการ coerce ข้อมูลตอนกู้คืน
+- เทสใหม่: `src/utils/dataIntegrityFixes.test.ts`, `src/utils/pendingRecordEditQueue.test.ts`

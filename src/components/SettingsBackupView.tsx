@@ -291,10 +291,16 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
             return;
           }
 
+          // เตือนเมื่อมีรายการที่ค่าไม่ครบและถูกเติมค่าให้อัตโนมัติตอนนำเข้า
+          const coercionNote =
+            res.coercedRecords > 0 || res.coercedRolls > 0
+              ? `\n\n(มีข้อมูลที่ค่าไม่ครบและถูกปรับให้: ม้วน ${res.coercedRolls}, ประวัติ ${res.coercedRecords} — ระบบเติมค่าให้อัตโนมัติ)`
+              : '';
+
           if (
             await confirmAction({
               title: 'นำเข้าข้อมูลสำรอง',
-              message: `ตรวจพบข้อมูลสำรอง:\n- ม้วนฟอยล์: ${res.rolls.length} ม้วน\n- ประวัติการตัด: ${res.records.length} รายการ\n\nคุณต้องการนำเข้าเพื่อแทนที่ข้อมูลปัจจุบันใช่หรือไม่?\n(ระบบจะสร้างจุดสำรองก่อนหน้าไว้ให้)`,
+              message: `ตรวจพบข้อมูลสำรอง:\n- ม้วนฟอยล์: ${res.rolls.length} ม้วน\n- ประวัติการตัด: ${res.records.length} รายการ${coercionNote}\n\nคุณต้องการนำเข้าเพื่อแทนที่ข้อมูลปัจจุบันใช่หรือไม่?\n(ระบบจะสร้างจุดสำรองก่อนหน้าไว้ให้)`,
               confirmLabel: 'นำเข้าข้อมูล',
             })
           ) {

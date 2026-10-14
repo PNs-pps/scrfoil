@@ -16,6 +16,7 @@ import {
   TrendingDown
 } from 'lucide-react';
 import { formatMeters } from '../utils/formatters';
+import { signedTotalDeducted } from '../utils/cutDeduction';
 
 type SummaryScope = 'all' | 'foil' | 'sandwich';
 
@@ -91,6 +92,8 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
     return records.filter((r) => {
       const d = r.usageDate || r.recordedDate;
       if (!d || !d.startsWith(prefix)) return false;
+      // ไม่นับรายการจองรอตัด/ยกเลิก เพราะยังไม่ถูกหักสต๊อกจริง
+      if (r.cutStatus === 'reserved' || r.cutStatus === 'cancelled') return false;
       // ไม่นับใบปรับยอดจากนับสต๊อกในสถิติการใช้รายเดือน
       const so = String(r.soNumber || '').trim();
       if (so.startsWith('นับสต๊อก') || String(r.id || '').startsWith('cc_')) return false;
@@ -151,11 +154,10 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
           );
 
       if (existing) {
-        existing.usedMetersThisMonth += Number(rec.usedMeters) || 0;
-        existing.ngMetersThisMonth += Number(rec.ngMeters) || 0;
-        existing.totalDeductedThisMonth +=
-          Number(rec.totalDeducted) ||
-          (Number(rec.usedMeters) || 0) + (Number(rec.ngMeters) || 0);
+        existing.usedMetersThisMonth += Math.abs(Number(rec.usedMeters) || 0);
+        existing.ngMetersThisMonth += Math.abs(Number(rec.ngMeters) || 0);
+        // ใช้ยอดหักแบบมีเครื่องหมาย (Cycle Count คืนยอดเป็นลบ) ให้ตรงกับ dashboard/integrity
+        existing.totalDeductedThisMonth += signedTotalDeducted(rec);
         if (rec.soNumber && !existing.soNumbers.includes(rec.soNumber)) {
           existing.soNumbers.push(rec.soNumber);
         }
@@ -168,11 +170,10 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
           width: w || targetRoll?.width || 0,
           // ลายจากใบตัดเป็นหลัก (ไม่ดึงลายม้วนอื่นที่ล็อต/เบอร์ชน)
           pattern: pat || targetRoll?.pattern || '-',
-          usedMetersThisMonth: Number(rec.usedMeters) || 0,
-          ngMetersThisMonth: Number(rec.ngMeters) || 0,
-          totalDeductedThisMonth:
-            Number(rec.totalDeducted) ||
-            (Number(rec.usedMeters) || 0) + (Number(rec.ngMeters) || 0),
+          usedMetersThisMonth: Math.abs(Number(rec.usedMeters) || 0),
+          ngMetersThisMonth: Math.abs(Number(rec.ngMeters) || 0),
+          // ใช้ยอดหักแบบมีเครื่องหมาย (Cycle Count คืนยอดเป็นลบ) ให้ตรงกับ dashboard/integrity
+          totalDeductedThisMonth: signedTotalDeducted(rec),
           soNumbers: rec.soNumber ? [rec.soNumber] : [],
           cutCount: 1,
           currentRemaining: targetRoll ? targetRoll.remainingMeters : 0,
@@ -224,9 +225,10 @@ export const MonthlySummaryModal: React.FC<MonthlySummaryModalProps> = ({
   }, [monthlyRecords, rolls, filterPattern, searchQuery, summarySortBy]);
 
   // Overall KPIs for this month (foil)
-  const totalUsedMonth = monthlyRecords.reduce((sum, r) => sum + r.usedMeters, 0);
-  const totalNgMonth = monthlyRecords.reduce((sum, r) => sum + r.ngMeters, 0);
-  const totalDeductedMonth = totalUsedMonth + totalNgMonth;
+  const totalUsedMonth = monthlyRecords.reduce((sum, r) => sum + Math.abs(Number(r.usedMeters) || 0), 0);
+  const totalNgMonth = monthlyRecords.reduce((sum, r) => sum + Math.abs(Number(r.ngMeters) || 0), 0);
+  // ยอดรวมหักแบบมีเครื่องหมาย (Cycle Count คืนยอดติดลบ) ให้สอดคล้องกับ DashboardOverview + integrity engine
+  const totalDeductedMonth = monthlyRecords.reduce((sum, r) => sum + signedTotalDeducted(r), 0);
   const ngRateMonth = totalDeductedMonth > 0 
     ? ((totalNgMonth / totalDeductedMonth) * 100).toFixed(1) 
     : '0.0';

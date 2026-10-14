@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
@@ -36,42 +36,50 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
   const [isZeroedOut, setIsZeroedOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ตั้งค่าเริ่มต้นเฉพาะตอนเปิดโมดัล หรือเปลี่ยน id ม้วนเท่านั้น
+  // ป้องกันฟอร์มรีเซ็ตกลางคัน เพราะ parent สร้าง roll object ใหม่ทุก snapshot (identity เปลี่ยน แต่ id เดิม)
+  const initializedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (roll && isOpen) {
-      setLotNumber(roll.lotNumber || '');
-      setRollNumber(roll.rollNumber || '');
-
-      const isStdWidth = STANDARD_WIDTHS.includes(roll.width as any);
-      if (isStdWidth) {
-        setWidth(roll.width);
-        setIsCustomWidth(false);
-        setCustomWidthVal('');
-      } else {
-        setIsCustomWidth(true);
-        setCustomWidthVal(String(roll.width || ''));
-      }
-
-      // Normalize pattern to the 6 allowed patterns
-      let initialPattern: FoilPattern = 'ขาว';
-      const rawP = (roll.pattern || '').trim();
-      if (rawP === 'ดำ') initialPattern = 'ดำ';
-      else if (rawP === 'ไม้อ่อน') initialPattern = 'ไม้อ่อน';
-      else if (rawP === 'ไม้เข้ม') initialPattern = 'ไม้เข้ม';
-      else if (rawP === 'เทา') initialPattern = 'เทา';
-      else if (rawP === 'กลีบบัว') initialPattern = 'กลีบบัว';
-      else initialPattern = 'ขาว';
-
-      setPattern(initialPattern);
-      setIsCustomPattern(false);
-      setCustomPatternVal('');
-
-      setTotalMeters(roll.totalMeters);
-      setRemainingMeters(roll.remainingMeters);
-      setDateReceived(roll.dateReceived || todayLocalISO());
-      setNotes(roll.notes || '');
-      setIsZeroedOut(Boolean(roll.isZeroedOut));
-      setError(null);
+    if (!isOpen || !roll) {
+      if (!isOpen) initializedForRef.current = null;
+      return;
     }
+    if (initializedForRef.current === roll.id) return;
+    initializedForRef.current = roll.id;
+
+    setLotNumber(roll.lotNumber || '');
+    setRollNumber(roll.rollNumber || '');
+
+    const isStdWidth = STANDARD_WIDTHS.includes(roll.width as any);
+    if (isStdWidth) {
+      setWidth(roll.width);
+      setIsCustomWidth(false);
+      setCustomWidthVal('');
+    } else {
+      setIsCustomWidth(true);
+      setCustomWidthVal(String(roll.width || ''));
+    }
+
+    // Normalize pattern to the 6 allowed patterns
+    let initialPattern: FoilPattern = 'ขาว';
+    const rawP = (roll.pattern || '').trim();
+    if (rawP === 'ดำ') initialPattern = 'ดำ';
+    else if (rawP === 'ไม้อ่อน') initialPattern = 'ไม้อ่อน';
+    else if (rawP === 'ไม้เข้ม') initialPattern = 'ไม้เข้ม';
+    else if (rawP === 'เทา') initialPattern = 'เทา';
+    else if (rawP === 'กลีบบัว') initialPattern = 'กลีบบัว';
+    else initialPattern = 'ขาว';
+
+    setPattern(initialPattern);
+    setIsCustomPattern(false);
+    setCustomPatternVal('');
+
+    setTotalMeters(roll.totalMeters);
+    setRemainingMeters(roll.remainingMeters);
+    setDateReceived(roll.dateReceived || todayLocalISO());
+    setNotes(roll.notes || '');
+    setIsZeroedOut(Boolean(roll.isZeroedOut));
+    setError(null);
   }, [roll, isOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {

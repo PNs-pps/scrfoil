@@ -1,5 +1,6 @@
 import { FoilRoll, StockCutRecord } from '../types';
-import { todayLocalISO, localDateKey } from './formatters';
+import { todayLocalISO, localDateKey, round2 } from './formatters';
+import { signedTotalDeducted } from './cutDeduction';
 
 export interface DateGroupedIncoming {
   date: string; // YYYY-MM-DD
@@ -43,7 +44,7 @@ export function groupRollsByDateReceived(rolls: FoilRoll[]): DateGroupedIncoming
 
   return sortedDates.map((date) => {
     const list = groupsMap.get(date) || [];
-    const totalMeters = list.reduce((sum, r) => sum + r.totalMeters, 0);
+    const totalMeters = list.reduce((sum, r) => sum + (Number(r.totalMeters) || 0), 0);
     
     let displayDate = date;
     if (date !== 'ไม่ระบุวันที่') {
@@ -91,9 +92,18 @@ export function groupCutsByDate(records: StockCutRecord[]): DateGroupedCuts[] {
 
   return sortedDates.map((date) => {
     const list = groupsMap.get(date) || [];
-    const totalUsedMeters = list.reduce((sum, r) => sum + r.usedMeters, 0);
-    const totalNgMeters = list.reduce((sum, r) => sum + r.ngMeters, 0);
-    const totalDeductedMeters = totalUsedMeters + totalNgMeters;
+    // ยอดรวมต้องใช้กฎเดียวกับ integrityCheck.summarizeRollDeduction /
+    // cutDeduction.signedTotalDeducted: รายการ reserved/cancelled ไม่หักสต๊อก
+    // และ totalDeducted ของ Cycle Count คงเครื่องหมาย (ติดลบ = คืนยอดเข้าม้วน)
+    let totalUsedMeters = 0;
+    let totalNgMeters = 0;
+    let totalDeductedMeters = 0;
+    list.forEach((r) => {
+      if (r.cutStatus === 'reserved' || r.cutStatus === 'cancelled') return;
+      totalUsedMeters = round2(totalUsedMeters + Math.abs(Number(r.usedMeters || 0)));
+      totalNgMeters = round2(totalNgMeters + Math.abs(Number(r.ngMeters || 0)));
+      totalDeductedMeters = round2(totalDeductedMeters + signedTotalDeducted(r));
+    });
     const uniqueSoList = Array.from(new Set(list.map((r) => r.soNumber).filter(Boolean)));
 
     let displayDate = date;

@@ -35,6 +35,7 @@ import {
   getPatternHexColor 
 } from '../utils/soFormatter';
 import { formatMeters, round2 } from '../utils/formatters';
+import { signedTotalDeducted } from '../utils/cutDeduction';
 
 interface MonthlyFoilUsageBarChartProps {
   records: StockCutRecord[];
@@ -121,6 +122,8 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
     const monthsData = MONTH_NAMES_TH.map((m) => {
       const prefix = `${selectedYear}-${m.num}`;
       const recsInMonth = records.filter((r) => {
+        // รายการจองรอตัด/ยกเลิก ยังไม่ถูกหักสต๊อกจริง จึงต้องไม่นับในยอดใช้ฟอยล์
+        if (r.cutStatus === 'reserved' || r.cutStatus === 'cancelled') return false;
         const d = r.usageDate || r.recordedDate || r.createdAt || '';
         return d && d.startsWith(prefix);
       });
@@ -136,9 +139,10 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
 
       recsInMonth.forEach((r) => {
         const p = normalizePattern(r.pattern);
-        const used = Number(r.usedMeters) || 0;
-        const ng = Number(r.ngMeters) || 0;
-        const deducted = used + ng;
+        const used = Math.abs(Number(r.usedMeters) || 0);
+        const ng = Math.abs(Number(r.ngMeters) || 0);
+        // ใช้ยอดหักตามจริง (Cycle Count คงเครื่องหมาย ลบ = คืนยอด) ไม่ใช่ used+ng ตรง ๆ
+        const deducted = signedTotalDeducted(r);
 
         monthUsed += used;
         monthNg += ng;
@@ -275,17 +279,18 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
       prevMonthName = `ธันวาคม ${priorYear + 543}`;
       const prefix = `${priorYear}-12`;
       const prevRecs = records.filter((r) => {
+        if (r.cutStatus === 'reserved' || r.cutStatus === 'cancelled') return false;
         const d = r.usageDate || r.recordedDate || r.createdAt || '';
         return d && d.startsWith(prefix);
       });
       prevCutCount = prevRecs.length;
       prevRecs.forEach((r) => {
         const p = normalizePattern(r.pattern);
-        const u = Number(r.usedMeters) || 0;
-        const n = Number(r.ngMeters) || 0;
+        const u = Math.abs(Number(r.usedMeters) || 0);
+        const n = Math.abs(Number(r.ngMeters) || 0);
         prevTotalUsed += u;
         prevTotalNg += n;
-        prevTotalDeducted += u + n;
+        prevTotalDeducted += signedTotalDeducted(r);
         prevPatternTotals[p] = (prevPatternTotals[p] || 0) + u;
       });
     }

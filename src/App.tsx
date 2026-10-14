@@ -41,6 +41,7 @@ import {
   uploadAllToFirestore,
   testFirestoreConnection,
   fetchAllCutRecordsFromFirestore,
+  fetchCutRecordsForRollFromServer,
   fetchArchivedFoilRolls,
   saveCycleCountSession,
   applyCycleCountAdjustments,
@@ -91,10 +92,19 @@ import { trackCloudWrite, describeWriteFailure } from './utils/cloudWrite';
 import {
   classifyCutFailure,
   enqueuePendingCut,
+  getPendingCutRollIds,
   loadPendingCuts,
   notePendingCutAttempt,
   removePendingCut,
 } from './utils/pendingCutQueue';
+import {
+  enqueuePendingRecordEdit,
+  getPendingRecordEditIds,
+  getPendingRecordEditRollIds,
+  loadPendingRecordEdits,
+  notePendingRecordEditAttempt,
+  removePendingRecordEdit,
+} from './utils/pendingRecordEditQueue';
 import { summarizeBatch, BatchWriteOutcome } from './utils/batchReconcile';
 import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
@@ -264,6 +274,16 @@ export default function App() {
   const [preselectedRollId, setPreselectedRollId] = useState<string | null>(null);
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
   const [editingRoll, setEditingRoll] = useState<FoilRoll | null>(null);
+  // ยอดสต๊อกของม้วนตอน "เปิด" หน้าต่างแก้ไข — ใช้เป็น expectedStock ตอนบันทึก
+  // เพื่อให้ Cloud ปฏิเสธการเขียนทับยอดคงเหลือถ้ามีอุปกรณ์อื่นตัดไปก่อน
+  const editRollExpectedStockRef = useRef<{ remainingMeters: number; totalMeters: number } | null>(null);
+  const handleOpenEditRoll = (roll: FoilRoll) => {
+    editRollExpectedStockRef.current = {
+      remainingMeters: roll.remainingMeters,
+      totalMeters: roll.totalMeters,
+    };
+    setEditingRoll(roll);
+  };
   const [editingCutRecord, setEditingCutRecord] = useState<StockCutRecord | null>(null);
   const [selectedSODetailRecord, setSelectedSODetailRecord] = useState<StockCutRecord | null>(null);
   const [reallocatingRecord, setReallocatingRecord] = useState<StockCutRecord | null>(null);
@@ -314,6 +334,17 @@ export default function App() {
     }, type === 'error' ? 7000 : 4500);
   };
 
+  // True once the first server snapshot has arrived. Guards the scheduled D1
+  // backup from firing against a stale localStorage cache on cold start, before
+  // the device has confirmed what Cloud actually holds.
+  const hasLoadedFromServerRef = useRef(false);
+  // Mirror of syncStatus so the auto-backup interval can read the latest value
+  // without being torn down and recreated on every sync change.
+  const syncStatusRef = useRef(syncStatus);
+  useEffect(() => {
+    syncStatusRef.current = syncStatus;
+  }, [syncStatus]);
+
   // Realtime load & Firestore subscription (Optimized with Persistent Cache & Read limits)
   useEffect(() => {
     // 1. Initial fast local load from cache
@@ -327,11 +358,19 @@ export default function App() {
     // 2. Realtime listener for Foil Rolls (activeOnly: false เพื่อให้ทุกบัญชีรวมทั้ง non-admin ดูม้วนที่หมดแล้วได้)
     const unsubRolls = subscribeToFoilRolls(
       (firestoreRolls) => {
+        hasLoadedFromServerRef.current = true;
+        // ม้วนที่มีรายการตัดค้างออฟไลน์อยู่ — ถือว่าเป็นยอดที่ authoritative ในเครื่อง
+        // กัน snapshot (ที่ยังไม่เห็นการตัด) ทับยอดที่เพิ่งหักไป ใช้ได้แม้ reload เพราะอ่านจาก queue
+        const pendingRollIds = getPendingCutRollIds();
+        const pendingEditedRollIds = getPendingRecordEditRollIds();
         setRolls((prev: FoilRoll[]) => {
           const prevMap = new Map<string, FoilRoll>(prev.map((r: FoilRoll) => [r.id, r]));
-          // เพิ่ง realign/ตัดยอด — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
+          // เพิ่ง realign/ตัดยอด หรือมีคิวค้าง — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
           const mergedServer = firestoreRolls.map((r: FoilRoll) => {
-            if (isRecentLocalWrite(r.id) && prevMap.has(r.id)) {
+            if (
+              (isRecentLocalWrite(r.id) || pendingRollIds.has(r.id) || pendingEditedRollIds.has(r.id)) &&
+              prevMap.has(r.id)
+            ) {
               const local = prevMap.get(r.id)!;
               return {
                 ...r,
@@ -409,18 +448,25 @@ export default function App() {
     // 3. Realtime listener for Cut Records (Optimized with 200 records window to minimize Read quota)
     const unsubRecords = subscribeToStockCutRecords(
       (firestoreRecords, removedIds) => {
+        hasLoadedFromServerRef.current = true;
+        // ใบที่แก้ไขค้างออฟไลน์อยู่ — เก็บเวอร์ชันในเครื่องไว้ กัน snapshot เก่าทับกลับ
+        const pendingEditIds = getPendingRecordEditIds();
         setRecords((prev) => {
           const map = new Map<string, StockCutRecord>();
           // Keep all existing historical records from local cache
           prev.forEach((r) => map.set(r.id, r));
-          // Drop server-deleted ids (ยกเว้นเพิ่งเขียนเอง — กันเด้งหายตอน sync)
+          // Drop server-deleted ids (ยกเว้นเพิ่งเขียนเอง/มีคิวแก้ไข — กันเด้งหายตอน sync)
           (removedIds || []).forEach((id) => {
-            if (!isRecentLocalWrite(id)) map.delete(id);
+            if (!isRecentLocalWrite(id) && !pendingEditIds.has(id)) map.delete(id);
           });
-          // Overlay จาก Firestore — ถ้าเพิ่ง realign/ตัด เก็บยอด local ไม่ให้เด้งกลับ
+          // Overlay จาก Firestore — ถ้าเพิ่ง realign/ตัด/แก้ไข เก็บยอด local ไม่ให้เด้งกลับ
           firestoreRecords.forEach((r) => {
-            if (isRecentLocalWrite(r.id) && map.has(r.id)) {
-              const local = map.get(r.id)!;
+            const local = map.get(r.id);
+            // ใบที่แก้ไขค้างออฟไลน์ — เก็บเวอร์ชันในเครื่องทั้งใบ (แก้ได้ทั้ง SO/เมตร/หมายเหตุ)
+            if (pendingEditIds.has(r.id) && local) {
+              return;
+            }
+            if (isRecentLocalWrite(r.id) && local) {
               map.set(r.id, {
                 ...r,
                 remainingBefore: local.remainingBefore,
@@ -545,32 +591,51 @@ export default function App() {
   };
 
   // Automatic Background Backup (Local Snapshots & Cloud Sync)
+  //
+  // Deliberately mounted ONCE (empty deps). Re-creating this timer on every
+  // rolls/records/syncStatus change restarted its countdown from zero on every
+  // realtime snapshot, so a busy shop could postpone the scheduled backup forever.
+  // The latest data is read from refs inside each tick instead, and intervalMinutes
+  // is re-read each tick so a Settings change takes effect without a reload.
+  // `if (rolls.length === 0) return;` semantics are preserved by checking the ref.
   useEffect(() => {
-    if (rolls.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
 
     const runAutoBackup = () => {
+      if (rollsRef.current.length === 0) return;
+
       const config = getAutoBackupConfig();
       if (!config.enabled) return;
 
       if (config.saveLocalSnapshots) {
-        const { result } = createBackupSnapshot(rolls, records, 'scheduled');
+        const { result } = createBackupSnapshot(rollsRef.current, recordsRef.current, 'scheduled');
         warnIfSnapshotFailed(result);
       }
 
       // Also sync to cloud if enabled and online
-      if (config.autoSyncCloud && syncStatus === 'connected') {
-        uploadAllToFirestore(rolls, records, { createOnly: true }).catch((err) => {
+      if (config.autoSyncCloud && syncStatusRef.current === 'connected') {
+        uploadAllToFirestore(rollsRef.current, recordsRef.current, { createOnly: true }).catch((err) => {
           console.warn('Background auto cloud backup notice:', err);
         });
       }
     };
 
-    const config = getAutoBackupConfig();
-    const intervalMs = Math.max(1, config.intervalMinutes || 10) * 60 * 1000;
-    const intervalId = setInterval(runAutoBackup, intervalMs);
+    const scheduleNext = () => {
+      const config = getAutoBackupConfig();
+      const intervalMs = Math.max(1, config.intervalMinutes || 10) * 60 * 1000;
+      timer = setTimeout(() => {
+        runAutoBackup();
+        if (!cancelled) scheduleNext();
+      }, intervalMs);
+    };
+    scheduleNext();
 
-    return () => clearInterval(intervalId);
-  }, [rolls, records, syncStatus]);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   // Cloudflare D1 scheduled backup — fixed times daily (12:30 / 17:30), using
   // the Worker URL + secret already saved in Settings > Backup. Independent
@@ -584,6 +649,10 @@ export default function App() {
     if (rolls.length === 0) return;
 
     const checkD1Schedule = () => {
+      // ห้ามสำรองจาก cache เก่าในเครื่องก่อนที่ snapshot แรกจาก server จะมา —
+      // ไม่งั้นข้อมูลที่ยังไม่ยืนยันอาจถูกส่งขึ้น D1 ทับของจริง
+      if (!hasLoadedFromServerRef.current) return;
+
       const config = getAutoBackupConfig();
       if (!config.autoSyncD1) return;
 
@@ -593,7 +662,6 @@ export default function App() {
       const d1Config = getD1BackupConfig();
       if (!hasD1Credentials(d1Config)) return;
 
-      dueSlots.forEach(markD1ScheduleSlotRun);
       uploadBackupToD1({
         rolls,
         records,
@@ -602,10 +670,14 @@ export default function App() {
         reason: 'scheduled',
       })
         .then(() => {
+          // ทำเครื่องหมายว่า slot นี้สำรองแล้ว "หลัง" อัปโหลดสำเร็จเท่านั้น
+          // ถ้าล้มเหลว slot จะยังค้าง due และลองใหม่ในรอบถัดไป
+          dueSlots.forEach(markD1ScheduleSlotRun);
           saveAutoBackupConfig({ ...getAutoBackupConfig(), lastD1AutoBackupTime: new Date().toISOString() });
         })
         .catch((err) => {
           console.warn('Scheduled D1 backup notice:', err);
+          showToast('สำรองขึ้น D1 ตามเวลาอัตโนมัติไม่สำเร็จ — จะลองใหม่อีกครั้ง', 'error');
         });
     };
 
@@ -726,6 +798,10 @@ export default function App() {
   const [pendingCutCount, setPendingCutCount] = useState<number>(() => loadPendingCuts().length);
   const cutInFlightRef = useRef(false);
   const pendingFlushRef = useRef(false);
+  const recordEditFlushRef = useRef(false);
+  const [pendingRecordEditCount, setPendingRecordEditCount] = useState<number>(
+    () => loadPendingRecordEdits().length
+  );
 
   // Manual save all data to Firebase Firestore
   const handleManualSaveToCloud = async () => {
@@ -959,11 +1035,28 @@ const updated = [newRoll, ...rolls];
 
   // Update existing foil roll
   const handleUpdateRoll = async (updatedRoll: FoilRoll) => {
-    const previous = rolls.find(r => r.id === updatedRoll.id) ?? null;
-    const updated = rolls.map(r => r.id === updatedRoll.id ? updatedRoll : r);
-    updateRollsState(updated);
+    const previous = rollsRef.current.find((r) => r.id === updatedRoll.id) ?? null;
+    // ยอดตอนเปิดแก้ไข — ให้ Cloud เทียบว่ายังไม่ถูกตัดไปก่อน จึงอนุญาตให้เขียนทับยอด
+    const expectedStock =
+      editRollExpectedStockRef.current ??
+      (previous
+        ? { remainingMeters: previous.remainingMeters, totalMeters: previous.totalMeters }
+        : null);
+    editRollExpectedStockRef.current = null;
 
-    const outcome = await trackCloudWrite(saveFoilRollToFirestore(updatedRoll), undefined, (late) => {
+    commitRolls((prev) => prev.map((r) => (r.id === updatedRoll.id ? updatedRoll : r)));
+
+    // จับผลลัพธ์ที่ resolve ไว้ เพราะ trackCloudWrite คืนแค่ kind ไม่ใช่ค่า { stockProtected }
+    let writeResult: { stockProtected: boolean } | null = null;
+    const writePromise = saveFoilRollToFirestore(
+      updatedRoll,
+      expectedStock ? { expectedStock } : undefined
+    ).then((res) => {
+      writeResult = res;
+      return res;
+    });
+
+    const outcome = await trackCloudWrite(writePromise, undefined, (late) => {
       console.warn('Queued roll edit was rejected later:', late.message);
       setSyncStatus('permission-denied');
       if (previous) {
@@ -975,7 +1068,16 @@ const updated = [newRoll, ...rolls];
     if (outcome.kind === 'committed') {
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
-      showToast(`แก้ไขข้อมูลฟอยล์สำเร็จ: ล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber}`);
+      if (writeResult && writeResult.stockProtected) {
+        // Cloud ปฏิเสธการเขียนทับยอดคงเหลือ เพราะถูกตัดไปจากอุปกรณ์อื่นแล้ว
+        // บันทึกเฉพาะข้อมูลทั่วไป (ล็อต/เบอร์/หมายเหตุ) และคงยอดล่าสุดของ Cloud ไว้
+        showToast(
+          'ยอดคงเหลือถูกปรับจากอุปกรณ์อื่น ระบบเก็บยอดล่าสุดไว้ (แก้เฉพาะข้อมูลทั่วไป)',
+          'info'
+        );
+      } else {
+        showToast(`แก้ไขข้อมูลฟอยล์สำเร็จ: ล็อต ${updatedRoll.lotNumber} #${updatedRoll.rollNumber}`);
+      }
       return;
     }
 
@@ -1330,19 +1432,23 @@ const updated = [newRoll, ...rolls];
         finalRolls.forEach((r) => finalRollsById.set(r.id, r));
       }
 
-      // ✅ Transaction committed — sync local state to the server's authoritative
-      // roll data. Applied to the CURRENT rolls/records: the transaction awaited a
-      // network round trip, so anything captured before it may be stale.
-      commitRolls((prev) => prev.map((r) => finalRollsById.get(r.id) || r));
-      commitRecords((prev) => {
-        const have = new Set(prev.map((r) => r.id));
-        return [...prev, ...createdRecords.filter((r) => !have.has(r.id))];
-      });
+      // ✅ Transaction committed — snapshot the PRE-deduction state BEFORE we apply
+      // the deduction locally, so it is a real undo point. Taking it after the
+      // commit captured the already-deducted rolls, which made "restore" a no-op.
       const { result: snapshotResult } = createBackupSnapshot(
         rollsRef.current,
         recordsRef.current,
         'before_cut'
       );
+
+      // Sync local state to the server's authoritative roll data. Applied to the
+      // CURRENT rolls/records: the transaction awaited a network round trip, so
+      // anything captured before it may be stale.
+      commitRolls((prev) => prev.map((r) => finalRollsById.get(r.id) || r));
+      commitRecords((prev) => {
+        const have = new Set(prev.map((r) => r.id));
+        return [...prev, ...createdRecords.filter((r) => !have.has(r.id))];
+      });
 
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
@@ -1397,12 +1503,15 @@ const updated = [newRoll, ...rolls];
       }
       setPendingCutCount(loadPendingCuts().length);
 
+      // Snapshot the PRE-deduction state before applying locally — same as the
+      // success branch, so the queued cut has a real undo point.
+      createBackupSnapshot(rollsRef.current, recordsRef.current, 'before_cut');
+
       commitRolls(applyLocalDeduction);
       commitRecords((prev) => {
         const have = new Set(prev.map((r) => r.id));
         return [...prev, ...createdRecords.filter((r) => !have.has(r.id))];
       });
-      createBackupSnapshot(rollsRef.current, recordsRef.current, 'before_cut');
 
       setSyncStatus('offline');
       showToast(
@@ -1479,12 +1588,93 @@ const updated = [newRoll, ...rolls];
     }
   };
 
+  /**
+   * Replay queued SO record *edits* through the same transaction the online path
+   * uses. `updateStockCutRecordInFirestore` recomputes every delta against the
+   * record as it exists on the server, so replaying the same edit twice is
+   * idempotent and never double-deducts.
+   *
+   * This is the other half of the offline-edit path in `handleEditCutRecord`: the
+   * queue keeps the edit from being silently reverted by the realtime listener,
+   * and this flush is what actually lands it on Cloud once we are back online.
+   */
+  const flushPendingRecordEdits = async () => {
+    if (recordEditFlushRef.current) return;
+    if (!auth.currentUser) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    const edits = loadPendingRecordEdits();
+    if (edits.length === 0) return;
+
+    recordEditFlushRef.current = true;
+    try {
+      for (const entry of edits) {
+        try {
+          const { updatedRoll, updatedRecord } = await updateStockCutRecordInFirestore(
+            entry.record,
+            entry.record,
+            entry.roll ?? undefined
+          );
+          removePendingRecordEdit(entry.recordId);
+          commitRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
+          commitRolls((prev) => prev.map((r) => (r.id === updatedRoll.id ? updatedRoll : r)));
+          setSyncStatus('connected');
+          showToast(
+            `ส่งใบแก้ไข SO ${entry.record.soNumber} ที่ค้างขึ้น Cloud สำเร็จ`,
+            'success',
+            { silent: true }
+          );
+        } catch (err: any) {
+          const kind = classifyCutFailure(err);
+          if (kind === 'retry') {
+            notePendingRecordEditAttempt(entry.recordId, err);
+            break; // still offline — keep order, try again later
+          }
+
+          // The edit can never be applied (permission, cycle-count guard, or a
+          // record that no longer exists). Drop it and pull the record + roll back
+          // from the server so this device stops showing an edit Cloud does not have.
+          console.warn('Pending record edit dropped:', err);
+          removePendingRecordEdit(entry.recordId);
+          try {
+            const freshRecords = await fetchCutRecordsForRollFromServer(entry.record.foilId);
+            const fresh = freshRecords.find((r) => r.id === entry.recordId);
+            // Touch only the edited record: other records for this roll may be
+            // pending cuts that have not reached Cloud yet.
+            commitRecords((prev) =>
+              fresh
+                ? prev.map((r) => (r.id === entry.recordId ? fresh : r))
+                : prev.filter((r) => r.id !== entry.recordId)
+            );
+          } catch (refetchErr) {
+            console.warn('Could not refresh records after dropping edit:', refetchErr);
+          }
+          const freshRoll = await fetchFoilRollFromServer(entry.record.foilId).catch(() => null);
+          if (freshRoll) commitRolls((prev) => prev.map((r) => (r.id === freshRoll.id ? freshRoll : r)));
+          setErrorAlert({
+            isOpen: true,
+            title: 'ใบแก้ไข SO ที่ค้างอยู่ถูกยกเลิก',
+            message: `การแก้ไขใบ SO ${entry.record.soNumber || '-'} ที่บันทึกไว้ตอนออฟไลน์ไม่สามารถส่งขึ้น Cloud ได้ จึงถูกยกเลิกและดึงข้อมูลจริงกลับมาแล้ว`,
+            detail: `${err?.message || ''} กรุณาตรวจสอบแล้วแก้ไขใหม่หากยังต้องการ`,
+          });
+        }
+      }
+    } finally {
+      recordEditFlushRef.current = false;
+      setPendingRecordEditCount(loadPendingRecordEdits().length);
+    }
+  };
+
   // Always call the latest closure from timers/event listeners.
   const flushPendingCutsRef = useRef(flushPendingCuts);
   flushPendingCutsRef.current = flushPendingCuts;
+  const flushPendingRecordEditsRef = useRef(flushPendingRecordEdits);
+  flushPendingRecordEditsRef.current = flushPendingRecordEdits;
 
   useEffect(() => {
-    const run = () => void flushPendingCutsRef.current();
+    const run = () => {
+      void flushPendingCutsRef.current();
+      void flushPendingRecordEditsRef.current();
+    };
     const first = window.setTimeout(run, 3000);
     const interval = window.setInterval(run, 30000);
     window.addEventListener('online', run);
@@ -1842,12 +2032,12 @@ const updated = [newRoll, ...rolls];
     try {
       const finalRoll = await revertCutRecordInFirestore(recordId, targetRecord.foilId);
 
-      const updatedRecords = records.filter((r) => r.id !== recordId);
-      updateRecordsState(updatedRecords);
+      // Functional updates: the revert awaited a round trip, so mapping over the
+      // render-time arrays would discard any record/roll the listener delivered meanwhile.
+      commitRecords((prev) => prev.filter((r) => r.id !== recordId));
 
       if (finalRoll) {
-        const updatedRolls = rolls.map((r) => (r.id === finalRoll.id ? finalRoll : r));
-        updateRollsState(updatedRolls);
+        commitRolls((prev) => prev.map((r) => (r.id === finalRoll.id ? finalRoll : r)));
         showToast(`ยกเลิกรายการ SO ${targetRecord.soNumber} และคืนยอด ${targetRecord.totalDeducted.toLocaleString()} เมตร เข้าม้วนเรียบร้อย [ซิงค์ Cloud]`, 'info');
       } else {
         // Roll no longer exists — the orphaned/duplicate record was still
@@ -1968,15 +2158,42 @@ const updated = [newRoll, ...rolls];
       );
     } catch (err: any) {
       console.warn('Update cut record failed, checking fallback:', err);
-      const isPermissionError =
-        err?.code === 'permission-denied' || err?.message?.includes('permission');
-      if (isPermissionError) {
-        setSyncStatus('permission-denied');
+
+      // แยก "ผิดพลาดถาวร" ออกจาก "ออฟไลน์ชั่วคราว" ให้ชัดเจน:
+      // permission / rules / validation (เช่น ห้ามแก้ใบปรับยอดจากนับสต๊อก,
+      // ยอดตัดเพิ่มเกินคงเหลือ) จะไม่มีวันสำเร็จถ้าลองใหม่ จึงต้องไม่ตกไปที่
+      // offline fallback แล้วขึ้น "รอซิงค์ Cloud" ทั้งที่ไม่มีอะไรถูกซิงค์
+      const message = String(err?.message || '');
+      const failure = classifyCutFailure(err);
+      const isNonRecoverable =
+        err?.code === 'permission-denied' ||
+        err?.code === 'failed-precondition' ||
+        failure === 'terminal' ||
+        failure === 'shortage' ||
+        /ไม่สามารถ|ห้าม|เกิน|ไม่พอ|permission/i.test(message);
+
+      if (isNonRecoverable) {
+        const isPermissionError = err?.code === 'permission-denied' || /permission/i.test(message);
+        setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
         playFeedback('error');
+        showToast(
+          `แก้ไขใบ SO ไม่สำเร็จ — ${err?.message || 'Cloud ปฏิเสธการแก้ไข'} · ไม่ได้เปลี่ยนข้อมูลในเครื่อง`,
+          'error'
+        );
         throw err;
       }
 
-      // Offline / network fallback: บันทึกข้อมูลที่แก้ไขลงในเครื่องเพื่อไม่ให้ข้อมูลสูญหาย
+      // Genuine offline/transient. Recompute the roll from the LATEST local state
+      // (the failed transaction awaited a round trip, so `matchingRoll` may be stale),
+      // then persist the edit durably BEFORE claiming success.
+      //
+      // Note: `markLocalWrite` is module-private in firebase.ts and is not exported,
+      // so we cannot flag the recent write directly. Instead the edit lives in
+      // pendingRecordEditQueue, and the realtime-merge guard skips records/rolls with
+      // a queued edit until the flush replays it (see getPendingRecordEditIds /
+      // getPendingRecordEditRollIds). A replay/flush reconciles this with Cloud.
+      const currentRoll = rollsRef.current.find((r) => r.id === updatedRecord.foilId) ?? matchingRoll;
+
       const oldUsed = Math.abs(Number(oldRecord.usedMeters || 0));
       const oldNg = Math.abs(Number(oldRecord.ngMeters || 0));
       const oldTotal = Math.abs(Number(oldRecord.totalDeducted) || (oldUsed + oldNg));
@@ -1987,13 +2204,13 @@ const updated = [newRoll, ...rolls];
       const deltaUsed = round2(newUsed - oldUsed);
       const deltaNg = round2(newNg - oldNg);
 
-      let finalRoll = matchingRoll;
-      if (matchingRoll) {
-        const nextRemaining = round2(Math.max(0, Number(matchingRoll.remainingMeters || 0) - deltaTotal));
-        const nextUsedVal = round2(Math.max(0, Number(matchingRoll.usedMeters || 0) + deltaUsed));
-        const nextNgVal = round2(Math.max(0, Number(matchingRoll.ngMeters || 0) + deltaNg));
+      let finalRoll = currentRoll;
+      if (currentRoll) {
+        const nextRemaining = round2(Math.max(0, Number(currentRoll.remainingMeters || 0) - deltaTotal));
+        const nextUsedVal = round2(Math.max(0, Number(currentRoll.usedMeters || 0) + deltaUsed));
+        const nextNgVal = round2(Math.max(0, Number(currentRoll.ngMeters || 0) + deltaNg));
         finalRoll = {
-          ...matchingRoll,
+          ...currentRoll,
           remainingMeters: nextRemaining,
           usedMeters: nextUsedVal,
           ngMeters: nextNgVal,
@@ -2009,16 +2226,24 @@ const updated = [newRoll, ...rolls];
         remainingAfter: finalRoll ? finalRoll.remainingMeters : updatedRecord.remainingAfter,
       };
 
-      const nextRolls = finalRoll ? rolls.map((r) => r.id === finalRoll.id ? finalRoll : r) : rolls;
-      const nextRecords = records.map((r) => r.id === finalRec.id ? finalRec : r);
+      // ต้องบันทึกคิวได้จริงก่อนจึงจะถือว่าสำเร็จ — ถ้าเก็บในเครื่องไม่ได้เลย
+      // การแก้ไขจะหายไปเงียบ ๆ จึงต้องปฏิเสธและแจ้ง error ไม่ใช่ขึ้นว่ารอซิงค์
+      if (!enqueuePendingRecordEdit({ record: finalRec, roll: finalRoll }, err)) {
+        throw new Error(
+          'ออฟไลน์อยู่และบันทึกคิวแก้ไขในเครื่องไม่ได้ (พื้นที่เก็บข้อมูลเต็ม) — ยังไม่ได้บันทึกการแก้ไข กรุณาเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่'
+        );
+      }
 
-      updateRecordsState(nextRecords);
-      updateRollsState(nextRolls);
-      createBackupSnapshot(nextRolls, nextRecords, 'realign_chain');
+      commitRecords((prev) => prev.map((r) => (r.id === finalRec.id ? finalRec : r)));
+      if (finalRoll) {
+        commitRolls((prev) => prev.map((r) => (r.id === finalRoll!.id ? finalRoll! : r)));
+      }
+      setPendingRecordEditCount(loadPendingRecordEdits().length);
+      createBackupSnapshot(rollsRef.current, recordsRef.current, 'realign_chain');
       setEditingCutRecord(null);
       setSyncStatus('offline');
       showToast(
-        `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จในเครื่อง (รอซิงค์ Cloud)`,
+        `แก้ไขใบ SO ${finalRec.soNumber} บันทึกในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud`,
         'info'
       );
     }
@@ -2034,48 +2259,124 @@ const updated = [newRoll, ...rolls];
     const verifier = currentUserEmail || 'เจ้าหน้าที่';
     const now = new Date().toISOString();
 
+    // ตรวจรับรองแล้วต้องแม่นยำ: ถ้า Cloud ปฏิเสธ ต้องย้อนสถานะในเครื่องกลับ
+    // ไม่ใช่ขึ้นว่าสำเร็จทั้งที่จริงไม่ถูกบันทึก (ของเดิมกลืน error แล้ว toast สำเร็จเสมอ)
+    let committed = false;
+    let rejectedMessage: string | null = null;
+
     if (recordType === 'foil') {
-      const updated = records.map((r) =>
-        r.id === recordId
-          ? { ...r, verificationStatus: 'verified' as const, verifiedBy: verifier, verifiedAt: now }
-          : r
+      const previous = records.find((r) => r.id === recordId) ?? null;
+      const verifiedFields = {
+        verificationStatus: 'verified' as const,
+        verifiedBy: verifier,
+        verifiedAt: now,
+      };
+      commitRecords((prev) =>
+        prev.map((r) => (r.id === recordId ? { ...r, ...verifiedFields } : r))
       );
-      updateRecordsState(updated);
-      try {
-        const targetRec = records.find((r) => r.id === recordId);
-        if (targetRec) {
-          const matchingRoll = rolls.find((r) => r.id === targetRec.foilId);
-          await updateStockCutRecordInFirestore(
-            { ...targetRec, verificationStatus: 'verified', verifiedBy: verifier, verifiedAt: now },
-            targetRec,
+
+      // ย้อนกลับเฉพาะฟิลด์รับรอง ไม่ทับข้อมูลที่อุปกรณ์อื่นอาจแก้ระหว่างรอ Cloud
+      const revertVerify = () =>
+        commitRecords((prev) =>
+          prev.map((r) =>
+            r.id === recordId
+              ? {
+                  ...r,
+                  verificationStatus: previous!.verificationStatus,
+                  verifiedBy: previous!.verifiedBy,
+                  verifiedAt: previous!.verifiedAt,
+                }
+              : r
+          )
+        );
+
+      if (previous) {
+        const matchingRoll = rolls.find((r) => r.id === previous.foilId);
+        const outcome = await trackCloudWrite(
+          updateStockCutRecordInFirestore(
+            { ...previous, ...verifiedFields },
+            previous,
             matchingRoll,
-            targetRec
-          );
+            previous
+          ),
+          undefined,
+          (late) => {
+            console.warn('Queued verify log rejected later:', late.message);
+            setSyncStatus('permission-denied');
+            revertVerify();
+            showToast(`รับรอง SO ${soNumber} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
+          }
+        );
+        committed = outcome.kind === 'committed';
+        if (outcome.kind === 'rejected') {
+          rejectedMessage = describeWriteFailure(outcome);
+          setSyncStatus(outcome.reason === 'permission' || outcome.reason === 'rules' ? 'permission-denied' : 'error');
+          revertVerify();
+        } else if (outcome.kind === 'queued') {
+          setSyncStatus('offline');
         }
-      } catch (err) {
-        console.warn('Notice: verify foil record in Firestore pending/offline:', err);
+      } else {
+        committed = true;
       }
     } else {
-      const updated = puSandwichRecords.map((r) =>
-        r.id === recordId
-          ? { ...r, verificationStatus: 'verified' as const, verifiedBy: verifier, verifiedAt: now }
-          : r
-      );
-      setPuSandwichRecords(updated);
-      saveStoredPuSandwichRecords(updated);
-      try {
-        const targetRec = puSandwichRecords.find((r) => r.id === recordId);
-        if (targetRec) {
-          await savePuSandwichCutToFirestore({
-            ...targetRec,
-            verificationStatus: 'verified',
-            verifiedBy: verifier,
-            verifiedAt: now,
-          });
+      const previous = puSandwichRecords.find((r) => r.id === recordId) ?? null;
+      const verifiedFields = {
+        verificationStatus: 'verified' as const,
+        verifiedBy: verifier,
+        verifiedAt: now,
+      };
+      setPuSandwichRecords((prev) => {
+        const next = prev.map((r) => (r.id === recordId ? { ...r, ...verifiedFields } : r));
+        saveStoredPuSandwichRecords(next);
+        return next;
+      });
+
+      // ย้อนกลับเฉพาะฟิลด์รับรอง ไม่ทับข้อมูลที่อุปกรณ์อื่นอาจแก้ระหว่างรอ Cloud
+      const revertVerify = () =>
+        setPuSandwichRecords((prev) => {
+          const next = prev.map((r) =>
+            r.id === recordId
+              ? {
+                  ...r,
+                  verificationStatus: previous!.verificationStatus,
+                  verifiedBy: previous!.verifiedBy,
+                  verifiedAt: previous!.verifiedAt,
+                }
+              : r
+          );
+          saveStoredPuSandwichRecords(next);
+          return next;
+        });
+
+      if (previous) {
+        const outcome = await trackCloudWrite(
+          savePuSandwichCutToFirestore({ ...previous, ...verifiedFields }),
+          undefined,
+          (late) => {
+            console.warn('Queued verify sandwich rejected later:', late.message);
+            setSyncStatus('permission-denied');
+            revertVerify();
+            showToast(`รับรอง SO ${soNumber} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
+          }
+        );
+        committed = outcome.kind === 'committed';
+        if (outcome.kind === 'rejected') {
+          rejectedMessage = describeWriteFailure(outcome);
+          setSyncStatus(outcome.reason === 'permission' || outcome.reason === 'rules' ? 'permission-denied' : 'error');
+          revertVerify();
+        } else if (outcome.kind === 'queued') {
+          setSyncStatus('offline');
         }
-      } catch (err) {
-        console.warn('Notice: verify sandwich record in Firestore pending/offline:', err);
+      } else {
+        committed = true;
       }
+    }
+
+    if (rejectedMessage) {
+      // การตรวจรับรองถูกย้อนกลับแล้ว — ไม่บันทึก audit log ว่า verified
+      playFeedback('error');
+      showToast(`รับรองความถูกต้อง SO: ${soNumber} ไม่สำเร็จ — ${rejectedMessage}`, 'error');
+      return;
     }
 
     // สร้างบันทึก Audit Event (VERIFY)
@@ -2094,20 +2395,54 @@ const updated = [newRoll, ...rolls];
     });
     saveSOAuditLogInFirestore(verifyAuditItem).catch(() => {});
 
-    showToast(`รับรองความถูกต้อง SO: ${soNumber} เรียบร้อยแล้ว`, 'success');
+    if (committed) {
+      showToast(`รับรองความถูกต้อง SO: ${soNumber} เรียบร้อยแล้ว`, 'success');
+    } else {
+      // queued (offline) — บันทึกในเครื่องแล้ว รอซิงค์ขึ้น Cloud
+      showToast(`รับรองความถูกต้อง SO: ${soNumber} ในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud`, 'info');
+    }
   };
 
   // Delete a roll
-  const handleDeleteRoll = (rollId: string) => {
-    const updatedRolls = rolls.filter((r) => r.id !== rollId);
-    updateRollsState(updatedRolls);
-    
-    // Delete in Firestore
-    deleteFoilRollFromFirestore(rollId).catch((err) => {
-      console.warn('Notice: Delete roll in Firestore pending/offline:', err?.message || err);
+  const handleDeleteRoll = async (rollId: string) => {
+    // เก็บม้วนเดิมไว้ย้อนกลับ — ของเดิมกลืน error แล้วขึ้นว่าลบสำเร็จเสมอ
+    const previous = rollsRef.current.find((r) => r.id === rollId) ?? null;
+    const rollLabel = previous ? `${previous.lotNumber} #${previous.rollNumber}` : rollId;
+
+    // ย้อนกลับด้วย commitRolls เพื่อไม่ให้ทับการเปลี่ยนแปลงที่ listener ส่งมาระหว่าง await
+    const reinsert = () => {
+      if (!previous) return;
+      commitRolls((prev) => (prev.some((r) => r.id === previous.id) ? prev : [previous, ...prev]));
+    };
+
+    commitRolls((prev) => prev.filter((r) => r.id !== rollId));
+
+    const outcome = await trackCloudWrite(deleteFoilRollFromFirestore(rollId), undefined, (late) => {
+      console.warn('Queued roll delete rejected later:', late.message);
+      setSyncStatus('permission-denied');
+      reinsert();
+      showToast(`ลบม้วน ${rollLabel} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
     });
 
-    showToast('ลบม้วนฟอยล์ออกจากรายการและ Cloud แล้ว', 'info');
+    if (outcome.kind === 'committed') {
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+      showToast(`ลบม้วนฟอยล์ ${rollLabel} ออกจากรายการและ Cloud แล้ว`, 'success');
+      return;
+    }
+
+    if (outcome.kind === 'queued') {
+      // Delete is a plain write, so Firestore's outbox will push it when online.
+      setSyncStatus('offline');
+      showToast(`ลบม้วน ${rollLabel} ในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud`, 'info');
+      return;
+    }
+
+    // Terminal rejection: Cloud will never delete it, so keep the roll locally.
+    console.warn('Delete roll from Firestore rejected permanently:', outcome.message);
+    setSyncStatus('permission-denied');
+    reinsert();
+    showToast(`ลบม้วน ${rollLabel} ไม่สำเร็จ — ${describeWriteFailure(outcome)}`, 'error');
   };
 
   // Reconcile and fix a single roll's remaining stock based on authoritative SO cut slips
@@ -2130,29 +2465,36 @@ const updated = [newRoll, ...rolls];
       const updated = await reconcileRollsInFirestore(verified);
 
       if (updated && updated.length > 0) {
-        let nextRolls = rolls.map((r) => (r.id === rollId ? updated[0] : r));
-        let nextRecords = records;
+        let realignedRoll: FoilRoll | null = null;
+        const realignedById = new Map<string, StockCutRecord>();
 
         // STRICT: fixing the roll's aggregate remaining meters is not enough —
         // each individual ใบงาน (cut slip) still carries its own, possibly-wrong
         // remainingBefore/remainingAfter. Re-chain every cut record for this
         // roll too, so ใบงานที่ 1's "หลังตัด" always equals ใบงานที่ 2's "ก่อนตัด", etc.
         if (!updated[0].isZeroedOut) {
-          const rollRecordIds = records.filter((r) => r.foilId === rollId).map((r) => r.id);
+          const rollRecordIds = recordsRef.current.filter((r) => r.foilId === rollId).map((r) => r.id);
           if (rollRecordIds.length > 0) {
             try {
-              const { updatedRoll: realignedRoll, updatedRecords } = await realignRollCutChainInFirestore(rollId, rollRecordIds);
-              nextRolls = nextRolls.map((r) => (r.id === realignedRoll.id ? realignedRoll : r));
-              const updatedMap = new Map(updatedRecords.map((r) => [r.id, r]));
-              nextRecords = records.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
-              updateRecordsState(nextRecords);
+              const { updatedRoll: realignedRollRes, updatedRecords } = await realignRollCutChainInFirestore(rollId, rollRecordIds);
+              realignedRoll = realignedRollRes;
+              updatedRecords.forEach((r) => realignedById.set(r.id, r));
             } catch (realignErr) {
               console.warn('Notice: chain realign after single-roll fix failed:', realignErr);
             }
           }
         }
 
-        updateRollsState(nextRolls);
+        // Functional commits so anything the listener delivered during the awaits
+        // above is not clobbered by the render-time snapshot.
+        const finalRoll = realignedRoll || updated[0];
+        commitRolls((prev) => prev.map((r) => (r.id === rollId ? finalRoll : r)));
+        if (realignedById.size > 0) {
+          commitRecords((prev) => prev.map((r) => realignedById.get(r.id) ?? r));
+        }
+
+        const nextRolls = rollsRef.current;
+        const nextRecords = recordsRef.current;
         const fixedRoll = nextRolls.find((r) => r.id === rollId) || updated[0];
         showToast(`ปรับปรุงยอดคงเหลือม้วนล็อต ${fixedRoll.lotNumber} #${fixedRoll.rollNumber} เป็น ${formatMeters(fixedRoll.remainingMeters)} ม. สำเร็จ ✅`);
         const newIssues = checkStockIntegrity(nextRolls, nextRecords);
@@ -2173,28 +2515,36 @@ const updated = [newRoll, ...rolls];
       const updated = await reconcileRollsInFirestore(verified);
       if (updated && updated.length > 0) {
         const updatedMap = new Map(updated.map((r) => [r.id, r]));
-        let nextRolls = rolls.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
-        let nextRecords = records;
+        const realignedRolls = new Map<string, FoilRoll>();
+        const realignedRecords = new Map<string, StockCutRecord>();
 
         // STRICT: same as the single-roll fix — also re-chain every roll's own
         // cut records so ใบงานที่ 1, 2, 3... ก่อนตัด/หลังตัด stay continuous,
         // not just the roll-level total.
         for (const roll of updated) {
           if (roll.isZeroedOut) continue;
-          const rollRecordIds = nextRecords.filter((r) => r.foilId === roll.id).map((r) => r.id);
+          const rollRecordIds = recordsRef.current.filter((r) => r.foilId === roll.id).map((r) => r.id);
           if (rollRecordIds.length === 0) continue;
           try {
             const { updatedRoll: realignedRoll, updatedRecords } = await realignRollCutChainInFirestore(roll.id, rollRecordIds);
-            nextRolls = nextRolls.map((r) => (r.id === realignedRoll.id ? realignedRoll : r));
-            const localUpdatedMap = new Map(updatedRecords.map((r) => [r.id, r]));
-            nextRecords = nextRecords.map((r) => (localUpdatedMap.has(r.id) ? localUpdatedMap.get(r.id)! : r));
+            realignedRolls.set(realignedRoll.id, realignedRoll);
+            updatedRecords.forEach((r) => realignedRecords.set(r.id, r));
           } catch (realignErr) {
             console.warn(`Notice: chain realign after bulk fix failed for roll ${roll.id}:`, realignErr);
           }
         }
 
-        updateRollsState(nextRolls);
-        updateRecordsState(nextRecords);
+        // Functional commits against the latest refs (the awaits above may have let
+        // the realtime listener deliver newer records/rolls).
+        commitRolls((prev) =>
+          prev.map((r) => realignedRolls.get(r.id) ?? updatedMap.get(r.id) ?? r)
+        );
+        if (realignedRecords.size > 0) {
+          commitRecords((prev) => prev.map((r) => realignedRecords.get(r.id) ?? r));
+        }
+
+        const nextRolls = rollsRef.current;
+        const nextRecords = recordsRef.current;
         showToast(`ปรับปรุงยอดคงเหลือตามใบตัด SO อัตโนมัติสำเร็จ ${updated.length} ม้วน เรียบร้อยแล้ว ✅`);
         const newIssues = checkStockIntegrity(nextRolls, nextRecords);
         setStockIntegrityIssues(newIssues);
@@ -2213,19 +2563,25 @@ const updated = [newRoll, ...rolls];
     try {
       const { updatedRoll, updatedRecords } = await realignRollCutChainInFirestore(rollId, recordIds);
 
-      // อัปเดตม้วน + ใส่ใบตัดที่ปรับแล้ว (รวมกรณีมีใบใหม่ที่ไม่ได้อยู่ใน state เดิม)
-      const nextRolls = rolls.map((r) => (r.id === updatedRoll.id ? updatedRoll : r));
+      // Functional commits: the realign awaited a round trip, so the render-time
+      // arrays may be missing changes the listener delivered in the meantime.
       const updatedMap = new Map(updatedRecords.map((r) => [r.id, r]));
-      const nextRecords = [
-        ...records.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r)),
-      ];
-      // ถ้ามี record จาก server ที่ไม่อยู่ใน state ให้เติมเข้าไป
-      updatedRecords.forEach((r) => {
-        if (!nextRecords.some((x) => x.id === r.id)) nextRecords.push(r);
+      commitRolls((prev) => prev.map((r) => (r.id === updatedRoll.id ? updatedRoll : r)));
+      commitRecords((prev) => {
+        const mapped = prev.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
+        // ถ้ามี record จาก server ที่ไม่อยู่ใน state ให้เติมเข้าไป
+        const have = new Set(mapped.map((r) => r.id));
+        updatedRecords.forEach((r) => {
+          if (!have.has(r.id)) {
+            mapped.push(r);
+            have.add(r.id);
+          }
+        });
+        return mapped;
       });
 
-      updateRollsState(nextRolls);
-      updateRecordsState(nextRecords);
+      const nextRolls = rollsRef.current;
+      const nextRecords = recordsRef.current;
       const { result: realignSnapshot } = createBackupSnapshot(nextRolls, nextRecords, 'realign_chain');
 
       const newIssues = checkStockIntegrity(nextRolls, nextRecords);
@@ -2555,17 +2911,24 @@ const updated = [newRoll, ...rolls];
         onOpenExcelExport={() => setIsExcelExportOpen(true)}
       />
 
-      {pendingCutCount > 0 && (
+      {(pendingCutCount > 0 || pendingRecordEditCount > 0) && (
         <div
           role="status"
           className="bg-amber-100 border-b border-amber-300 text-amber-900 text-sm px-4 py-2 flex flex-wrap items-center justify-between gap-2"
         >
           <span>
-            ⚠️ มีรายการตัดสต๊อก {pendingCutCount} รายการที่ยังไม่ขึ้น Cloud — ยอดบนเครื่องอื่นยังไม่เปลี่ยน ระบบจะส่งให้อัตโนมัติเมื่อมีสัญญาณ
+            {pendingCutCount > 0 &&
+              `⚠️ มีรายการตัดสต๊อก ${pendingCutCount} รายการที่ยังไม่ขึ้น Cloud — ยอดบนเครื่องอื่นยังไม่เปลี่ยน ระบบจะส่งให้อัตโนมัติเมื่อมีสัญญาณ`}
+            {pendingCutCount > 0 && pendingRecordEditCount > 0 && ' · '}
+            {pendingRecordEditCount > 0 &&
+              `มีใบแก้ไข SO ${pendingRecordEditCount} รายการที่ยังไม่ขึ้น Cloud — ระบบจะส่งให้อัตโนมัติเมื่อมีสัญญาณ`}
           </span>
           <button
             type="button"
-            onClick={() => void flushPendingCuts()}
+            onClick={() => {
+              void flushPendingCuts();
+              void flushPendingRecordEdits();
+            }}
             className="px-3 py-1 rounded bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
           >
             ส่งตอนนี้
@@ -2655,7 +3018,7 @@ const updated = [newRoll, ...rolls];
             onToggleZeroOut={(rollId, zeroOut) => requireEditorPermission(() => handleToggleZeroOut(rollId, zeroOut))}
             onOpenBatchImport={() => requireEditorPermission(() => setIsBatchImportOpen(true))}
             onUpdateRoll={(updatedRoll) => requireEditorPermission(() => handleUpdateRoll(updatedRoll))}
-            onEditRoll={(roll) => requireEditorPermission(() => setEditingRoll(roll))}
+            onEditRoll={(roll) => requireEditorPermission(() => handleOpenEditRoll(roll))}
             userMode={userMode}
             onRequestUnlock={() => requireEditorPermission(() => {})}
           />
@@ -2739,8 +3102,49 @@ const updated = [newRoll, ...rolls];
             onManualFetchFromCloud={handleManualFetchFromCloud}
             onRestoreData={(newRolls, newRecords) => {
               requireEditorPermission(() => {
-                updateRollsState(newRolls);
-                updateRecordsState(newRecords);
+                void (async () => {
+                  // กู้คืนในเครื่องก่อน แล้วถามว่าจะอัปโหลดขึ้น Cloud ด้วยไหม
+                  // มิฉะนั้น listener จะซิงค์ข้อมูลเก่าจาก Cloud กลับมาทับการกู้คืนในไม่ช้า
+                  updateRollsState(newRolls);
+                  updateRecordsState(newRecords);
+
+                  const ok = await confirmAction({
+                    title: 'กู้คืนข้อมูล',
+                    message:
+                      'กู้คืนข้อมูลในเครื่องแล้ว ต้องการอัปโหลดขึ้น Cloud เพื่อให้ทุกเครื่องเห็นและไม่ถูกทับกลับหรือไม่?',
+                    confirmLabel: 'อัปโหลดขึ้น Cloud',
+                    tone: 'primary',
+                  });
+
+                  if (!ok) {
+                    showToast(
+                      'กู้คืนข้อมูลในเครื่องแล้ว (ไม่ได้อัปโหลดขึ้น Cloud) — ข้อมูลอาจถูกทับกลับเมื่อซิงค์จาก Cloud',
+                      'info'
+                    );
+                    return;
+                  }
+
+                  try {
+                    const result = await uploadAllToFirestore(newRolls, newRecords);
+                    const protectNote =
+                      result.rollsStockProtected > 0
+                        ? ` · คงยอดสต๊อกตาม Cloud ${result.rollsStockProtected} ม้วน`
+                        : '';
+                    const skipNote =
+                      result.recordsSkippedExisting > 0
+                        ? ` · ข้ามใบตัดที่มีอยู่แล้ว ${result.recordsSkippedExisting} ใบ`
+                        : '';
+                    showToast(
+                      `อัปโหลดข้อมูลที่กู้คืนขึ้น Cloud สำเร็จ (${result.rollsUploaded} ม้วน / ${result.recordsUploaded} รายการ)${protectNote}${skipNote}`,
+                      'success'
+                    );
+                  } catch (err: any) {
+                    showToast(
+                      `อัปโหลดข้อมูลที่กู้คืนขึ้น Cloud ไม่สำเร็จ — ${err?.message || err} · ข้อมูลที่กู้คืนอยู่ในเครื่องนี้เท่านั้น`,
+                      'error'
+                    );
+                  }
+                })();
               });
             }}
             onResetData={() => requireEditorPermission(handleResetData)}
@@ -2887,7 +3291,7 @@ const updated = [newRoll, ...rolls];
           records={records}
           onClose={() => setDetailRoll(null)}
           onOpenCutForThisRoll={handleOpenCutForRoll}
-          onEditRoll={(roll) => requireEditorPermission(() => setEditingRoll(roll))}
+          onEditRoll={(roll) => requireEditorPermission(() => handleOpenEditRoll(roll))}
           onEditCutRecord={(rec) => requireEditorPermission(() => setEditingCutRecord(rec))}
           onFixRoll={handleFixRoll}
           onRealignChain={handleRealignChain}

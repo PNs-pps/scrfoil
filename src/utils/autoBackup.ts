@@ -387,7 +387,27 @@ export function exportFullBackupJSON(rolls: FoilRoll[], records: StockCutRecord[
   URL.revokeObjectURL(url);
 }
 
-export function parseAndValidateBackupJSON(jsonContent: string): { rolls: FoilRoll[]; records: StockCutRecord[] } {
+export interface ParsedBackupData {
+  rolls: FoilRoll[];
+  records: StockCutRecord[];
+  /** จำนวนรายการตัดที่ต้อง normalize ยอด (เดิมถูกทิ้งไปเพราะ filter เข้มเกินไป) */
+  coercedRecords: number;
+  /** จำนวนม้วนที่ต้อง normalize ยอด */
+  coercedRolls: number;
+  /** จำนวนรายการตัดทั้งหมดที่มีในไฟล์ (ก่อนกรอง) */
+  totalRecords: number;
+  /** จำนวนม้วนทั้งหมดที่มีในไฟล์ (ก่อนกรอง) */
+  totalRolls: number;
+}
+
+/**
+ * อ่าน/ตรวจไฟล์สำรอง JSON
+ *
+ * เดิมโค้ดจะ "ทิ้ง" ทุกรายการที่ totalDeducted ไม่ใช่ number โดยเงียบ ๆ ทำให้ยอดตัด
+ * หายไปจากประวัติหลัง restore. ตอนนี้เก็บทุกรายการที่มี soNumber แล้ว normalize
+ * ยอดตัดแทน (ถ้า totalDeducted ใช้ไม่ได้ ให้คำนวณจาก |used| + |ng|)
+ */
+export function parseAndValidateBackupJSON(jsonContent: string): ParsedBackupData {
   const parsed = JSON.parse(jsonContent);
   if (!parsed) throw new Error('ไฟล์ว่างหรือไม่ถูกต้อง');
 
@@ -401,12 +421,47 @@ export function parseAndValidateBackupJSON(jsonContent: string): { rolls: FoilRo
     records = parsed.data?.records || parsed.records || [];
   }
 
-  // Validate rolls
-  const validatedRolls = rolls.filter(r => r && typeof r.lotNumber === 'string' && typeof r.remainingMeters === 'number');
-  const validatedRecords = records.filter(r => r && typeof r.soNumber === 'string' && typeof r.totalDeducted === 'number');
+  const totalRolls = rolls.length;
+  const totalRecords = records.length;
+
+  // Keep every cut that has a string soNumber; only normalize its numbers.
+  let coercedRecords = 0;
+  const validatedRecords = records
+    .filter((r) => r && typeof r.soNumber === 'string')
+    .map((r) => {
+      const used = Number(r.usedMeters) || 0;
+      const ng = Number(r.ngMeters) || 0;
+      const rawTotal = Number(r.totalDeducted);
+      const totalDeducted = Number.isFinite(rawTotal) ? rawTotal : Math.abs(used) + Math.abs(ng);
+      if (
+        !Number.isFinite(rawTotal) ||
+        !Number.isFinite(Number(r.usedMeters)) ||
+        !Number.isFinite(Number(r.ngMeters))
+      ) {
+        coercedRecords += 1;
+      }
+      return { ...r, usedMeters: used, ngMeters: ng, totalDeducted } as StockCutRecord;
+    });
+
+  // Keep every roll that has a string lotNumber; derive missing numbers.
+  let coercedRolls = 0;
+  const validatedRolls = rolls
+    .filter((r) => r && typeof r.lotNumber === 'string')
+    .map((r) => {
+      const totalMeters = Number(r.totalMeters) || 0;
+      const remainingMeters = Number(r.remainingMeters) || totalMeters || 0;
+      if (!Number.isFinite(Number(r.remainingMeters)) || !Number.isFinite(Number(r.totalMeters))) {
+        coercedRolls += 1;
+      }
+      return { ...r, remainingMeters, totalMeters } as FoilRoll;
+    });
 
   return {
     rolls: validatedRolls,
     records: validatedRecords,
+    coercedRecords,
+    coercedRolls,
+    totalRecords,
+    totalRolls,
   };
 }

@@ -93,6 +93,27 @@ export function enqueuePendingCut(
   return savePendingCuts(entries, storage);
 }
 
+/**
+ * รหัสม้วน (foilId) ทั้งหมดที่ยังมีรายการตัดค้างอยู่ในคิว
+ * ใช้เพื่อรู้ว่าม้วนใดมียอดที่ยังไม่ขึ้น Cloud จะได้ไม่ไปทับ/สรุปผิดระหว่างรอ retry
+ * คืน Set ว่างเมื่อไม่มีคิวหรืออ่าน storage ไม่ได้
+ */
+export function getPendingCutRollIds(storage: StorageLike | null = defaultStorage()): Set<string> {
+  const ids = new Set<string>();
+  try {
+    for (const entry of loadPendingCuts(storage)) {
+      for (const record of entry.records) {
+        if (record && typeof record.foilId === 'string' && record.foilId) {
+          ids.add(record.foilId);
+        }
+      }
+    }
+  } catch {
+    return new Set<string>();
+  }
+  return ids;
+}
+
 export function removePendingCut(
   queueId: string,
   storage: StorageLike | null = defaultStorage()

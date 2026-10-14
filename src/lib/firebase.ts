@@ -529,11 +529,86 @@ export function sanitizeForFirestore<T>(obj: T): T {
 
 /**
  * Save or update a single Foil Roll in Firestore
+ *
+ * When `options.expectedStock` is provided, the write becomes a read-then-write
+ * transaction: if the row's authoritative stock has moved on since this device
+ * last saw it (another device cut/synced), the stock/system fields are left
+ * untouched and only the descriptive metadata is written. The result's
+ * `stockProtected` flag tells the caller to warn the operator.
  */
-export async function saveFoilRollToFirestore(roll: FoilRoll): Promise<void> {
+export async function saveFoilRollToFirestore(
+  roll: FoilRoll,
+  options?: { expectedStock?: { remainingMeters: number; totalMeters: number } }
+): Promise<{ stockProtected: boolean }> {
   try {
     const ref = doc(db, ROLLS_COLLECTION, roll.id);
-    await setDoc(ref, sanitizeForFirestore(roll), { merge: true });
+    const expected = options?.expectedStock;
+
+    // ข้อมูลที่แก้ได้โดยไม่กระทบยอดสต๊อก — ใช้ทั้งตอน stock ถูกแก้จากเครื่องอื่น
+    // และตอนออฟไลน์ (ที่ compare-and-set ทำไม่ได้)
+    const metadataOnly = {
+      lotNumber: roll.lotNumber,
+      rollNumber: roll.rollNumber,
+      width: roll.width,
+      pattern: roll.pattern,
+      dateReceived: roll.dateReceived,
+      notes: roll.notes,
+    };
+
+    // No compare-and-set requested: keep the original plain merge write.
+    if (!expected) {
+      await setDoc(ref, sanitizeForFirestore(roll), { merge: true });
+      return { stockProtected: false };
+    }
+
+    try {
+      return await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const server = snap.exists() ? (snap.data() as FoilRoll) : undefined;
+
+        const stockChanged =
+          !!server &&
+          Math.abs(Number(server.remainingMeters) - Number(expected.remainingMeters)) > 0.01;
+
+        if (stockChanged && server) {
+          // สต๊อกบน server เปลี่ยนไปแล้ว (เครื่องอื่นตัด/ซิงก์) — ห้ามทับด้วยยอดที่ค้าง
+          // เขียนเฉพาะข้อมูลม้วน แล้วคงยอดสต๊อก/สถานะของ server ไว้เป็นค่าจริง
+          tx.set(
+            ref,
+            sanitizeForFirestore({
+              ...metadataOnly,
+              remainingMeters: server.remainingMeters,
+              usedMeters: server.usedMeters,
+              ngMeters: server.ngMeters,
+              status: server.status,
+              isZeroedOut: server.isZeroedOut,
+              isUnused: server.isUnused,
+              recentCuts: server.recentCuts,
+              manualZeroedOriginalMeters: server.manualZeroedOriginalMeters,
+              totalMeters: server.totalMeters,
+            }),
+            { merge: true }
+          );
+          return { stockProtected: true };
+        }
+
+        tx.set(ref, sanitizeForFirestore(roll), { merge: true });
+        return { stockProtected: false };
+      });
+    } catch (txErr: any) {
+      // Firestore's offline outbox does NOT replay transactions, so when we are
+      // offline the compare-and-set cannot be deferred — it would otherwise
+      // reject and the edit would be silently lost while the UI said "queued".
+      // Fall back to a metadata-only merge write, which IS queued by the outbox,
+      // so the descriptive edit still lands and authoritative stock is never
+      // overwritten. Only network-shaped errors take this path; terminal errors
+      // (permissions/rules) still propagate to the caller.
+      const code: string | undefined = txErr?.code;
+      const isOffline = code === 'unavailable' || code === 'deadline-exceeded';
+      if (!isOffline) throw txErr;
+      await setDoc(ref, sanitizeForFirestore(metadataOnly), { merge: true });
+      return { stockProtected: true };
+    }
   } catch (err: any) {
     console.warn('Notice: Could not write roll to Firestore:', err?.message || err);
     throw err;
@@ -2323,6 +2398,42 @@ export async function applyCycleCountAdjustments(
 
 export const SO_AUDIT_COLLECTION = 'so_audit_logs';
 
+// คิว retry สำหรับ audit log: เดิมถ้าเขียนพลาดจะทิ้งไปเลย (มีแค่ console.warn)
+// ทำให้ประวัติ audit หายเงียบ ๆ ตอนเน็ตสะดุด. เก็บไว้ในหน่วยความจำแล้ว retry
+// เป็นรอบ ๆ จนกว่าจะสำเร็จ (จำกัดจำนวนเพื่อไม่ให้หน่วยความจำบาน)
+const auditRetryQueue: SOAuditLogItem[] = [];
+const AUDIT_QUEUE_CAP = 500;
+const AUDIT_RETRY_DELAY_MS = 30_000;
+let auditRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleAuditFlush(): void {
+  if (auditRetryTimer) return;
+  try {
+    auditRetryTimer = setTimeout(() => {
+      auditRetryTimer = null;
+      void flushAuditQueue();
+    }, AUDIT_RETRY_DELAY_MS);
+  } catch {
+    auditRetryTimer = null;
+  }
+}
+
+/** เขียนรายการ audit ที่ค้างอยู่ในคิวซ้ำ (สำเร็จแล้วเอาออก, พลาดเก็บไว้แล้วนัด retry ใหม่) */
+export async function flushAuditQueue(): Promise<void> {
+  if (!db || auditRetryQueue.length === 0) return;
+  const pending = auditRetryQueue.slice();
+  for (const item of pending) {
+    try {
+      await setDoc(doc(db, SO_AUDIT_COLLECTION, item.id), sanitizeForFirestore(item));
+      const idx = auditRetryQueue.indexOf(item);
+      if (idx >= 0) auditRetryQueue.splice(idx, 1);
+    } catch (err: any) {
+      console.warn('⚠️ [Firestore] Audit log retry failed:', err?.message || err);
+    }
+  }
+  if (auditRetryQueue.length > 0) scheduleAuditFlush();
+}
+
 /**
  * บันทึกรายการ SO Audit Log เข้า Firestore
  */
@@ -2333,6 +2444,11 @@ export async function saveSOAuditLogInFirestore(auditItem: SOAuditLogItem): Prom
     await setDoc(docRef, sanitizeForFirestore(auditItem));
   } catch (err: any) {
     console.warn('⚠️ [Firestore] Failed to save SO audit log:', err?.message || err);
+    if (!auditRetryQueue.some((i) => i.id === auditItem.id)) {
+      auditRetryQueue.push(auditItem);
+      while (auditRetryQueue.length > AUDIT_QUEUE_CAP) auditRetryQueue.shift();
+    }
+    scheduleAuditFlush();
   }
 }
 
@@ -2426,8 +2542,18 @@ export async function confirmProductionInFirestore(
       throw new Error(`ไม่พบม้วนฟอยล์ ${record.lotNumber} #${record.rollNumber} ในระบบ`);
     }
 
+    // Idempotency guard: กันกดยืนยันซ้ำ. ถ้ารายการนี้ถูกยืนยัน (ตัดจริง) ไปแล้ว
+    // ให้คืนค่าปัจจุบันบน server โดยไม่หักสต๊อกซ้ำอีก
+    if (record.cutStatus === 'completed' || record.confirmedAt) {
+      return { roll: rollSnap.data() as FoilRoll, record };
+    }
+    // รายการที่ถูกยกเลิกแล้ว ยืนยันผลิตไม่ได้
+    if (record.cutStatus === 'cancelled') {
+      throw new Error('ใบ SO นี้ถูกยกเลิกแล้ว ยืนยันผลิตไม่ได้');
+    }
+
     const serverRoll = rollSnap.data() as FoilRoll;
-    const totalDeduct = Math.abs(Number(record.totalDeducted || (record.usedMeters + record.ngMeters)));
+    const totalDeduct = Math.abs(Number(record.totalDeducted) || (Number(record.usedMeters || 0) + Number(record.ngMeters || 0)));
     const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
 
     if (totalDeduct > freshRemaining + 0.01) {

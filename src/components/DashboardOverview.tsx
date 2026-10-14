@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, getCanonicalPatternStyle } from '../utils/soFormatter';
 import { formatMeters, todayLocalISO } from '../utils/formatters';
+import { summarizeRollDeduction } from '../utils/integrityCheck';
 import {
   Package,
   Scissors,
@@ -77,9 +78,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   // --- FOIL METRICS ---
   const totalRemainingMeters = rolls.reduce((acc, r) => acc + Math.max(0, Number(r.remainingMeters) || 0), 0);
   const totalOriginalMeters = rolls.reduce((acc, r) => acc + r.totalMeters, 0);
-  const totalUsedMeters = records.reduce((acc, r) => acc + r.usedMeters, 0);
-  const totalNgMeters = records.reduce((acc, r) => acc + r.ngMeters, 0);
-  const totalDeductedMeters = totalUsedMeters + totalNgMeters;
+  // ใช้กฎหักยอดกลาง: ข้าม reserved/cancelled และคงเครื่องหมาย totalDeducted (Cycle Count คืนยอดติดลบ)
+  const deduction = summarizeRollDeduction(records);
+  const totalUsedMeters = deduction.used;
+  const totalNgMeters = deduction.ng;
+  const totalDeductedMeters = deduction.total;
   const ngRatePercent =
     totalDeductedMeters > 0
       ? ((totalNgMeters / totalDeductedMeters) * 100).toFixed(1)
