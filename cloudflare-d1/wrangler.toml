@@ -4,10 +4,7 @@
 # 3) ใส่ database_id ด้านล่าง
 # 4) wrangler d1 execute foil-stock-backups --file=./schema.sql
 # 5) ตั้ง secret: wrangler secret put BACKUP_SECRET
-# 6) (แนะนำ) ใช้ Firebase ID token แทน secret ใน client:
-#    ตั้ง FIREBASE_PROJECT_IDS และ ALLOWED_EMAILS ใน [vars] ด้านล่าง
-#    ทดสอบจนใช้ได้ แล้วค่อยตั้ง DISABLE_SECRET_AUTH = "1" เพื่อปิด secret
-# 7) wrangler deploy
+# 6) wrangler deploy
 
 name = "foil-stock-d1-backup"
 main = "src/index.ts"
@@ -22,9 +19,3 @@ database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 [vars]
 # อย่าใส่ secret จริงตรงนี้ — ใช้ wrangler secret put BACKUP_SECRET
 APP_NAME = "scrfoil-backup"
-
-# Firebase project id ของแอป (คั่นด้วย , ได้หลายโปรเจกต์) และอีเมลเจ้าหน้าที่ที่ใช้ API ได้
-# FIREBASE_PROJECT_IDS = "your-project-id"
-# ALLOWED_EMAILS = "staff1@example.com,staff2@example.com"
-# DISABLE_SECRET_AUTH = "1"
-# ALLOWED_ORIGIN = "https://your-app-domain.example"
