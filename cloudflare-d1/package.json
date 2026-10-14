@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:create": "wrangler d1 create foil-stock-backups",
-    "db:schema": "wrangler d1 execute foil-stock-backups --file=./schema.sql",
+    "db:create": "wrangler d1 create scrfoil_cloundflare_d1",
+    "db:schema": "wrangler d1 execute scrfoil_cloundflare_d1 --file=./schema.sql",
     "secret": "wrangler secret put BACKUP_SECRET"
   },
   "devDependencies": {

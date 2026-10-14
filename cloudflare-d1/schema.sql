@@ -1,5 +1,5 @@
 -- Cloudflare D1 schema: snapshot backups for foil stock app
--- Run once: wrangler d1 execute FOIL_BACKUPS --file=./schema.sql
+-- Run once: wrangler d1 execute scrfoil_cloundflare_d1 --file=./schema.sql
 
 CREATE TABLE IF NOT EXISTS backups (
   id TEXT PRIMARY KEY,
