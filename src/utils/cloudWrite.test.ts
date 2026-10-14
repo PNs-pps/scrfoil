@@ -67,6 +67,48 @@ describe('trackCloudWrite', () => {
   });
 });
 
+describe('trackCloudWrite late rejection', () => {
+  it('delivers a rejection that arrives after the write was reported queued', async () => {
+    let rejectLater: (e: unknown) => void = () => {};
+    const write = new Promise<void>((_, reject) => {
+      rejectLater = reject;
+    });
+    const late = vi.fn();
+    const outcome = await trackCloudWrite(write, 10, late);
+    expect(outcome.kind).toBe('queued');
+    expect(late).not.toHaveBeenCalled();
+
+    rejectLater(firebaseError('permission-denied'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(late.mock.calls[0][0].kind).toBe('rejected');
+  });
+
+  it('does not call the late handler for a rejection already returned to the caller', async () => {
+    const late = vi.fn();
+    const outcome = await trackCloudWrite(
+      Promise.reject(firebaseError('permission-denied')),
+      50,
+      late
+    );
+    expect(outcome.kind).toBe('rejected');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(late).not.toHaveBeenCalled();
+  });
+
+  it('does not call the late handler when a queued write later commits', async () => {
+    let resolveLater: () => void = () => {};
+    const write = new Promise<void>((resolve) => {
+      resolveLater = resolve;
+    });
+    const late = vi.fn();
+    await trackCloudWrite(write, 10, late);
+    resolveLater();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(late).not.toHaveBeenCalled();
+  });
+});
+
 describe('describeWriteFailure', () => {
   beforeEach(() => {
     vi.restoreAllMocks();

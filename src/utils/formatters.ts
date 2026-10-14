@@ -5,6 +5,21 @@ import { FoilRoll } from '../types';
  */
 
 /**
+ * วันที่ตามเวลาเครื่อง (YYYY-MM-DD) ของค่าวันที่ที่อาจเป็น ISO timestamp
+ *
+ * ค่าแบบ "YYYY-MM-DD" ถูกคืนตามเดิม (เป็นวันที่ท้องถิ่นอยู่แล้ว) ส่วน ISO ที่มีเวลา
+ * (เช่น createdAt = 2026-10-13T18:30:00Z) จะแปลงเป็นวันที่ท้องถิ่น — การตัด 10 ตัวอักษรแรก
+ * ทำให้รายการช่วง 00:00-07:00 น. (เวลาไทย) ตกเป็นของเมื่อวาน
+ */
+export const localDateKey = (value?: string | null): string => {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value.slice(0, 10);
+  return todayLocalISO(d);
+};
+
+/**
  * วันที่ปัจจุบันตามเวลาเครื่อง (YYYY-MM-DD)
  * ใช้แทน new Date().toISOString().slice(0, 10) ที่เป็นเวลา UTC
  * ซึ่งทำให้วันที่ผิดเป็นของเมื่อวานช่วง 00:00-07:00 น. (เวลาไทย)

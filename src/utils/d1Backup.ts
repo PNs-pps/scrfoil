@@ -2,22 +2,19 @@
  * Client สำหรับสำรอง/กู้คืน snapshot ไป Cloudflare D1 (ผ่าน Worker)
  * เก็บเฉพาะ URL + secret ใน localStorage — ไม่แทนที่ Firebase realtime
  *
- * NOTE ON `secret`: the real secret lives only in the Worker
- * (`wrangler secret put BACKUP_SECRET`) and is never in the source or the
- * bundle. This copy in localStorage is the client half of a shared-secret
- * scheme: the Worker has to be told "this request is trusted", and today that
- * proof is the same value. So anyone who can open devtools on the shared tablet
- * can read it and replay it against the Worker directly.
+ * AUTH: every request carries the signed-in user's Firebase ID token
+ * (`Authorization: Bearer <idToken>`). The Worker verifies it against Google's
+ * keys and a staff-email allow-list (FIREBASE_PROJECT_IDS / ALLOWED_EMAILS), so no
+ * long-lived credential has to sit in the browser.
  *
- * That is a real weakness and it is NOT fixed here — it needs the Worker to
- * verify a Firebase ID token (`Authorization: Bearer <idToken>`, checked against
- * Google's JWKS and the staff email) instead of a shared secret, which removes
- * the credential from the client entirely. Until that lands, treat BACKUP_SECRET
- * as scoped to backup data only, rotate it if a device is lost, and do not reuse
- * that value anywhere else.
+ * `secret` is now OPTIONAL and only for Workers not yet switched to token auth. It
+ * is sent alongside the token when set. Once the Worker accepts tokens, clear it
+ * on every device and set DISABLE_SECRET_AUTH=1 on the Worker so a value copied
+ * out of localStorage stops working.
  */
 
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord, CycleCountSession } from '../types';
+import { auth } from '../lib/firebase';
 
 const CONFIG_KEY = 'pufoam_d1_backup_config_v1';
 
@@ -86,6 +83,19 @@ function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, '');
 }
 
+async function getIdTokenSafe(): Promise<string | null> {
+  try {
+    return (await auth.currentUser?.getIdToken()) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when a request could carry credentials (signed in, or a legacy secret is set). */
+export function hasD1Credentials(config: D1BackupConfig = getD1BackupConfig()): boolean {
+  return Boolean(config.workerUrl) && (Boolean(config.secret) || Boolean(auth.currentUser));
+}
+
 async function d1Fetch(
   path: string,
   options: RequestInit & { config?: D1BackupConfig } = {}
@@ -95,13 +105,15 @@ async function d1Fetch(
   if (!base) {
     throw new Error('ยังไม่ได้ตั้ง Worker URL ของ Cloudflare D1');
   }
-  if (!config.secret) {
-    throw new Error('ยังไม่ได้ตั้งรหัสลับ (BACKUP_SECRET)');
+  const idToken = await getIdTokenSafe();
+  if (!idToken && !config.secret) {
+    throw new Error('ยังไม่ได้เข้าสู่ระบบ และไม่ได้ตั้งรหัสลับ (BACKUP_SECRET) — ไม่มีข้อมูลยืนยันตัวตนส่งไป Worker');
   }
 
   const { config: _c, ...init } = options;
   const headers = new Headers(init.headers || {});
-  headers.set('X-Backup-Secret', config.secret);
+  if (idToken) headers.set('Authorization', `Bearer ${idToken}`);
+  if (config.secret) headers.set('X-Backup-Secret', config.secret);
   if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
@@ -130,8 +142,8 @@ export async function testD1Connection(
     };
   }
 
-  if (!cfg.secret) {
-    return { ok: true, message: 'Worker ทำงาน — ยังไม่ได้ใส่รหัสลับ (ใส่แล้วค่อยสำรองได้)' };
+  if (!cfg.secret && !auth.currentUser) {
+    return { ok: true, message: 'Worker ทำงาน — เข้าสู่ระบบก่อนจึงจะทดสอบสิทธิ์ได้' };
   }
 
   try {
@@ -140,12 +152,12 @@ export async function testD1Connection(
     if (!res.ok) {
       return {
         ok: false,
-        message: data?.error || `รหัสลับหรือสิทธิ์ไม่ผ่าน (HTTP ${res.status})`,
+        message: data?.error || `สิทธิ์ไม่ผ่าน (HTTP ${res.status})`,
       };
     }
     return {
       ok: true,
-      message: `เชื่อมต่อ D1 สำเร็จ — มี snapshot ${(data?.backups || []).length >= 0 ? 'พร้อมใช้งาน' : ''}`,
+      message: 'เชื่อมต่อ D1 สำเร็จ — ยืนยันสิทธิ์ผ่านแล้ว พร้อมสำรอง',
     };
   } catch (err: any) {
     return { ok: false, message: String(err?.message || err) };

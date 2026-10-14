@@ -38,6 +38,38 @@ export interface IntegrityMismatch {
 // Small tolerance to absorb floating point rounding noise, not real discrepancies.
 const TOLERANCE_METERS = 0.05;
 
+/**
+ * Total stock deduction implied by a roll's cut records, using exactly the rules
+ * checkStockIntegrity applies: reserved / cancelled records deduct nothing, and
+ * totalDeducted keeps its sign (Cycle Count returns are negative).
+ *
+ * Exported so a repair can be computed from the FULL record set read from Cloud
+ * instead of whatever subset happens to be cached in the browser.
+ */
+export function summarizeRollDeduction(records: StockCutRecord[]): {
+  total: number;
+  used: number;
+  ng: number;
+  count: number;
+} {
+  let total = 0;
+  let used = 0;
+  let ng = 0;
+  let count = 0;
+  records.forEach((rec) => {
+    if (rec.cutStatus === 'reserved' || rec.cutStatus === 'cancelled') return;
+    const safeUsed = Math.abs(Number(rec.usedMeters || 0));
+    const safeNg = Math.abs(Number(rec.ngMeters || 0));
+    const rawTotal = Number(rec.totalDeducted);
+    const deducted = Number.isFinite(rawTotal) ? rawTotal : safeUsed + safeNg;
+    used = round2(used + safeUsed);
+    ng = round2(ng + safeNg);
+    total = round2(total + deducted);
+    count += 1;
+  });
+  return { total, used, ng, count };
+}
+
 export interface CheckStockIntegrityOptions {
   excludeZeroedOut?: boolean;
 }
@@ -50,6 +82,9 @@ export function checkStockIntegrity(
   const deductionByRoll = new Map<string, { total: number; used: number; ng: number; count: number }>();
 
   records.forEach((rec) => {
+    // รายการจองรอตัด หรือยกเลิก จะยังไม่ถูกหักสต๊อกจริงจากม้วน
+    if (rec.cutStatus === 'reserved' || rec.cutStatus === 'cancelled') return;
+
     const existing = deductionByRoll.get(rec.foilId) || { total: 0, used: 0, ng: 0, count: 0 };
     // usedMeters / ngMeters are always non-negative (production cuts).
     // totalDeducted is SIGNED: positive = stock out, negative = stock in

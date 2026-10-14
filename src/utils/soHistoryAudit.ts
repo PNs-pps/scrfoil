@@ -1,7 +1,8 @@
 import { FoilRoll, StockCutRecord } from '../types';
-import { round2 } from './formatters';
+import { round2, formatMeters } from './formatters';
 
 export type SOBugType = 
+  | 'RESERVED_SO_QUEUE'       // มีคิวจอง SO รอดำเนินการตัดบนม้วนนี้ (รอตัดจริง)
   | 'DUPLICATE_SO_EXACT'      // รหัส SO เดียวกันและยอดเมตรเท่ากันเป๊ะ (กรอกซ้ำเพราะประวัติไม่ขึ้น)
   | 'SPLIT_PRODUCTION_BATCH'  // รหัส SO เดียวกันแต่เมตรต่างกัน (แบ่งรอบการผลิตปกติ)
   | 'DUPLICATE_SO_MULTIPLE'   // รหัส SO เดียวกันถูกตัดมากกว่า 1 ครั้งในม้วนนี้
@@ -42,6 +43,8 @@ export interface TimelineStep {
   isExactDuplicateSO: boolean;
   isSplitProduction: boolean;
   roundIndex?: number;
+  isReserved?: boolean;
+  isCancelled?: boolean;
 }
 
 export interface RollSOAuditResult {
@@ -195,6 +198,8 @@ export function auditRollSOHistory(
   const timeline: TimelineStep[] = [];
 
   sortedRecords.forEach((rec, idx) => {
+    const isReserved = rec.cutStatus === 'reserved';
+    const isCancelled = rec.cutStatus === 'cancelled';
     const safeUsed = Math.abs(Number(rec.usedMeters || 0));
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
     // totalDeducted is SIGNED: + = stock out, - = stock in (Cycle Count เพิ่มยอด)
@@ -203,22 +208,26 @@ export function auditRollSOHistory(
     const safeBefore = Number(rec.remainingBefore ?? 0);
     const safeAfter = Number(rec.remainingAfter ?? 0);
 
-    totalUsed = round2(totalUsed + safeUsed);
-    totalNg = round2(totalNg + safeNg);
-    totalDeducted = round2(totalDeducted + signedTotal);
+    // รายการจองรอตัด หรือยกเลิก จะยังไม่ถูกหักสต๊อกจริงจากม้วน
+    if (!isReserved && !isCancelled) {
+      totalUsed = round2(totalUsed + safeUsed);
+      totalNg = round2(totalNg + safeNg);
+      totalDeducted = round2(totalDeducted + signedTotal);
+    }
 
     // Math check: for normal cuts, used + ng == total (positive).
     // For stock-in adjustments (totalDeducted < 0, used=0, ng=0) skip this check.
     const isStockInAdjustment = signedTotal < 0 && safeUsed === 0 && safeNg === 0;
-    const mathSumDiff = isStockInAdjustment
+    const mathSumDiff = isStockInAdjustment || isReserved || isCancelled
       ? 0
       : Math.abs(signedTotal - (safeUsed + safeNg));
     const mathSubDiff = Math.abs(safeBefore - signedTotal - safeAfter);
     const isMathValid =
-      mathSumDiff < TOLERANCE &&
-      (rec.remainingBefore === undefined || mathSubDiff < TOLERANCE);
+      isReserved || isCancelled ||
+      (mathSumDiff < TOLERANCE &&
+      (rec.remainingBefore === undefined || mathSubDiff < TOLERANCE));
 
-    if (mathSumDiff >= TOLERANCE) {
+    if (!isReserved && !isCancelled && mathSumDiff >= TOLERANCE) {
       issues.push({
         id: `math-sum-${rec.id}`,
         type: 'MATH_DISCREPANCY',
@@ -232,48 +241,48 @@ export function auditRollSOHistory(
       });
     }
 
-    // Negative used/ng is always an error. Negative totalDeducted is allowed
-    // only for Cycle Count / stock-in adjustments (used=0, ng=0).
-    if (rec.usedMeters < 0 || rec.ngMeters < 0) {
-      issues.push({
-        id: `neg-${rec.id}`,
-        type: 'NEGATIVE_VALUE',
-        severity: 'error',
-        title: `พบตัวเลขติดลบในรายการ SO ${rec.soNumber || '-'}`,
-        description: `ตัดใช้: ${rec.usedMeters} ม., NG: ${rec.ngMeters} ม., รวมตัด: ${rec.totalDeducted} ม.`,
-        soNumber: rec.soNumber,
-        recordId: rec.id,
-        suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก',
-      });
-    } else if (signedTotal < 0 && !isStockInAdjustment) {
-      issues.push({
-        id: `neg-${rec.id}`,
-        type: 'NEGATIVE_VALUE',
-        severity: 'error',
-        title: `พบยอดตัดติดลบผิดปกติในรายการ SO ${rec.soNumber || '-'}`,
-        description: `รวมตัด: ${rec.totalDeducted} ม. (ไม่ใช่รายการนับสต๊อกคืนยอด)`,
-        soNumber: rec.soNumber,
-        recordId: rec.id,
-        suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก หรือเป็นรายการนับสต๊อกที่ถูกต้อง',
-      });
-    } else if (signedTotal === 0 && !isStockInAdjustment) {
-      issues.push({
-        id: `zero-${rec.id}`,
-        type: 'ZERO_METER_CUT',
-        severity: 'info',
-        title: `รายการ SO ${rec.soNumber || '-'} มียอดตัด 0 เมตร`,
-        description: 'ไม่มีการหักสต๊อกในรายการนี้',
-        soNumber: rec.soNumber,
-        recordId: rec.id,
-      });
+    if (!isReserved && !isCancelled) {
+      if (rec.usedMeters < 0 || rec.ngMeters < 0) {
+        issues.push({
+          id: `neg-${rec.id}`,
+          type: 'NEGATIVE_VALUE',
+          severity: 'error',
+          title: `พบตัวเลขติดลบในรายการ SO ${rec.soNumber || '-'}`,
+          description: `ตัดใช้: ${rec.usedMeters} ม., NG: ${rec.ngMeters} ม., รวมตัด: ${rec.totalDeducted} ม.`,
+          soNumber: rec.soNumber,
+          recordId: rec.id,
+          suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก',
+        });
+      } else if (signedTotal < 0 && !isStockInAdjustment) {
+        issues.push({
+          id: `neg-${rec.id}`,
+          type: 'NEGATIVE_VALUE',
+          severity: 'error',
+          title: `พบยอดตัดติดลบผิดปกติในรายการ SO ${rec.soNumber || '-'}`,
+          description: `รวมตัด: ${rec.totalDeducted} ม. (ไม่ใช่รายการนับสต๊อกคืนยอด)`,
+          soNumber: rec.soNumber,
+          recordId: rec.id,
+          suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก หรือเป็นรายการนับสต๊อกที่ถูกต้อง',
+        });
+      } else if (signedTotal === 0 && !isStockInAdjustment) {
+        issues.push({
+          id: `zero-${rec.id}`,
+          type: 'ZERO_METER_CUT',
+          severity: 'info',
+          title: `รายการ SO ${rec.soNumber || '-'} มียอดตัด 0 เมตร`,
+          description: 'ไม่มีการหักสต๊อกในรายการนี้',
+          soNumber: rec.soNumber,
+          recordId: rec.id,
+        });
+      }
     }
 
     // Continuity jump check: compare actual before to runningRemaining
     const expectedBefore = runningRemaining;
     const jumpDiff = round2(safeBefore - expectedBefore);
-    const isChainValid = idx === 0 || Math.abs(jumpDiff) < TOLERANCE;
+    const isChainValid = isReserved || isCancelled || idx === 0 || Math.abs(jumpDiff) < TOLERANCE;
 
-    if (!isChainValid && Math.abs(jumpDiff) >= TOLERANCE) {
+    if (!isReserved && !isCancelled && !isChainValid && Math.abs(jumpDiff) >= TOLERANCE) {
       issues.push({
         id: `jump-${rec.id}`,
         type: 'METER_JUMP',
@@ -289,8 +298,10 @@ export function auditRollSOHistory(
       });
     }
 
-    // Update running expected remaining after this cut (signedTotal may be negative = stock in)
-    runningRemaining = round2(expectedBefore - signedTotal);
+    // Update running expected remaining after this cut (only if physically cut)
+    if (!isReserved && !isCancelled) {
+      runningRemaining = round2(expectedBefore - signedTotal);
+    }
 
     const soKey = (rec.soNumber || '').trim().toUpperCase();
     const allCutsForSO = soMap.get(soKey) || [];
@@ -317,8 +328,33 @@ export function auditRollSOHistory(
       isExactDuplicateSO,
       isSplitProduction,
       roundIndex,
+      isReserved,
+      isCancelled,
     });
   });
+
+  // ตรวจสอบคิวจอง SO ที่รอดำเนินการตัดบนม้วนนี้
+  const reservedRecords = sortedRecords.filter((r) => r.cutStatus === 'reserved');
+  const totalReservedMeters = round2(
+    reservedRecords.reduce(
+      (sum, r) => sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
+      0
+    )
+  );
+
+  if (reservedRecords.length > 0) {
+    const soListStr = reservedRecords.map((r) => r.soNumber).filter(Boolean).join(', ');
+    issues.push({
+      id: `reserved-so-${roll.id}`,
+      type: 'RESERVED_SO_QUEUE',
+      severity: 'info',
+      title: `ม้วนรอตัด SO: ${soListStr || '-'} (จองไว้ ${formatMeters(totalReservedMeters)} ม.)`,
+      description: `ม้วนนี้มีคิวจองรอตัด ${reservedRecords.length} รายการ ยอดจองรวม ${formatMeters(totalReservedMeters)} ม. (ผลิตจริงแล้วจะเหลือ ${formatMeters(Math.max(0, Number(roll.remainingMeters || 0) - totalReservedMeters))} ม.) สต๊อกจริงจะถูกหักเมื่อกดยืนยันว่าผลิตจริงแล้ว`,
+      soNumber: soListStr,
+      affectedMeters: totalReservedMeters,
+      suggestedAction: 'กดยืนยันว่าผลิตจริงแล้วเมื่อเครื่องจักรตัดชิ้นงานเสร็จ เพื่อตัดสต๊อกจริง',
+    });
+  }
 
   // 2.5 ใบนับสต๊อกซ้ำช่วงเดียวกัน (มักเกิดจากกดบันทึกซ้ำ)
   const ccByPeriod = new Map<string, typeof sortedRecords>();
@@ -387,24 +423,38 @@ export function auditRollSOHistory(
       });
     }
   } else {
+    // ตรวจสอบคิวจอง SO ที่รอดำเนินการตัดบนม้วนนี้
+    const reservedRecordsForRoll = sortedRecords.filter((r) => r.cutStatus === 'reserved');
+    const totalReservedMetersForRoll = round2(
+      reservedRecordsForRoll.reduce(
+        (sum, r) => sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
+        0
+      )
+    );
+
     // Check if remainingMeters does not match calculatedRemaining
     if (Math.abs(diff) > TOLERANCE) {
       const isZeroBug = currentRemaining === 0 && calculatedRemaining > 0;
-      issues.push({
-        id: `master-diff-${roll.id}`,
-        type: 'MASTER_ROLL_MISMATCH',
-        severity: 'error',
-        title: isZeroBug
-          ? `⚠️ ยอดคงเหลือม้วนกลายเป็น 0 ม. (คำนวณจากใบตัด SO ควรเหลือ ${calculatedRemaining} ม.)`
-          : `ยอดคงเหลือหน้าสต๊อกไม่ตรงกับผลรวมตัด SO (ผลต่าง ${diff > 0 ? '+' : ''}${diff} ม.)`,
-        description: isZeroBug
-          ? `สต๊อกหน้าแอปแสดง 0 ม. แต่คำนวณจากยอดรับเข้า (${roll.totalMeters} ม.) หักยอดตัดจริงทุกใบ (${totalDeducted} ม.) ควรเหลือ ${calculatedRemaining} ม. สามารถกดปุ่มปรับยอดเพื่อคืนสต๊อกได้ทันที`
-          : `สต๊อกหน้าแอปแสดง: ${currentRemaining} ม. แต่คำนวณจากยอดรับเข้า (${roll.totalMeters} ม.) ลบยอดตัดจริงทุกใบ (${totalDeducted} ม.) ควรเหลือ ${calculatedRemaining} ม.`,
-        affectedMeters: Math.abs(diff),
-        expectedValue: calculatedRemaining,
-        actualValue: currentRemaining,
-        suggestedAction: `ปรับยอดคงเหลือม้วนนี้ให้ตรงกับยอดคำนวณจริงจากใบสั่งตัด SO (${calculatedRemaining} ม.)`,
-      });
+      // ถ้าม้วนนี้มียอดจองรอตัด และความต่างตรงกับยอดจอง ให้แจ้งเป็นข้อมูลคิวรอตัด SO แทนการแจ้งเตือนยอดไม่ตรง
+      if (reservedRecordsForRoll.length > 0 && Math.abs(diff - totalReservedMetersForRoll) <= TOLERANCE) {
+        // ยอดคงเหลือตรงกับยอดก่อนตัด โดยมียอดจองรอตัดอยู่ ไม่ถือเป็นบัคยอดไม่ตรง
+      } else {
+        issues.push({
+          id: `master-diff-${roll.id}`,
+          type: 'MASTER_ROLL_MISMATCH',
+          severity: 'error',
+          title: isZeroBug
+            ? `⚠️ ยอดคงเหลือม้วนกลายเป็น 0 ม. (คำนวณจากใบตัด SO ควรเหลือ ${calculatedRemaining} ม.)`
+            : `ยอดคงเหลือหน้าสต๊อกไม่ตรงกับผลรวมตัด SO (ผลต่าง ${diff > 0 ? '+' : ''}${diff} ม.)`,
+          description: isZeroBug
+            ? `สต๊อกหน้าแอปแสดง 0 ม. แต่คำนวณจากยอดรับเข้า (${roll.totalMeters} ม.) หักยอดตัดจริงทุกใบ (${totalDeducted} ม.) ควรเหลือ ${calculatedRemaining} ม. สามารถกดปุ่มปรับยอดเพื่อคืนสต๊อกได้ทันที`
+            : `สต๊อกหน้าแอปแสดง: ${currentRemaining} ม. แต่คำนวณจากยอดรับเข้า (${roll.totalMeters} ม.) ลบยอดตัดจริงทุกใบ (${totalDeducted} ม.) ควรเหลือ ${calculatedRemaining} ม.`,
+          affectedMeters: Math.abs(diff),
+          expectedValue: calculatedRemaining,
+          actualValue: currentRemaining,
+          suggestedAction: `ปรับยอดคงเหลือม้วนนี้ให้ตรงกับยอดคำนวณจริงจากใบสั่งตัด SO (${calculatedRemaining} ม.)`,
+        });
+      }
     }
   }
 

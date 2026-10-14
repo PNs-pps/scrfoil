@@ -340,6 +340,43 @@ export function buildSOAuditLogItem(params: {
 }
 
 /**
+ * สร้างอินสแตนซ์ SOAuditLogItem สำหรับการตรวจรับรองความถูกต้อง (VERIFY)
+ */
+export function buildSOVerificationLogItem(params: {
+  recordType: 'foil' | 'sandwich';
+  recordId: string;
+  soNumber: string;
+  verifiedBy: string;
+  rollInfo?: SOAuditLogItem['rollInfo'];
+  notes?: string;
+}): SOAuditLogItem {
+  const now = new Date().toISOString();
+  return {
+    id: `verify-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+    timestamp: now,
+    action: 'VERIFY',
+    recordType: params.recordType,
+    recordId: params.recordId,
+    soNumber: params.soNumber,
+    operator: params.verifiedBy,
+    rollInfo: params.rollInfo,
+    reason: params.notes || 'ตรวจรับรองความถูกต้องของรายการเรียบร้อย',
+    diffs: [
+      {
+        field: 'verificationStatus',
+        label: 'สถานะการตรวจรับรอง',
+        oldValue: 'รอตรวจสอบ',
+        newValue: 'ผ่านการรับรองแล้ว',
+      },
+    ],
+    summary: `รับรองความถูกต้อง SO: ${params.soNumber} โดย ${params.verifiedBy}`,
+    verificationStatus: 'verified',
+    verifiedBy: params.verifiedBy,
+    verifiedAt: now,
+  };
+}
+
+/**
  * ส่งออกรายการ Audit Logs เป็นไฟล์ CSV สำหรับเปิดใน Microsoft Excel
  */
 export function exportAuditLogsToCSV(logs: SOAuditLogItem[]): void {

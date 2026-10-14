@@ -77,24 +77,51 @@ export function classifyWriteError(err: any): CloudWriteOutcome {
 /**
  * Await a Firestore write and classify the result, reporting `queued` if it has
  * still not settled after `graceMs`.
+ *
+ * `onLateRejection` closes a gap that `queued` alone leaves open: once we have
+ * reported `queued` the caller believes the write is safely in Firestore's outbox,
+ * but the outbox can still be refused later (rules, auth expiry). That rejection
+ * used to be swallowed here, which stranded the local copy forever. It is now
+ * delivered exactly once, and only when the outcome we already returned was
+ * `queued` — a rejection that is returned directly is the caller's to handle.
  */
 export async function trackCloudWrite(
   write: Promise<unknown>,
-  graceMs: number = PENDING_WRITE_GRACE_MS
+  graceMs: number = PENDING_WRITE_GRACE_MS,
+  onLateRejection?: (outcome: Extract<CloudWriteOutcome, { kind: 'rejected' }>) => void
 ): Promise<CloudWriteOutcome> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
+  let reportedQueued = false;
+
   const queued = new Promise<CloudWriteOutcome>((resolve) => {
-    timer = setTimeout(() => resolve({ kind: 'queued' }), graceMs);
+    timer = setTimeout(() => {
+      if (settled) return;
+      reportedQueued = true;
+      resolve({ kind: 'queued' });
+    }, graceMs);
+  });
+
+  const classified = write.then(
+    (): CloudWriteOutcome => ({ kind: 'committed' }),
+    (err) => classifyWriteError(err)
+  );
+
+  // Observe the final result independently of the race so a late rejection is
+  // never lost, and never produces an unhandled rejection either.
+  void classified.then((outcome) => {
+    settled = true;
+    if (reportedQueued && outcome.kind === 'rejected' && onLateRejection) {
+      try {
+        onLateRejection(outcome);
+      } catch (cbErr) {
+        console.warn('onLateRejection handler threw:', cbErr);
+      }
+    }
   });
 
   try {
-    return await Promise.race<CloudWriteOutcome>([
-      write.then(
-        (): CloudWriteOutcome => ({ kind: 'committed' }),
-        (err) => classifyWriteError(err)
-      ),
-      queued,
-    ]);
+    return await Promise.race<CloudWriteOutcome>([classified, queued]);
   } finally {
     if (timer) clearTimeout(timer);
   }

@@ -1,5 +1,5 @@
 import { FoilRoll, StockCutRecord } from '../types';
-import { todayLocalISO } from './formatters';
+import { todayLocalISO, localDateKey } from './formatters';
 
 export interface DateGroupedIncoming {
   date: string; // YYYY-MM-DD
@@ -28,7 +28,7 @@ export function groupRollsByDateReceived(rolls: FoilRoll[]): DateGroupedIncoming
 
   rolls.forEach((roll) => {
     // Extract YYYY-MM-DD from dateReceived or createdAt
-    const dateStr = (roll.dateReceived || roll.createdAt || '').slice(0, 10) || 'ไม่ระบุวันที่';
+    const dateStr = localDateKey(roll.dateReceived || roll.createdAt) || 'ไม่ระบุวันที่';
     const list = groupsMap.get(dateStr) || [];
     list.push(roll);
     groupsMap.set(dateStr, list);
@@ -76,7 +76,7 @@ export function groupCutsByDate(records: StockCutRecord[]): DateGroupedCuts[] {
   const groupsMap = new Map<string, StockCutRecord[]>();
 
   records.forEach((rec) => {
-    const dateStr = (rec.usageDate || rec.recordedDate || rec.createdAt || '').slice(0, 10) || 'ไม่ระบุวันที่';
+    const dateStr = localDateKey(rec.usageDate || rec.recordedDate || rec.createdAt) || 'ไม่ระบุวันที่';
     const list = groupsMap.get(dateStr) || [];
     list.push(rec);
     groupsMap.set(dateStr, list);
