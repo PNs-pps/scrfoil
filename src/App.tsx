@@ -17,7 +17,8 @@ import {
   saveStoredSOAuditLogs, 
   computeCutRecordDiff, 
   computeSandwichCutDiff, 
-  buildSOAuditLogItem 
+  buildSOAuditLogItem,
+  buildSOVerificationLogItem
 } from './utils/auditLogger';
 import { 
   subscribeToFoilRolls, 
@@ -36,6 +37,7 @@ import {
   updateStockCutRecordInFirestore,
   reconcileRollsInFirestore,
   realignRollCutChainInFirestore,
+  recomputeAdjustmentsFromServer,
   uploadAllToFirestore,
   testFirestoreConnection,
   fetchAllCutRecordsFromFirestore,
@@ -43,6 +45,11 @@ import {
   saveCycleCountSession,
   applyCycleCountAdjustments,
   deleteCycleCountSession,
+  saveReservationRecordInFirestore,
+  confirmProductionInFirestore,
+  reallocateReservationRollInFirestore,
+  cancelProductionInFirestore,
+  fetchFoilRollFromServer,
   firebaseConfig,
   activeTarget,
   setActiveTarget,
@@ -61,6 +68,7 @@ import { AddFoilModal } from './components/AddFoilModal';
 import { EditFoilModal } from './components/EditFoilModal';
 import { CutStockModal } from './components/CutStockModal';
 import { EditSOCutModal } from './components/EditSOCutModal';
+import { SODetailModal } from './components/SODetailModal';
 import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
 import { MonthlySummaryModal } from './components/MonthlySummaryModal';
 import { ExcelExportModal } from './components/ExcelExportModal';
@@ -78,15 +86,26 @@ import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, isStaffEmail, getStaffEmails, hasOperatorPassword, resetToVisitorMode, UserMode } from './utils/auth';
 import { confirmAction } from './utils/confirmAction';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON, getAllDueD1ScheduleSlots, markD1ScheduleSlotRun, getLastSnapshotFailure } from './utils/autoBackup';
-import { getD1BackupConfig, uploadBackupToD1 } from './utils/d1Backup';
+import { getD1BackupConfig, hasD1Credentials, uploadBackupToD1 } from './utils/d1Backup';
 import { trackCloudWrite, describeWriteFailure } from './utils/cloudWrite';
+import {
+  classifyCutFailure,
+  enqueuePendingCut,
+  loadPendingCuts,
+  notePendingCutAttempt,
+  removePendingCut,
+} from './utils/pendingCutQueue';
 import { summarizeBatch, BatchWriteOutcome } from './utils/batchReconcile';
 import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
 import { playFeedback } from './utils/feedback';
+import { SOAuditHubView } from './components/SOAuditHubView';
+import { SOReservationHubView } from './components/SOReservationHubView';
+import { ReallocateRollModal } from './components/ReallocateRollModal';
+import { CancelProductionModal } from './components/CancelProductionModal';
 import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X, Workflow } from 'lucide-react';
 
-type AppTab = 'dashboard' | 'rolls' | 'history' | 'settings';
+type AppTab = 'dashboard' | 'rolls' | 'history' | 'audit' | 'settings';
 
 export default function App() {
   const [rolls, setRolls] = useState<FoilRoll[]>([]);
@@ -122,11 +141,11 @@ export default function App() {
   const [activeTab, setActiveTabRaw] = useState<AppTab>(() => {
     try {
       const hash = window.location.hash.replace('#', '') as string;
-      if (['dashboard', 'rolls', 'history', 'settings'].includes(hash)) {
+      if (['dashboard', 'rolls', 'history', 'audit', 'settings'].includes(hash)) {
         return hash as AppTab;
       }
       const saved = sessionStorage.getItem('scrfoil_active_tab') as string;
-      if (saved && ['dashboard', 'rolls', 'history', 'settings'].includes(saved)) {
+      if (saved && ['dashboard', 'rolls', 'history', 'audit', 'settings'].includes(saved)) {
         return saved as AppTab;
       }
     } catch {}
@@ -246,6 +265,9 @@ export default function App() {
   const [detailRoll, setDetailRoll] = useState<FoilRoll | null>(null);
   const [editingRoll, setEditingRoll] = useState<FoilRoll | null>(null);
   const [editingCutRecord, setEditingCutRecord] = useState<StockCutRecord | null>(null);
+  const [selectedSODetailRecord, setSelectedSODetailRecord] = useState<StockCutRecord | null>(null);
+  const [reallocatingRecord, setReallocatingRecord] = useState<StockCutRecord | null>(null);
+  const [cancellingRecord, setCancellingRecord] = useState<StockCutRecord | null>(null);
   const [isMonthlySummaryOpen, setIsMonthlySummaryOpen] = useState(false);
   const [monthlySummaryScope, setMonthlySummaryScope] = useState<'all' | 'foil' | 'sandwich'>('all');
   const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
@@ -303,7 +325,6 @@ export default function App() {
     setPuSandwichRecords(loadedPuSandwich);
 
     // 2. Realtime listener for Foil Rolls (activeOnly: false เพื่อให้ทุกบัญชีรวมทั้ง non-admin ดูม้วนที่หมดแล้วได้)
-    let isInitialRollsFetch = true;
     const unsubRolls = subscribeToFoilRolls(
       (firestoreRolls) => {
         setRolls((prev: FoilRoll[]) => {
@@ -355,21 +376,14 @@ export default function App() {
             setArchiveLoaded(true);
           }
 
-          const next =
-            activeRolls.length > 0 || firestoreRolls.length === 0
-              ? activeRolls.length > 0
-                ? activeRolls
-                : mergedServer
-              : prev;
-
-          if (activeRolls.length > 0 || firestoreRolls.length === 0) {
-            saveStoredRolls(next);
-          } else if (isInitialRollsFetch && loadedRolls.length > 0) {
-            uploadAllToFirestore(loadedRolls, loadedRecords).catch((err) => {
-              console.warn('Initial cloud seed notice:', err);
-            });
-          }
-          isInitialRollsFetch = false;
+          // The listener covers the whole collection, so this snapshot IS the set of
+          // rolls. Previously, when the server had rolls but none active, this kept
+          // `prev` — leaving rolls that another device had just depleted showing as
+          // available here — and "seeded" Cloud from this device's localStorage,
+          // which can resurrect rolls someone deleted. (An empty snapshot served from
+          // cache never reaches here; the subscription drops it.)
+          const next = activeRolls;
+          saveStoredRolls(next);
           return next;
         });
         setSyncStatus('connected');
@@ -439,15 +453,27 @@ export default function App() {
           setIsCached(fromCache);
         },
         onExternalChange: () => setExternalUpdateAvailable(true),
+        // Records pushed out of the 200-window are NOT deleted; only drop ids the
+        // server confirms are gone.
+        onConfirmedRemoval: (ids) => {
+          setRecords((prev) => {
+            const gone = new Set(ids.filter((id) => !isRecentLocalWrite(id)));
+            if (gone.size === 0) return prev;
+            const next = prev.filter((r) => !gone.has(r.id));
+            saveStoredCutRecords(next);
+            return next;
+          });
+        },
       }
     );
 
     // 4. Realtime listener for PU Sandwich Cuts (ไม่ใช้ฟอยล์)
     const unsubSandwich = subscribeToPuSandwichCuts(
-      (firestoreSandwich) => {
+      (firestoreSandwich, removedIds) => {
         setPuSandwichRecords((prev) => {
           const map = new Map<string, PuSandwichCutRecord>();
           prev.forEach((r) => map.set(r.id, r));
+          (removedIds || []).forEach((id) => map.delete(id));
           firestoreSandwich.forEach((r) => map.set(r.id, r));
           const merged = Array.from(map.values());
           merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -533,7 +559,7 @@ export default function App() {
 
       // Also sync to cloud if enabled and online
       if (config.autoSyncCloud && syncStatus === 'connected') {
-        uploadAllToFirestore(rolls, records).catch((err) => {
+        uploadAllToFirestore(rolls, records, { createOnly: true }).catch((err) => {
           console.warn('Background auto cloud backup notice:', err);
         });
       }
@@ -565,7 +591,7 @@ export default function App() {
       if (dueSlots.length === 0) return;
 
       const d1Config = getD1BackupConfig();
-      if (!d1Config.workerUrl || !d1Config.secret) return;
+      if (!hasD1Credentials(d1Config)) return;
 
       dueSlots.forEach(markD1ScheduleSlotRun);
       uploadBackupToD1({
@@ -680,10 +706,26 @@ export default function App() {
     rollsRef.current = rolls;
   }, [rolls]);
 
+  const recordsRef = useRef<StockCutRecord[]>([]);
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
+
   const updateRecordsState = (newRecords: StockCutRecord[]) => {
+    recordsRef.current = newRecords;
     setRecords(newRecords);
     saveStoredCutRecords(newRecords);
   };
+
+  /** Functional update against the latest records (safe to call after an await). */
+  const commitRecords = (updater: (prev: StockCutRecord[]) => StockCutRecord[]) => {
+    updateRecordsState(updater(recordsRef.current));
+  };
+
+  // Cuts that could not reach Cloud yet (see utils/pendingCutQueue.ts).
+  const [pendingCutCount, setPendingCutCount] = useState<number>(() => loadPendingCuts().length);
+  const cutInFlightRef = useRef(false);
+  const pendingFlushRef = useRef(false);
 
   // Manual save all data to Firebase Firestore
   const handleManualSaveToCloud = async () => {
@@ -695,15 +737,19 @@ export default function App() {
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
       const protectNote =
         result.rollsStockProtected > 0
-          ? ` · กันทับสต๊อก ${result.rollsStockProtected} ม้วนที่ server ใหม่กว่า`
+          ? ` · คงยอดสต๊อกตาม Cloud ${result.rollsStockProtected} ม้วน (ยอดคงเหลือเปลี่ยนได้ผ่านการตัดสต๊อกเท่านั้น)`
+          : '';
+      const unverifiedNote =
+        result.unverifiedSkipped > 0
+          ? ` · ข้าม ${result.unverifiedSkipped} รายการที่อ่านสถานะจาก Cloud ไม่ได้ (ไม่ได้เขียนทับ) — ลองใหม่เมื่อสัญญาณดี`
           : '';
       const skipNote =
         result.recordsSkippedExisting > 0
           ? ` · ข้ามใบตัดที่มีอยู่แล้ว ${result.recordsSkippedExisting} ใบ`
           : '';
       showToast(
-        `ซิงค์ขึ้น Cloud สำเร็จ: ม้วน ${result.rollsUploaded} · ใบตัดใหม่ ${result.recordsUploaded}${protectNote}${skipNote}`,
-        'success'
+        `ซิงค์ขึ้น Cloud สำเร็จ: ม้วน ${result.rollsUploaded} · ใบตัดใหม่ ${result.recordsUploaded}${protectNote}${skipNote}${unverifiedNote}`,
+        result.unverifiedSkipped > 0 ? 'info' : 'success'
       );
     } catch (err: any) {
       console.warn('Notice: Could not upload to Firestore:', err?.message || err);
@@ -873,7 +919,14 @@ const updated = [newRoll, ...rolls];
     updateRollsState(updated);
 
     // Save to Firestore Realtime
-    void trackCloudWrite(saveFoilRollToFirestore(newRoll)).then((outcome) => {
+    void trackCloudWrite(saveFoilRollToFirestore(newRoll), undefined, (late) => {
+      // Reported "queued" earlier, then Cloud refused it for good: roll it back so
+      // this device does not keep a roll that will never exist on Cloud.
+      console.warn('Queued new roll was rejected later:', late.message);
+      setSyncStatus('permission-denied');
+      commitRolls((prev) => prev.filter((r) => r.id !== newRoll.id));
+      showToast(`ม้วน ${newRoll.lotNumber} #${newRoll.rollNumber} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
+    }).then((outcome) => {
       if (outcome.kind === 'committed') {
         setSyncStatus('connected');
         setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
@@ -910,7 +963,14 @@ const updated = [newRoll, ...rolls];
     const updated = rolls.map(r => r.id === updatedRoll.id ? updatedRoll : r);
     updateRollsState(updated);
 
-    const outcome = await trackCloudWrite(saveFoilRollToFirestore(updatedRoll));
+    const outcome = await trackCloudWrite(saveFoilRollToFirestore(updatedRoll), undefined, (late) => {
+      console.warn('Queued roll edit was rejected later:', late.message);
+      setSyncStatus('permission-denied');
+      if (previous) {
+        commitRolls((prev) => prev.map((r) => (r.id === previous.id ? previous : r)));
+      }
+      showToast(`แก้ไขม้วน ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
+    });
 
     if (outcome.kind === 'committed') {
       setSyncStatus('connected');
@@ -965,7 +1025,12 @@ const updated = [newRoll, ...rolls];
     const outcomes: BatchWriteOutcome[] = [];
 
     for (const r of newRolls) {
-      const outcome = await trackCloudWrite(saveFoilRollToFirestore(r));
+      const outcome = await trackCloudWrite(saveFoilRollToFirestore(r), undefined, (late) => {
+        console.warn(`Queued batch roll ${r.lotNumber} #${r.rollNumber} rejected later:`, late.message);
+        setSyncStatus('permission-denied');
+        commitRolls((prev) => prev.filter((x) => x.id !== r.id));
+        showToast(`ม้วน ${r.lotNumber} #${r.rollNumber} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
+      });
 
       if (outcome.kind === 'rejected') {
         console.warn(
@@ -1096,8 +1161,24 @@ const updated = [newRoll, ...rolls];
   };
 
   // Cut stock handler (supports single roll batch and multi-roll import batch)
+  // One cut submit at a time. Each submit mints fresh record ids, so the
+  // server-side duplicate guard cannot catch a second concurrent submit of the same
+  // sheet (double tap, or two import paths firing together). Serialising here is
+  // what actually prevents a double deduction.
   const handleConfirmCutBatch = async (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]): Promise<void> => {
     if (!batchData || batchData.length === 0) return;
+    if (cutInFlightRef.current) {
+      throw new Error('กำลังบันทึกรายการตัดก่อนหน้าอยู่ — รอให้เสร็จก่อนแล้วลองใหม่ (ป้องกันตัดซ้ำ)');
+    }
+    cutInFlightRef.current = true;
+    try {
+      await handleConfirmCutBatchInner(batchData);
+    } finally {
+      cutInFlightRef.current = false;
+    }
+  };
+
+  const handleConfirmCutBatchInner = async (batchData: Omit<StockCutRecord, 'id' | 'createdAt'>[]): Promise<void> => {
 
     if (!currentUserEmail || !isStaffEmail(currentUserEmail)) {
       setErrorAlert({
@@ -1146,48 +1227,92 @@ const updated = [newRoll, ...rolls];
     const fallbackRollsMap = new Map<string, FoilRoll>();
     rolls.forEach((r) => fallbackRollsMap.set(r.id, r));
 
-    // Pre-calculate local roll deduction state as guaranteed offline fallback
-    const localUpdatedRolls = rolls.map((r) => {
-      const recordsForThisRoll = createdRecords.filter((rec) => rec.foilId === r.id);
-      if (recordsForThisRoll.length === 0) return r;
-      const totalUsedThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.usedMeters, 0));
-      const totalNgThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.ngMeters, 0));
-      const totalDeductedThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.totalDeducted, 0));
-      const newRemaining = Math.max(0, round2(r.remainingMeters - totalDeductedThis));
-      const newUsed = round2((r.usedMeters || 0) + totalUsedThis);
-      const newNg = round2((r.ngMeters || 0) + totalNgThis);
-
-      const recent = [
-        ...recordsForThisRoll.map((rec) => ({
-          id: rec.id,
-          soNumber: rec.soNumber || '',
-          cutType: rec.cutType || 'so',
-          usedMeters: rec.usedMeters,
-          ngMeters: rec.ngMeters,
-          totalDeducted: rec.totalDeducted,
-          remainingAfter: rec.remainingAfter,
-          usageDate: rec.usageDate,
-          recordedDate: rec.recordedDate,
-          recordedBy: rec.recordedBy,
-          notes: rec.notes || '',
-        })),
-        ...(r.recentCuts || []),
-      ].slice(0, 50);
-
-      return {
-        ...r,
-        remainingMeters: newRemaining,
-        usedMeters: newUsed,
-        ngMeters: newNg,
-        status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
-        depletedAt: newRemaining <= 0 ? (r.depletedAt || new Date().toISOString()) : undefined,
-        isUnused: false,
-        recentCuts: recent,
+    // หากเป็นรายการจองรอตัด (คิวผลิต) — บันทึกคิวจองโดยยังไม่หักสต๊อกม้วนฟอยล์จริง
+    const isReservationBatch = createdRecords.every((r) => r.cutStatus === 'reserved');
+    if (isReservationBatch) {
+      commitRecords((prev) => [...prev, ...createdRecords]);
+      const undoReservation = () => {
+        const ids = new Set(createdRecords.map((r) => r.id));
+        commitRecords((prev) => prev.filter((r) => !ids.has(r.id)));
       };
-    });
+      let anyQueued = false;
+      for (const rec of createdRecords) {
+        // A reservation is a plain write, so Firestore's own outbox holds it offline.
+        // Awaiting it directly would hang forever without a connection.
+        const outcome = await trackCloudWrite(saveReservationRecordInFirestore(rec), undefined, (late) => {
+          console.warn('Queued reservation rejected later:', late.message);
+          setSyncStatus('permission-denied');
+          commitRecords((prev) => prev.filter((r) => r.id !== rec.id));
+          showToast(`คิวจอง SO ${rec.soNumber || ''} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
+        });
+        if (outcome.kind === 'rejected') {
+          undoReservation();
+          setSyncStatus(outcome.reason === 'rules' ? 'permission-denied' : 'error');
+          throw new Error(`จองคิวไม่สำเร็จ — ${describeWriteFailure(outcome)} (ยกเลิกการจองทั้งชุดแล้ว)`);
+        }
+        if (outcome.kind === 'queued') anyQueued = true;
+      }
+      if (anyQueued) {
+        setSyncStatus('offline');
+        showToast('บันทึกคิวจองในเครื่องแล้ว (รอสัญญาณเพื่อซิงค์ Cloud)', 'info');
+        return;
+      }
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+      showToast(
+        createdRecords.length === 1
+          ? `จองคิว SO ${single?.soNumber || ''} สำเร็จ! (${formatMeters(single.usedMeters)} ม. + NG ${formatMeters(single.ngMeters)} ม.) รอตัดจริง 🟡`
+          : `บันทึกคิวจอง SO สำเร็จ ${createdRecords.length} รายการ! รวม ${formatMeters(totalDeductedAll)} ม. รอตัดจริง 🟡`,
+        'success'
+      );
+      return;
+    }
+
+    // Local-only deduction, used when the cut is queued for later. Takes the list to
+    // transform so it can be applied to the *current* rolls rather than a copy that
+    // went stale while the transaction was awaited.
+    const applyLocalDeduction = (list: FoilRoll[]): FoilRoll[] =>
+      list.map((r) => {
+        const recordsForThisRoll = createdRecords.filter((rec) => rec.foilId === r.id);
+        if (recordsForThisRoll.length === 0) return r;
+        const totalUsedThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.usedMeters, 0));
+        const totalNgThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.ngMeters, 0));
+        const totalDeductedThis = round2(recordsForThisRoll.reduce((s, rec) => s + rec.totalDeducted, 0));
+        const newRemaining = Math.max(0, round2(r.remainingMeters - totalDeductedThis));
+        const newUsed = round2((r.usedMeters || 0) + totalUsedThis);
+        const newNg = round2((r.ngMeters || 0) + totalNgThis);
+
+        const recent = [
+          ...recordsForThisRoll.map((rec) => ({
+            id: rec.id,
+            soNumber: rec.soNumber || '',
+            cutType: rec.cutType || 'so',
+            usedMeters: rec.usedMeters,
+            ngMeters: rec.ngMeters,
+            totalDeducted: rec.totalDeducted,
+            remainingAfter: rec.remainingAfter,
+            usageDate: rec.usageDate,
+            recordedDate: rec.recordedDate,
+            recordedBy: rec.recordedBy,
+            notes: rec.notes || '',
+          })),
+          ...(r.recentCuts || []),
+        ].slice(0, 50);
+
+        return {
+          ...r,
+          remainingMeters: newRemaining,
+          usedMeters: newUsed,
+          ngMeters: newNg,
+          status: newRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+          depletedAt: newRemaining <= 0 ? (r.depletedAt || new Date().toISOString()) : undefined,
+          isUnused: false,
+          recentCuts: recent,
+        };
+      });
 
     try {
-      let finalRollsById = new Map<string, FoilRoll>();
+      const finalRollsById = new Map<string, FoilRoll>();
 
       if (rollIdsInvolved.length === 1) {
         const rollId = rollIdsInvolved[0];
@@ -1205,14 +1330,19 @@ const updated = [newRoll, ...rolls];
         finalRolls.forEach((r) => finalRollsById.set(r.id, r));
       }
 
-      // ✅ Transaction committed successfully — now sync local state to the
-      // server's authoritative roll data (not our own pre-cut calculation).
-      const updatedRolls = rolls.map((r) => finalRollsById.get(r.id) || r);
-      const updatedRecords = [...records, ...createdRecords];
-
-      updateRollsState(updatedRolls);
-      updateRecordsState(updatedRecords);
-      const { result: snapshotResult } = createBackupSnapshot(updatedRolls, updatedRecords, 'before_cut');
+      // ✅ Transaction committed — sync local state to the server's authoritative
+      // roll data. Applied to the CURRENT rolls/records: the transaction awaited a
+      // network round trip, so anything captured before it may be stale.
+      commitRolls((prev) => prev.map((r) => finalRollsById.get(r.id) || r));
+      commitRecords((prev) => {
+        const have = new Set(prev.map((r) => r.id));
+        return [...prev, ...createdRecords.filter((r) => !have.has(r.id))];
+      });
+      const { result: snapshotResult } = createBackupSnapshot(
+        rollsRef.current,
+        recordsRef.current,
+        'before_cut'
+      );
 
       setSyncStatus('connected');
       setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
@@ -1236,31 +1366,230 @@ const updated = [newRoll, ...rolls];
       warnIfSnapshotFailed(snapshotResult);
     } catch (err: any) {
       console.warn('Firebase transaction failed during stock cut:', err);
-      const isStockShortage = err?.message && err.message.includes('สต๊อกไม่พอ');
-      if (isStockShortage) {
+      const failure = classifyCutFailure(err);
+
+      if (failure === 'shortage') {
         throw err;
       }
 
-      // Offline or permissions failure: do NOT block the factory worker from cutting!
-      // Commit cut into local state & storage safely.
-      const updatedRecords = [...records, ...createdRecords];
-      updateRollsState(localUpdatedRolls);
-      updateRecordsState(updatedRecords);
-      createBackupSnapshot(localUpdatedRolls, updatedRecords, 'before_cut');
+      if (failure === 'terminal') {
+        // Cloud refused it for good (rules / auth / bad data / unexpected error).
+        // Nothing was deducted anywhere, so tell the operator it did NOT happen.
+        // Applying it locally would show stock that no other device and no report
+        // will ever see, and nothing would ever reconcile it.
+        const isPermissionError =
+          err?.code === 'permission-denied' || String(err?.message || '').includes('permission');
+        setSyncStatus(isPermissionError ? 'permission-denied' : 'error');
+        throw new Error(
+          `ตัดสต๊อกไม่สำเร็จ — ${
+            isPermissionError ? 'Cloud ไม่อนุญาตให้บันทึก (สิทธิ์เจ้าหน้าที่)' : err?.message || 'บันทึกขึ้น Cloud ไม่ได้'
+          } · ไม่มีการหักสต๊อก กรุณาตรวจสอบแล้วลองใหม่`
+        );
+      }
 
-      const isPermissionError = err?.code === 'permission-denied' || err?.message?.includes('permission');
-      setSyncStatus(isPermissionError ? 'permission-denied' : 'offline');
+      // Offline / transient: keep the factory floor moving, but only if the cut is
+      // durably queued for replay. If it cannot be persisted, refuse it rather than
+      // let a cut exist only in memory.
+      if (!enqueuePendingCut(createdRecords, err)) {
+        throw new Error(
+          'ออฟไลน์อยู่และบันทึกคิวในเครื่องไม่ได้ (พื้นที่เก็บข้อมูลเต็ม) — ยังไม่ได้ตัดสต๊อก กรุณาเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่'
+        );
+      }
+      setPendingCutCount(loadPendingCuts().length);
 
+      commitRolls(applyLocalDeduction);
+      commitRecords((prev) => {
+        const have = new Set(prev.map((r) => r.id));
+        return [...prev, ...createdRecords.filter((r) => !have.has(r.id))];
+      });
+      createBackupSnapshot(rollsRef.current, recordsRef.current, 'before_cut');
+
+      setSyncStatus('offline');
       showToast(
-        `บันทึกตัดสต๊อกในเครื่องแล้ว (${isPermissionError ? 'คลาวด์จำกัดสิทธิ์เจ้าหน้าที่' : 'รอสัญญาณเพื่อซิงค์ Cloud'})`,
+        `ตัดสต๊อกบันทึกในเครื่องแล้ว — ยังไม่ขึ้น Cloud ระบบจะส่งให้อัตโนมัติเมื่อมีสัญญาณ (ค้างอยู่ ${loadPendingCuts().length} รายการ)`,
         'info'
       );
     }
   };
 
+  /**
+   * Replay queued cuts through the same transaction. Safe to repeat: the
+   * transaction ignores record ids that already exist on the server.
+   */
+  const flushPendingCuts = async () => {
+    if (pendingFlushRef.current) return;
+    if (!auth.currentUser) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (loadPendingCuts().length === 0) return;
+
+    pendingFlushRef.current = true;
+    try {
+      for (const entry of loadPendingCuts()) {
+        const rollIds = Array.from(new Set(entry.records.map((r) => r.foilId)));
+        try {
+          const fallback = new Map<string, FoilRoll>();
+          rollsRef.current.forEach((r) => fallback.set(r.id, r));
+          const finals = new Map<string, FoilRoll>();
+          if (rollIds.length === 1) {
+            const fr = await executeCutBatchInFirestore(entry.records, rollIds[0], fallback.get(rollIds[0]));
+            finals.set(fr.id, fr);
+          } else {
+            const frs = await executeMultiRollCutBatchInFirestore(entry.records, fallback);
+            frs.forEach((r) => finals.set(r.id, r));
+          }
+          removePendingCut(entry.queueId);
+          commitRolls((prev) => prev.map((r) => finals.get(r.id) || r));
+          setSyncStatus('connected');
+          setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+          showToast(
+            `ส่งรายการตัดสต๊อกที่ค้างขึ้น Cloud สำเร็จ (${entry.records.length} รายการ)`,
+            'success',
+            { silent: true }
+          );
+        } catch (err: any) {
+          const kind = classifyCutFailure(err);
+          if (kind === 'retry') {
+            notePendingCutAttempt(entry.queueId, err);
+            break; // still offline — keep order, try again later
+          }
+
+          // The cut can never be applied (not enough stock now, or refused). Drop it
+          // and undo its local effect so this device stops showing a deduction that
+          // Cloud does not have, then pull the roll back from the server.
+          console.warn('Pending cut dropped:', err);
+          removePendingCut(entry.queueId);
+          const ids = new Set(entry.records.map((r) => r.id));
+          commitRecords((prev) => prev.filter((r) => !ids.has(r.id)));
+          for (const rid of rollIds) {
+            const fresh = await fetchFoilRollFromServer(rid);
+            if (fresh) commitRolls((prev) => prev.map((r) => (r.id === fresh.id ? fresh : r)));
+          }
+          const soList = Array.from(new Set(entry.records.map((r) => r.soNumber).filter(Boolean))).join(', ');
+          setErrorAlert({
+            isOpen: true,
+            title: 'รายการตัดสต๊อกที่ค้างอยู่ถูกยกเลิก',
+            message: `รายการตัดที่บันทึกไว้ตอนออฟไลน์ (SO ${soList || '-'}) ไม่สามารถส่งขึ้น Cloud ได้ จึงถูกยกเลิกและคืนยอดในเครื่องแล้ว`,
+            detail: `${kind === 'shortage' ? 'สต๊อกบน Cloud ไม่พอ (อาจมีเครื่องอื่นตัดไปก่อน) — ' : ''}${err?.message || ''} กรุณาตรวจสอบแล้วคีย์ใหม่หากยังต้องการตัด`,
+          });
+        }
+      }
+    } finally {
+      pendingFlushRef.current = false;
+      setPendingCutCount(loadPendingCuts().length);
+    }
+  };
+
+  // Always call the latest closure from timers/event listeners.
+  const flushPendingCutsRef = useRef(flushPendingCuts);
+  flushPendingCutsRef.current = flushPendingCuts;
+
+  useEffect(() => {
+    const run = () => void flushPendingCutsRef.current();
+    const first = window.setTimeout(run, 3000);
+    const interval = window.setInterval(run, 30000);
+    window.addEventListener('online', run);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(interval);
+      window.removeEventListener('online', run);
+    };
+  }, []);
+
   // Backward compatible single cut handler
   const handleConfirmCut = async (cutData: Omit<StockCutRecord, 'id' | 'createdAt'>) => {
     await handleConfirmCutBatch([cutData]);
+  };
+
+  /** ยืนยันว่าผลิตจริงแล้ว (หักสต๊อกม้วนฟอยล์และเปลี่ยนสถานะเป็น completed) */
+  const handleConfirmProduction = async (recordId: string, soNumber: string) => {
+    try {
+      const result = await confirmProductionInFirestore(recordId, currentUserEmail || 'ผู้ควบคุมงาน');
+      
+      // Update local rolls
+      setRolls((prev) => {
+        const next = prev.map((r) => (r.id === result.roll.id ? result.roll : r));
+        saveStoredRolls(next);
+        return next;
+      });
+
+      // Update local records
+      setRecords((prev) => {
+        const next = prev.map((r) => (r.id === result.record.id ? result.record : r));
+        saveStoredCutRecords(next);
+        return next;
+      });
+
+      if (selectedSODetailRecord && selectedSODetailRecord.id === recordId) {
+        setSelectedSODetailRecord(result.record);
+      }
+
+      showToast(`ยืนยันการผลิต SO ${soNumber} เรียบร้อย สต๊อกถูกหักตามจริงแล้ว ✅`, 'success');
+    } catch (err: any) {
+      console.error('handleConfirmProduction failed:', err);
+      showToast(`ยืนยันการผลิตไม่สำเร็จ: ${err?.message || 'เกิดข้อผิดพลาด'}`, 'error');
+    }
+  };
+
+  /** สลับเปลี่ยนม้วนฟอยล์สำหรับ SO (ย้ายการจองไปยังม้วนใหม่) */
+  const handleReallocateRoll = async (recordId: string, newRollId: string) => {
+    try {
+      const record = records.find((r) => r.id === recordId);
+      const newRoll = [...rolls, ...archivedRolls].find((r) => r.id === newRollId);
+      if (!record || !newRoll) {
+        showToast('ไม่พบข้อมูล SO หรือม้วนฟอยล์ปลายทาง', 'error');
+        return;
+      }
+      const updatedRecord = await reallocateReservationRollInFirestore(recordId, newRoll);
+      
+      setRecords((prev) => {
+        const next = prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r));
+        saveStoredCutRecords(next);
+        return next;
+      });
+
+      if (selectedSODetailRecord && selectedSODetailRecord.id === recordId) {
+        setSelectedSODetailRecord(updatedRecord);
+      }
+
+      setReallocatingRecord(null);
+      showToast(`เปลี่ยนม้วนฟอยล์สำหรับ SO ${record.soNumber} ไปยัง LOT ${newRoll.lotNumber} #${newRoll.rollNumber} เรียบร้อย ✅`, 'success');
+    } catch (err: any) {
+      console.error('handleReallocateRoll failed:', err);
+      showToast(`เปลี่ยนม้วนไม่สำเร็จ: ${err?.message || 'เกิดข้อผิดพลาด'}`, 'error');
+    }
+  };
+
+  /** ยกเลิกการผลิต SO (และคืนยอดกลับม้วนฟอยล์) */
+  const handleCancelProduction = async (recordId: string, reason?: string) => {
+    try {
+      const record = records.find((r) => r.id === recordId);
+      if (!record) return;
+      const result = await cancelProductionInFirestore(recordId, reason, currentUserEmail || 'ผู้ควบคุมงาน');
+      
+      if (result.roll) {
+        setRolls((prev) => {
+          const next = prev.map((r) => (r.id === result.roll!.id ? result.roll! : r));
+          saveStoredRolls(next);
+          return next;
+        });
+      }
+
+      setRecords((prev) => {
+        const next = prev.map((r) => (r.id === result.record.id ? result.record : r));
+        saveStoredCutRecords(next);
+        return next;
+      });
+
+      if (selectedSODetailRecord && selectedSODetailRecord.id === recordId) {
+        setSelectedSODetailRecord(result.record);
+      }
+
+      setCancellingRecord(null);
+      showToast(`ยกเลิกการผลิต SO ${record.soNumber} เรียบร้อยแล้ว`, 'info');
+    } catch (err: any) {
+      console.error('handleCancelProduction failed:', err);
+      showToast(`ยกเลิกการผลิตไม่สำเร็จ: ${err?.message || 'เกิดข้อผิดพลาด'}`, 'error');
+    }
   };
 
   // PU Sandwich Cut Handlers (ไม่ใช้ฟอยล์)
@@ -1284,39 +1613,63 @@ const updated = [newRoll, ...rolls];
     setPuSandwichRecords(updated);
     saveStoredPuSandwichRecords(updated);
 
-    // Audit Trail: Record diff if editing an existing sandwich cut (no delete logging)
-    if (exists) {
-      const oldRecord = previous.find((r) => r.id === record.id);
-      if (oldRecord) {
-        const diffs = computeSandwichCutDiff(oldRecord, record);
-        if (diffs.length > 0) {
-          const operator = currentUserEmail || record.recordedBy || 'เจ้าหน้าที่';
-          const auditItem = buildSOAuditLogItem({
-            recordType: 'sandwich',
-            recordId: record.id,
-            soNumber: record.soNumber || oldRecord.soNumber || '-',
-            operator,
-            diffs,
-            rollInfo: {
-              coilColor: record.coilColor,
-              coilNumber: record.coilNumber,
-            },
-          });
-          setSoAuditLogs((prev) => {
-            const next = [auditItem, ...prev];
-            saveStoredSOAuditLogs(next);
-            return next;
-          });
-          saveSOAuditLogInFirestore(auditItem);
-        }
-      }
-    }
+    const oldRecord = exists ? previous.find((r) => r.id === record.id) : undefined;
+
+    // Audit Trail (edits only). Written only once Cloud has acknowledged the save, so
+    // the log can never describe an edit that was refused and rolled back. A write
+    // that is queued offline logs when it eventually lands.
+    const writeAuditForEdit = () => {
+      if (!oldRecord) return;
+      const diffs = computeSandwichCutDiff(oldRecord, record);
+      if (diffs.length === 0) return;
+      const operator = currentUserEmail || record.recordedBy || 'เจ้าหน้าที่';
+      const auditItem = buildSOAuditLogItem({
+        recordType: 'sandwich',
+        recordId: record.id,
+        soNumber: record.soNumber || oldRecord.soNumber || '-',
+        operator,
+        diffs,
+        rollInfo: {
+          coilColor: record.coilColor,
+          coilNumber: record.coilNumber,
+        },
+      });
+      setSoAuditLogs((prev) => {
+        const next = [auditItem, ...prev];
+        saveStoredSOAuditLogs(next);
+        return next;
+      });
+      saveSOAuditLogInFirestore(auditItem);
+    };
+
+    // Undo this save against *current* state (not the `previous` captured above,
+    // which is stale after any await) and persist the result.
+    const rollbackSave = () => {
+      setPuSandwichRecords((cur) => {
+        const next = oldRecord
+          ? cur.map((r) => (r.id === record.id ? oldRecord : r))
+          : cur.filter((r) => r.id !== record.id);
+        saveStoredPuSandwichRecords(next);
+        return next;
+      });
+    };
 
     // Firestore does not retry `permission-denied` — the record would sit in
     // localStorage forever while the UI claimed it was merely "pending". Route
     // through trackCloudWrite so a terminal rejection is reported as such and
     // the local copy is rolled back.
-    const outcome = await trackCloudWrite(savePuSandwichCutToFirestore(record));
+    const write = savePuSandwichCutToFirestore(record);
+    write.then(writeAuditForEdit, () => {});
+
+    const outcome = await trackCloudWrite(write, undefined, (late) => {
+      console.warn('Queued sandwich save was rejected later:', late.message);
+      setSyncStatus('permission-denied');
+      rollbackSave();
+      showToast(
+        `SO แซนวิช ${record.soNumber} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)} (ย้อนรายการในเครื่องแล้ว)`,
+        'error'
+      );
+    });
 
     if (outcome.kind === 'committed') {
       setSyncStatus('connected');
@@ -1330,11 +1683,13 @@ const updated = [newRoll, ...rolls];
     }
 
     if (outcome.kind === 'rejected') {
-      // Keep record in localStorage so local data is never lost, but inform user of cloud status
+      // Cloud refused it for good. Keeping the local edit would leave this device
+      // showing data no other device has, so undo it.
+      rollbackSave();
       setSyncStatus(outcome.reason === 'rules' ? 'permission-denied' : 'error');
       showToast(
-        `บันทึก SO แซนวิช ${record.soNumber} ในเครื่องแล้ว (คลาวด์แจ้งเตือน: ${describeWriteFailure(outcome)})`,
-        'info'
+        `บันทึก SO แซนวิช ${record.soNumber} ไม่สำเร็จ — ${describeWriteFailure(outcome)} (ย้อนรายการในเครื่องแล้ว)`,
+        'error'
       );
       return;
     }
@@ -1417,7 +1772,12 @@ const updated = [newRoll, ...rolls];
       return;
     }
 
-    void trackCloudWrite(saveFoilRollToFirestore(updatedTargetRoll)).then((outcome) => {
+    void trackCloudWrite(saveFoilRollToFirestore(updatedTargetRoll), undefined, (late) => {
+      console.warn('Queued zero-out update rejected later:', late.message);
+      setSyncStatus('permission-denied');
+      commitRolls((prev) => prev.map((r) => (r.id === targetRoll.id ? targetRoll : r)));
+      showToast(`${zeroOut ? 'ตัดยอด' : 'คืนค่ายอด'}สล็อต ${rollLabel} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
+    }).then((outcome) => {
       const action = zeroOut ? 'ตัดยอด' : 'คืนค่ายอด';
 
       if (outcome.kind === 'committed') {
@@ -1664,6 +2024,79 @@ const updated = [newRoll, ...rolls];
     }
   };
 
+  /** ตรวจรับรองความถูกต้องของรายการ SO (Mark as Verified) */
+  const handleVerifyRecord = async (
+    recordType: 'foil' | 'sandwich',
+    recordId: string,
+    soNumber: string,
+    rollInfo?: any
+  ) => {
+    const verifier = currentUserEmail || 'เจ้าหน้าที่';
+    const now = new Date().toISOString();
+
+    if (recordType === 'foil') {
+      const updated = records.map((r) =>
+        r.id === recordId
+          ? { ...r, verificationStatus: 'verified' as const, verifiedBy: verifier, verifiedAt: now }
+          : r
+      );
+      updateRecordsState(updated);
+      try {
+        const targetRec = records.find((r) => r.id === recordId);
+        if (targetRec) {
+          const matchingRoll = rolls.find((r) => r.id === targetRec.foilId);
+          await updateStockCutRecordInFirestore(
+            { ...targetRec, verificationStatus: 'verified', verifiedBy: verifier, verifiedAt: now },
+            targetRec,
+            matchingRoll,
+            targetRec
+          );
+        }
+      } catch (err) {
+        console.warn('Notice: verify foil record in Firestore pending/offline:', err);
+      }
+    } else {
+      const updated = puSandwichRecords.map((r) =>
+        r.id === recordId
+          ? { ...r, verificationStatus: 'verified' as const, verifiedBy: verifier, verifiedAt: now }
+          : r
+      );
+      setPuSandwichRecords(updated);
+      saveStoredPuSandwichRecords(updated);
+      try {
+        const targetRec = puSandwichRecords.find((r) => r.id === recordId);
+        if (targetRec) {
+          await savePuSandwichCutToFirestore({
+            ...targetRec,
+            verificationStatus: 'verified',
+            verifiedBy: verifier,
+            verifiedAt: now,
+          });
+        }
+      } catch (err) {
+        console.warn('Notice: verify sandwich record in Firestore pending/offline:', err);
+      }
+    }
+
+    // สร้างบันทึก Audit Event (VERIFY)
+    const verifyAuditItem = buildSOVerificationLogItem({
+      recordType,
+      recordId,
+      soNumber,
+      verifiedBy: verifier,
+      rollInfo,
+    });
+
+    setSoAuditLogs((prev) => {
+      const next = [verifyAuditItem, ...prev];
+      saveStoredSOAuditLogs(next);
+      return next;
+    });
+    saveSOAuditLogInFirestore(verifyAuditItem).catch(() => {});
+
+    showToast(`รับรองความถูกต้อง SO: ${soNumber} เรียบร้อยแล้ว`, 'success');
+  };
+
   // Delete a roll
   const handleDeleteRoll = (rollId: string) => {
     const updatedRolls = rolls.filter((r) => r.id !== rollId);
@@ -1685,12 +2118,16 @@ const updated = [newRoll, ...rolls];
     sumNg?: number
   ) => {
     try {
-      const updated = await reconcileRollsInFirestore([{
+      // The proposal from the integrity screen was computed from cached records.
+      // Recompute from the full record set on Cloud so a partial cache cannot set
+      // the roll to a wrong figure. Throws (no write) if Cloud cannot be read.
+      const verified = await recomputeAdjustmentsFromServer([{
         rollId,
         expectedRemaining,
         sumUsed,
         sumNg,
       }]);
+      const updated = await reconcileRollsInFirestore(verified);
 
       if (updated && updated.length > 0) {
         let nextRolls = rolls.map((r) => (r.id === rollId ? updated[0] : r));
@@ -1732,7 +2169,8 @@ const updated = [newRoll, ...rolls];
     adjustments: Array<{ rollId: string; expectedRemaining: number; sumUsed: number; sumNg: number }>
   ) => {
     try {
-      const updated = await reconcileRollsInFirestore(adjustments);
+      const verified = await recomputeAdjustmentsFromServer(adjustments);
+      const updated = await reconcileRollsInFirestore(verified);
       if (updated && updated.length > 0) {
         const updatedMap = new Map(updated.map((r) => [r.id, r]));
         let nextRolls = rolls.map((r) => (updatedMap.has(r.id) ? updatedMap.get(r.id)! : r));
@@ -1866,17 +2304,34 @@ const updated = [newRoll, ...rolls];
           width: l.width,
           pattern: l.pattern,
           reason: l.reason,
+          countedAt: l.countedAt,
         }));
       if (toAdjust.length > 0) {
-        const { updatedRolls, createdRecords } = await applyCycleCountAdjustments(toAdjust, {
+        const { updatedRolls, createdRecords, conflicts, failures } = await applyCycleCountAdjustments(toAdjust, {
           period: session.period,
           countedBy: session.countedBy,
         });
+        const unapplied = new Set<string>([
+          ...conflicts.map((c) => c.rollId),
+          ...failures.map((f) => f.rollId),
+        ]);
         // เก็บ id ใบปรับยอดไว้ใน session เพื่อตอนลบประวัติจะคืนยอด + ลบใบนับสต๊อกได้
-        if (createdRecords.length > 0) {
+        // Merge with ids from earlier applies of the same session (overwriting lost
+        // them), and always persist whatever WAS applied even if a later line
+        // failed — otherwise those adjustments could never be undone from history.
+        if (createdRecords.length > 0 || unapplied.size > 0) {
+          const adjustmentRecordIds = Array.from(
+            new Set([...(session.adjustmentRecordIds || []), ...createdRecords.map((r) => r.id)])
+          );
           await saveCycleCountSession({
             ...session,
-            adjustmentRecordIds: createdRecords.map((r) => r.id),
+            // Lines that were not applied go back to "not adjusted" and the session
+            // stays a draft, so the operator recounts them instead of believing
+            // the roll was corrected.
+            lines: session.lines.map((l) => (unapplied.has(l.rollId) ? { ...l, adjusted: false } : l)),
+            status: unapplied.size > 0 ? 'draft' : session.status,
+            completedAt: unapplied.size > 0 ? undefined : session.completedAt,
+            adjustmentRecordIds,
             updatedAt: new Date().toISOString(),
           });
         }
@@ -1908,6 +2363,28 @@ const updated = [newRoll, ...rolls];
             saveStoredCutRecords(merged);
             return merged;
           });
+        }
+
+        if (conflicts.length > 0 || failures.length > 0) {
+          const label = (id: string) => {
+            const r = rolls.find((x) => x.id === id);
+            return r ? `${r.lotNumber} #${r.rollNumber}` : id;
+          };
+          const lines = [
+            ...conflicts.map((c) =>
+              c.reason === 'cut_after_count'
+                ? `${label(c.rollId)} — มีการตัดสต๊อกหลังจากนับ ยอดนับจริงจึงไม่ตรงกับม้วนแล้ว`
+                : `${label(c.rollId)} — ยอดบน Cloud เปลี่ยนไปแล้ว (นับเทียบกับ ${c.countedAgainst} ม. แต่ตอนนี้เหลือ ${c.serverRemaining} ม.)`
+            ),
+            ...failures.map((f) => `${label(f.rollId)} — ${f.message}`),
+          ];
+          setErrorAlert({
+            isOpen: true,
+            title: `ปรับยอดจากนับสต๊อกไม่ครบ (${unapplied.size} ม้วนยังไม่ถูกปรับ)`,
+            message: `ปรับสำเร็จ ${createdRecords.length} ม้วน ส่วนม้วนต่อไปนี้ไม่ได้ปรับ และไม่มีการเปลี่ยนยอด — งวดนี้ยังเป็นแบบร่าง กรุณานับใหม่`,
+            detail: lines.join('\n'),
+          });
+          playFeedback('error');
         }
       }
     }
@@ -2078,6 +2555,24 @@ const updated = [newRoll, ...rolls];
         onOpenExcelExport={() => setIsExcelExportOpen(true)}
       />
 
+      {pendingCutCount > 0 && (
+        <div
+          role="status"
+          className="bg-amber-100 border-b border-amber-300 text-amber-900 text-sm px-4 py-2 flex flex-wrap items-center justify-between gap-2"
+        >
+          <span>
+            ⚠️ มีรายการตัดสต๊อก {pendingCutCount} รายการที่ยังไม่ขึ้น Cloud — ยอดบนเครื่องอื่นยังไม่เปลี่ยน ระบบจะส่งให้อัตโนมัติเมื่อมีสัญญาณ
+          </span>
+          <button
+            type="button"
+            onClick={() => void flushPendingCuts()}
+            className="px-3 py-1 rounded bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
+          >
+            ส่งตอนนี้
+          </button>
+        </div>
+      )}
+
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-5 pb-20 md:pb-8">
         {activeTab === 'dashboard' && (
@@ -2197,6 +2692,35 @@ const updated = [newRoll, ...rolls];
             userMode={userMode}
             onRequestUnlock={(action) => requireEditorPermission(typeof action === 'function' ? action : () => {})}
             auditLogs={soAuditLogs}
+            onVerifyRecord={(rec) => {
+              void handleVerifyRecord('foil', rec.id, rec.soNumber, {
+                lotNumber: rec.lotNumber,
+                rollNumber: rec.rollNumber,
+                pattern: rec.pattern,
+              });
+            }}
+            onConfirmProduction={handleConfirmProduction}
+            onReallocateRoll={(rec) => setReallocatingRecord(rec)}
+            onCancelProduction={(rec) => setCancellingRecord(rec)}
+            onNavigateToAuditHub={() => setActiveTab('audit')}
+          />
+        )}
+
+        {activeTab === 'audit' && (
+          <SOReservationHubView
+            rolls={[...rolls, ...archivedRolls]}
+            records={records}
+            onOpenCutModal={(rollId) => {
+              requireEditorPermission(() => {
+                setPreselectedRollId(rollId || null);
+                setCutModalInitialMode('so');
+                setIsCutModalOpen(true);
+              });
+            }}
+            onConfirmProduction={handleConfirmProduction}
+            onOpenReallocateModal={(rec) => setReallocatingRecord(rec)}
+            onOpenCancelModal={(rec) => setCancellingRecord(rec)}
+            onViewSODetail={(rec) => setSelectedSODetailRecord(rec)}
           />
         )}
 
@@ -2518,6 +3042,54 @@ const updated = [newRoll, ...rolls];
         onSwitchToManagedCloud={handleSwitchCloud}
         currentIsManaged={activeTarget === 'managed'}
       />
+
+      {/* Root SO Detail Modal (เปิดจากคิวจอง ประวัติตัด หรือหน้าอื่นๆ) */}
+      {selectedSODetailRecord && (
+        <SODetailModal
+          record={selectedSODetailRecord}
+          rolls={[...rolls, ...archivedRolls]}
+          records={records}
+          onClose={() => setSelectedSODetailRecord(null)}
+          onDeleteRecord={(recId) => requireEditorPermission(() => handleDeleteRecord(recId))}
+          onEditRecord={(rec) => requireEditorPermission(() => setEditingCutRecord(rec))}
+          onConfirmProduction={handleConfirmProduction}
+          onReallocateRoll={(rec) => setReallocatingRecord(rec)}
+          onCancelProduction={(rec) => setCancellingRecord(rec)}
+          userMode={userMode}
+          onRequestUnlock={() => requireEditorPermission(() => {})}
+          auditLogs={soAuditLogs}
+          onVerifyRecord={(rec) => {
+            void handleVerifyRecord('foil', rec.id, rec.soNumber, {
+              lotNumber: rec.lotNumber,
+              rollNumber: rec.rollNumber,
+              pattern: rec.pattern,
+            });
+          }}
+        />
+      )}
+
+      {/* Modal สลับเปลี่ยนม้วนฟอยล์สำหรับ SO */}
+      {reallocatingRecord && (
+        <ReallocateRollModal
+          isOpen={!!reallocatingRecord}
+          record={reallocatingRecord}
+          availableRolls={[...rolls, ...archivedRolls]}
+          existingRecords={records}
+          onClose={() => setReallocatingRecord(null)}
+          onConfirmReallocate={handleReallocateRoll}
+        />
+      )}
+
+      {/* Modal ยกเลิกการผลิต SO */}
+      {cancellingRecord && (
+        <CancelProductionModal
+          isOpen={!!cancellingRecord}
+          record={cancellingRecord}
+          roll={[...rolls, ...archivedRolls].find((r) => r.id === cancellingRecord.foilId)}
+          onClose={() => setCancellingRecord(null)}
+          onConfirmCancel={handleCancelProduction}
+        />
+      )}
 
       {/* Mobile Bottom Navigation for Android & iOS Phones */}
       <MobileBottomNav

@@ -32,6 +32,8 @@ export interface FoilRoll {
   remainingMeters: number;   // จำนวนเมตรคงเหลือ
   usedMeters: number;        // จำนวนเมตรที่ตัดใช้สะสม
   ngMeters: number;          // จำนวนเมตร NG เสียสะสม
+  reservedMeters?: number;   // จำนวนเมตรที่มีการจองรอตัด
+  projectedRemainingMeters?: number; // ผลิตจริงแล้วจะเหลือกี่เมตร (remainingMeters - reservedMeters)
   dateReceived: string;      // วันที่รับเข้า YYYY-MM-DD
   status: 'active' | 'depleted'; // สถานะ (depleted เมื่อเหลือ <= 0)
   isUnused?: boolean;        // ม้วนเต็มที่เพิ่มเข้าระบบแต่ยังไม่มีการใช้งาน (ลดค่า Firestore read)
@@ -57,6 +59,8 @@ export interface FoilRoll {
   createdAt: string;
 }
 
+export type CutProductionStatus = 'completed' | 'reserved' | 'cancelled';
+
 export interface StockCutRecord {
   id: string;
   foilId: string;            // รหัสม้วนฟอยล์ที่ตัด
@@ -68,11 +72,13 @@ export interface StockCutRecord {
   isWhiteSide?: boolean;     // ตัวเลือกท้องขาว
   soNumber: string;          // รหัส SO หรือ เหตุผลการเบิกกรณีไม่ใช้ SO เช่น 'สาขายืม', 'ซ่อมฟอยล์พ่นกาว'
   cutType?: 'so' | 'non_so'; // ชนิดการตัด: มี SO หรือ ไม่ใช้ SO
+  cutStatus?: CutProductionStatus; // สถานะการผลิต: 'completed' = ตัดจริง (เขียว), 'reserved' = รอตัด/จอง (เหลือง), 'cancelled' = ยกเลิก
   nonSoReason?: string;      // เหตุผลเพิ่มเติมกรณีไม่ใช้ SO (เช่น สาขาพัทยายืม)
   productionRound?: string;  // รอบการผลิต เช่น 'รอบ 1', 'รอบ 2', 'รอบ 3' หรือ 'รอบ 1/2'
   roundNumber?: number;      // ลำดับรอบการผลิต เช่น 1, 2, 3
   usedMeters: number;        // จำนวนเมตรที่ใช้
-  ngMeters: number;          // NG ที่เสีย (เมตร)
+  ngMeters: number;          // NG ที่เสีย (เมตร) - ยอดรวม NG หัวท้าย
+  ngHeadTailMeters?: number; // ยอดรวม NG หัวท้าย (เมตร)
   totalDeducted: number;     // ยอดตัดสุทธิ (signed): บวก = ตัดออกจากสต๊อก, ลบ = คืนสต๊อก (เช่น นับสต๊อกของจริง > ระบบ)
   remainingBefore: number;   // คงเหลือก่อนตัด
   remainingAfter: number;    // คงเหลือหลังตัด
@@ -80,6 +86,16 @@ export interface StockCutRecord {
   recordedDate: string;      // วันที่บันทึก YYYY-MM-DD
   recordedBy: string;        // คนที่บันทึก
   notes?: string;            // หมายเหตุ
+  verificationStatus?: 'pending' | 'verified' | 'flagged'; // สถานะการตรวจรับรอง SO
+  verifiedBy?: string;       // ผู้ตรวจรับรอง
+  verifiedAt?: string;       // วันเวลาที่ตรวจรับรอง
+  confirmedAt?: string;      // วันเวลาที่กดยืนยันว่าผลิตจริงแล้ว
+  confirmedBy?: string;      // ผู้กดยืนยันผลิตจริง
+  cancelledAt?: string;      // วันเวลาที่ยกเลิกการผลิต
+  cancelledBy?: string;      // ผู้กดยกเลิกการผลิต
+  cancelReason?: string;     // เหตุผลการยกเลิกการผลิต
+  reallocatedFromRollId?: string; // รหัสม้วนเดิมก่อนเปลี่ยนม้วน
+  reallocatedAt?: string;    // วันเวลาที่เปลี่ยนม้วนฟอยล์
   createdAt: string;
 }
 
@@ -117,6 +133,7 @@ export interface CutHistoryItem {
   nonSoReason?: string;
   productionRound?: string;
   roundNumber?: number;
+  cutStatus?: 'completed' | 'reserved' | 'cancelled';
   notes?: string;
 }
 
@@ -152,6 +169,9 @@ export interface PuSandwichCutRecord {
   lengthMeters?: number;          // ความยาวที่ผลิต (ม.)
   recordedBy?: string;            // ผู้บันทึก
   notes?: string;                 // หมายเหตุ
+  verificationStatus?: 'pending' | 'verified' | 'flagged'; // สถานะการตรวจรับรอง SO
+  verifiedBy?: string;            // ผู้ตรวจรับรอง
+  verifiedAt?: string;            // วันเวลาที่ตรวจรับรอง
   createdAt: string;              // Timestamp บันทึก
 }
 
@@ -170,6 +190,8 @@ export interface CycleCountLine {
   variance: number;          // physical - system
   reason?: string;           // บังคับเมื่อ variance !== 0
   adjusted?: boolean;        // ปรับยอดระบบให้เท่าของจริงแล้วหรือยัง
+  /** เวลา (ISO) ที่กรอกยอดนับจริงของม้วนนี้ — ใช้ตรวจว่ามีการตัดสต๊อกหลังนับหรือไม่ */
+  countedAt?: string;
 }
 
 export interface CycleCountSession {
@@ -218,7 +240,7 @@ export interface SOAuditDiff {
 export interface SOAuditLogItem {
   id: string;                  // รหัสบันทึก Audit (UUID)
   timestamp: string;           // วันที่และเวลา ISO 8601
-  action: 'UPDATE';            // ประเภทเหตุการณ์: UPDATE
+  action: 'UPDATE' | 'VERIFY' | 'FLAG'; // ประเภทเหตุการณ์: UPDATE | VERIFY | FLAG
   recordType: 'foil' | 'sandwich'; // ประเภทวัตถุดิบ
   recordId: string;            // รหัสใบตัดต้นทาง
   soNumber: string;            // รหัส SO หรือเหตุผล Non-SO
@@ -234,5 +256,8 @@ export interface SOAuditLogItem {
   reason?: string;             // สาเหตุการแก้ไข (ถ้ามี)
   diffs: SOAuditDiff[];        // รายการความแตกต่างก่อน vs หลังแก้ไข
   summary: string;             // ข้อความสรุปย่อภาษาไทย
+  verificationStatus?: 'pending' | 'verified' | 'flagged'; // สถานะการตรวจสอบ
+  verifiedBy?: string;         // ผู้ตรวจรับรอง
+  verifiedAt?: string;         // วันเวลาที่ตรวจรับรอง
 }
 
