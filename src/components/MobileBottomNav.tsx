@@ -1,9 +1,9 @@
 import React from 'react';
-import { BarChart3, Package, History, Settings } from 'lucide-react';
+import { BarChart3, Package, History, Settings, CalendarClock } from 'lucide-react';
 
 interface MobileBottomNavProps {
-  activeTab: 'dashboard' | 'rolls' | 'history' | 'settings';
-  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'settings') => void;
+  activeTab: 'dashboard' | 'rolls' | 'history' | 'audit' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'audit' | 'settings') => void;
   onOpenCutModal?: (mode?: 'so' | 'non_so') => void;
   hasPermissionNotice?: boolean;
 }
@@ -22,7 +22,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-200/80 shadow-[0_-4px_20px_rgba(15,23,42,0.06)] px-1.5 pt-1 pb-[max(0.4rem,env(safe-area-inset-bottom))] print:hidden"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-200/80 shadow-[0_-4px_20px_rgba(15,23,42,0.06)] px-1 pt-1 pb-[max(0.4rem,env(safe-area-inset-bottom))] print:hidden"
       aria-label="เมนูหลัก"
     >
       <div className="grid grid-cols-4 items-stretch max-w-md mx-auto gap-0.5">

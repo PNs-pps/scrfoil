@@ -69,6 +69,8 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
   const [physicalMap, setPhysicalMap] = useState<Record<string, string>>({});
   const [reasonMap, setReasonMap] = useState<Record<string, string>>({});
   const [adjustMap, setAdjustMap] = useState<Record<string, boolean>>({});
+  /** เวลาที่กรอกยอดนับจริงแต่ละม้วน (ISO) */
+  const [countedAtMap, setCountedAtMap] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterVarianceOnly, setFilterVarianceOnly] = useState(false);
@@ -122,14 +124,24 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
     const nextPhysical: Record<string, string> = {};
     const nextReason: Record<string, string> = {};
     const nextAdjust: Record<string, boolean> = {};
+    const nextCountedAt: Record<string, string> = {};
     (draft.lines || []).forEach((l) => {
-      nextPhysical[l.rollId] = String(l.physicalCount);
+      // A line saved with variance 0 and no count time was never typed in — its
+      // physicalCount is just the system figure at save time. Restoring it as a
+      // typed value would freeze a stale number and show a bogus variance after
+      // later cuts, so only restore lines the operator actually counted.
+      const wasCounted = Math.abs(Number(l.variance) || 0) > 0.001 || Boolean(l.countedAt);
+      if (wasCounted) {
+        nextPhysical[l.rollId] = String(l.physicalCount);
+        if (l.countedAt) nextCountedAt[l.rollId] = l.countedAt;
+      }
       if (l.reason) nextReason[l.rollId] = l.reason;
       if (l.adjusted) nextAdjust[l.rollId] = true;
     });
     setPhysicalMap(nextPhysical);
     setReasonMap(nextReason);
     setAdjustMap(nextAdjust);
+    setCountedAtMap(nextCountedAt);
   };
 
   const startFresh = () => {
@@ -141,6 +153,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
     setPhysicalMap({});
     setReasonMap({});
     setAdjustMap({});
+    setCountedAtMap({});
     setError(null);
   };
 
@@ -167,6 +180,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
           setPhysicalMap({});
           setReasonMap({});
           setAdjustMap({});
+          setCountedAtMap({});
         }
       } catch {
         if (!cancelled) {
@@ -205,9 +219,10 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
           variance,
           reason: reasonMap[r.id]?.trim() || undefined,
           adjusted: variance !== 0 ? Boolean(adjustMap[r.id]) : false,
+          countedAt: raw === undefined || raw === '' ? undefined : countedAtMap[r.id],
         };
       }),
-    [activeRolls, physicalMap, reasonMap, adjustMap]
+    [activeRolls, physicalMap, reasonMap, adjustMap, countedAtMap]
   );
 
   const varianceLines = useMemo(
@@ -272,6 +287,14 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
 
   const handlePhysicalChange = (rollId: string, value: string) => {
     setPhysicalMap((prev) => ({ ...prev, [rollId]: value }));
+    // Remember WHEN this roll was counted, so applying the count can detect cuts
+    // made after it (the physical figure no longer describes the roll then).
+    setCountedAtMap((prev) => {
+      const next = { ...prev };
+      if (value === '') delete next[rollId];
+      else next[rollId] = new Date().toISOString();
+      return next;
+    });
   };
 
   const handleSubmit = async (complete: boolean) => {

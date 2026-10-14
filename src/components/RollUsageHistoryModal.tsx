@@ -29,6 +29,7 @@ import {
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { subscribeToRollCutHistory } from '../lib/firebase';
 import { auditRollSOHistory } from '../utils/soHistoryAudit';
+import { FoilStatusTube } from './FoilStatusTube';
 
 interface RollUsageHistoryModalProps {
   roll: FoilRoll | null;
@@ -84,6 +85,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
         nonSoReason: r.nonSoReason,
         productionRound: r.productionRound,
         roundNumber: r.roundNumber,
+        cutStatus: r.cutStatus || 'completed',
         rollId: roll.id,
         lotNumber: roll.lotNumber,
         rollNumber: roll.rollNumber,
@@ -138,6 +140,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
           nonSoReason: r.nonSoReason,
           productionRound: r.productionRound,
           roundNumber: r.roundNumber,
+          cutStatus: r.cutStatus || prev?.cutStatus || 'completed',
           rollId,
           lotNumber: roll?.lotNumber || r.lotNumber,
           rollNumber: roll?.rollNumber || r.rollNumber,
@@ -196,12 +199,20 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     return auditRollSOHistory(roll, records);
   }, [roll, records]);
 
-  const totalUsed = historyItems.reduce((sum, r) => sum + Number(r.cutMeters ?? r.usedMeters ?? 0), 0);
-  const totalNg = historyItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
+  // แยกรายการที่ตัดจริง vs รายการจองรอตัด
+  const actualHistoryItems = historyItems.filter((r) => r.cutStatus !== 'reserved' && r.cutStatus !== 'cancelled');
+  const reservedHistoryItems = historyItems.filter((r) => r.cutStatus === 'reserved');
+
+  const totalUsed = actualHistoryItems.reduce((sum, r) => sum + Number(r.cutMeters ?? r.usedMeters ?? 0), 0);
+  const totalNg = actualHistoryItems.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
   // ยอดตัดออกจริง (เฉพาะบวก) ไม่รวมใบคืนสต๊อกจากนับสต๊อก
-  const totalDeducted = historyItems.reduce((sum, r) => {
+  const totalDeducted = actualHistoryItems.reduce((sum, r) => {
     const td = Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0)));
     return sum + (td > 0 ? td : 0);
+  }, 0);
+  const totalReserved = reservedHistoryItems.reduce((sum, r) => {
+    const td = Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0)));
+    return sum + Math.abs(td);
   }, 0);
   // ยอดคืนสต๊อกจากนับสต๊อก (ค่าติดลบใน totalDeducted)
   const totalStockIn = historyItems.reduce((sum, r) => {
@@ -492,6 +503,11 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 <span className="font-mono font-bold text-blue-700 text-base">
                   {formatMeters(totalUsed)} <span className="text-xs font-normal text-slate-400">ม.</span>
                 </span>
+                {totalReserved > 0 && (
+                  <span className="text-[10px] text-amber-700 font-semibold block">
+                    (จอง {formatMeters(totalReserved)} ม.)
+                  </span>
+                )}
               </div>
               <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                 <span className="text-[11px] text-slate-500 block">NG เสียสะสม</span>
@@ -510,30 +526,23 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 <span className="font-mono font-bold text-base">
                   {formatMeters(effectiveRemaining)} <span className="text-xs font-normal text-slate-400">ม.</span>
                 </span>
+                {totalReserved > 0 && (
+                  <span className="text-[10px] text-emerald-800 font-semibold block">
+                    ผลิตแล้วจะเหลือ {formatMeters(Math.max(0, effectiveRemaining - totalReserved))} ม.
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Gauge progress bar */}
-            <div className="mt-3">
-              <div className="flex justify-between text-xs text-slate-500 mb-1 font-mono">
-                <span>คงเหลือ: {percentLeft}%</span>
-                <span>
-                  ตัดออกแล้ว: {formatMeters(totalDeducted)} ม.
-                  {totalStockIn > 0.05 ? (
-                    <span className="text-emerald-700"> · คืนสต๊อก +{formatMeters(totalStockIn)} ม.</span>
-                  ) : null}
-                </span>
-              </div>
-              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                <div 
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    effectiveRemaining <= 50 ? 'bg-rose-500' :
-                    effectiveRemaining <= 200 ? 'bg-amber-500' :
-                    'bg-emerald-500'
-                  }`}
-                  style={{ width: `${percentLeft}%` }}
-                />
-              </div>
+            {/* หลอดไทม์ไลน์สถานะ 3 สี: เขียว (เหลือว่าง) / เหลือง (จองรอตัด) / เทา (ตัดใช้แล้ว) */}
+            <div className="mt-3.5 pt-3 border-t border-slate-200">
+              <FoilStatusTube
+                roll={roll}
+                records={records}
+                size="md"
+                showStats={false}
+                showLabels={true}
+              />
             </div>
           </div>
 
@@ -586,11 +595,28 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
               {audit.issues.length > 0 && (
                 <div className="space-y-1.5 pt-1 text-xs">
                   {audit.issues.map((iss) => (
-                    <div key={iss.id} className="p-2 rounded-lg bg-white/80 border border-slate-200/80 flex items-start gap-2">
-                      <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <div 
+                      key={iss.id} 
+                      className={`p-2 rounded-lg border flex items-start gap-2 ${
+                        iss.type === 'RESERVED_SO_QUEUE'
+                          ? 'bg-amber-50/90 border-amber-300 text-amber-950'
+                          : iss.severity === 'error'
+                            ? 'bg-rose-50/90 border-rose-200 text-rose-950'
+                            : iss.severity === 'warning'
+                              ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                              : 'bg-white/80 border-slate-200/80 text-slate-900'
+                      }`}
+                    >
+                      <AlertCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                        iss.type === 'RESERVED_SO_QUEUE'
+                          ? 'text-amber-600'
+                          : iss.severity === 'error'
+                            ? 'text-rose-600'
+                            : 'text-amber-600'
+                      }`} />
                       <div className="flex-1 leading-snug">
-                        <span className="font-bold text-slate-900 block">{iss.title}</span>
-                        <span className="text-[11px] text-slate-600">{iss.description}</span>
+                        <span className="font-bold block">{iss.title}</span>
+                        <span className="text-[11px] opacity-80">{iss.description}</span>
                       </div>
                     </div>
                   ))}
@@ -817,21 +843,43 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                         };
 
                         return (
-                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr 
+                          key={item.id} 
+                          className={`transition-colors ${
+                            item.cutStatus === 'reserved'
+                              ? 'bg-amber-50/70 hover:bg-amber-100/60 border-l-4 border-l-amber-400'
+                              : 'hover:bg-slate-50/80'
+                          }`}
+                        >
                           <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">
                             {idx + 1}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-slate-900 sticky left-0 z-10 bg-white group-hover:bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                          <td className={`py-2.5 px-3 font-mono font-bold text-slate-900 sticky left-0 z-10 ${
+                            item.cutStatus === 'reserved' ? 'bg-amber-50/90' : 'bg-white group-hover:bg-slate-50'
+                          } shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span>{item.soNumber || '-'}</span>
+                              {item.cutStatus === 'reserved' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-950 border border-amber-300 rounded-md text-[10px] font-bold">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                  <span>รอตัด</span>
+                                </span>
+                              )}
+                              {item.cutStatus === 'cancelled' && (
+                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 border border-slate-300 rounded-md text-[10px] font-bold">
+                                  ยกเลิก
+                                </span>
+                              )}
                               {item.isSilverSide && (
-                                <span className="px-1.5 py-0.2 bg-zinc-800 text-amber-300 rounded text-[10px] font-bold border border-amber-400">
-                                  ท้องเงิน
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gradient-to-r from-slate-200 via-zinc-100 to-slate-200 text-slate-900 rounded-md text-[10px] font-black border border-slate-400 shadow-2xs">
+                                  <span className="w-2 h-2 rounded-full bg-gradient-to-br from-slate-400 via-white to-slate-600 ring-1 ring-slate-500 shrink-0" />
+                                  <span>ท้องเงิน</span>
                                 </span>
                               )}
                               {item.isWhiteSide && (
-                                <span className="px-1.5 py-0.2 bg-white text-slate-900 rounded text-[10px] font-bold border border-slate-300">
-                                  ท้องขาว
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white text-slate-950 rounded-md text-[10px] font-black border-2 border-slate-400 shadow-2xs">
+                                  <span className="w-2 h-2 rounded-full bg-white ring-1 ring-slate-700 shrink-0" />
+                                  <span>ท้องขาว</span>
                                 </span>
                               )}
                               {item.cutType === 'non_so' && (
@@ -861,6 +909,20 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                                 item.totalDeducted ??
                                   ((item.cutMeters ?? item.usedMeters ?? 0) + (item.ngMeters || 0))
                               );
+                              if (item.cutStatus === 'reserved') {
+                                return (
+                                  <span className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                    จอง {formatMeters(raw)} ม.
+                                  </span>
+                                );
+                              }
+                              if (item.cutStatus === 'cancelled') {
+                                return (
+                                  <span className="text-slate-400 line-through">
+                                    {formatMeters(raw)} ม.
+                                  </span>
+                                );
+                              }
                               // ติดลบ = คืนสต๊อก (นับสต๊อก) แสดงเป็น + สีเขียว
                               if (raw < 0) {
                                 return (
@@ -877,16 +939,27 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                             })()}
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono text-[11px] whitespace-nowrap">
-                            <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
-                            <span className="text-slate-300 mx-1">&rarr;</span>
-                            <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
-                            {Number(item.remainingAfter) <= 0 && (
-                              <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
-                                <span>🏁 หมดม้วน</span>
-                                <span className="font-mono text-slate-500 font-normal">
-                                  ({formatThaiDate(item.cutDate || item.usageDate || item.recordedDate)})
-                                </span>
+                            {item.cutStatus === 'reserved' ? (
+                              <div className="text-right">
+                                <span className="text-slate-700 font-bold">{formatMeters(roll.remainingMeters)} ม.</span>
+                                <div className="text-[10px] text-amber-800 font-sans font-medium">
+                                  (ตัดแล้วจะเหลือ {formatMeters(Math.max(0, Number(roll.remainingMeters || 0) - (Number(item.totalDeducted) || (Number(item.cutMeters ?? item.usedMeters ?? 0) + Number(item.ngMeters || 0)))))} ม.)
+                                </div>
                               </div>
+                            ) : (
+                              <>
+                                <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
+                                <span className="text-slate-300 mx-1">&rarr;</span>
+                                <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
+                                {Number(item.remainingAfter) <= 0 && (
+                                  <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
+                                    <span>🏁 หมดม้วน</span>
+                                    <span className="font-mono text-slate-500 font-normal">
+                                      ({formatThaiDate(item.cutDate || item.usageDate || item.recordedDate)})
+                                    </span>
+                                  </div>
+                                )}
+                              </>
                             )}
                           </td>
                           <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap text-[11px]">

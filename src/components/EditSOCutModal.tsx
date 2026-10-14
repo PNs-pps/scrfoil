@@ -338,33 +338,85 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
             </div>
           )}
 
-          {/* Foil Surface Side Options */}
-          <div className="flex items-center gap-4 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl">
-            <span className="font-semibold text-slate-700">ตัวเลือกท้องฟอยล์:</span>
-            <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
-              <input
-                type="checkbox"
-                checked={isSilverSide}
-                onChange={(e) => {
-                  setIsSilverSide(e.target.checked);
-                  if (e.target.checked) setIsWhiteSide(false);
+          {/* Foil Surface Side Options — ตัวเลือกท้องพิเศษ เงิน/ขาว ชัดเจน */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700">ตัวเลือกท้องพิเศษ (ถ้ามี):</span>
+              {(isSilverSide || isWhiteSide) && (
+                <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300">
+                  เลือก: {isSilverSide ? 'ท้องเงิน' : 'ท้องขาว'}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {/* ปุ่มเลือก ท้องเงิน */}
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = !isSilverSide;
+                  setIsSilverSide(nextVal);
+                  if (nextVal) setIsWhiteSide(false);
                 }}
-                className="rounded text-amber-600 focus:ring-amber-500"
-              />
-              <span>ท้องเงิน</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
-              <input
-                type="checkbox"
-                checked={isWhiteSide}
-                onChange={(e) => {
-                  setIsWhiteSide(e.target.checked);
-                  if (e.target.checked) setIsSilverSide(false);
+                className={`flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                  isSilverSide
+                    ? 'bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400/40 shadow-sm'
+                    : 'bg-white text-slate-800 border-slate-300 hover:border-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center shadow-xs ${
+                      isSilverSide
+                        ? 'bg-gradient-to-br from-slate-200 via-white to-slate-400 border border-white ring-2 ring-amber-400'
+                        : 'bg-gradient-to-br from-slate-300 via-zinc-100 to-slate-500 border border-slate-400'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {isSilverSide && <Check className="w-2.5 h-2.5 text-slate-900 stroke-[3]" />}
+                  </span>
+                  <span className="font-extrabold">ท้องเงิน</span>
+                </div>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                  isSilverSide ? 'bg-slate-800 text-amber-300' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {isSilverSide ? 'เปิดใช้งาน' : 'กดเพื่อเลือก'}
+                </span>
+              </button>
+
+              {/* ปุ่มเลือก ท้องขาว */}
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = !isWhiteSide;
+                  setIsWhiteSide(nextVal);
+                  if (nextVal) setIsSilverSide(false);
                 }}
-                className="rounded text-amber-600 focus:ring-amber-500"
-              />
-              <span>ท้องขาว</span>
-            </label>
+                className={`flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                  isWhiteSide
+                    ? 'bg-amber-50 text-slate-950 border-amber-500 ring-2 ring-amber-400/40 shadow-sm'
+                    : 'bg-white text-slate-800 border-slate-300 hover:border-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center shadow-xs ${
+                      isWhiteSide
+                        ? 'bg-white border-2 border-slate-950 ring-2 ring-amber-400'
+                        : 'bg-white border-2 border-slate-500'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {isWhiteSide && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
+                  </span>
+                  <span className="font-extrabold">ท้องขาว</span>
+                </div>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                  isWhiteSide ? 'bg-amber-200 text-amber-950 font-bold' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {isWhiteSide ? 'เปิดใช้งาน' : 'กดเพื่อเลือก'}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Meter Inputs */}

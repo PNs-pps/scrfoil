@@ -57,6 +57,7 @@ import {
 import { formatMeters } from '../utils/formatters';
 import {
   getD1BackupConfig,
+  hasD1Credentials,
   saveD1BackupConfig,
   testD1Connection,
   uploadBackupToD1,
@@ -1235,7 +1236,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] text-slate-600 block mb-1 font-medium">รหัสลับ BACKUP_SECRET:</label>
+                      <label className="text-[11px] text-slate-600 block mb-1 font-medium">รหัสลับ BACKUP_SECRET (ไม่บังคับ — ใช้เฉพาะ Worker ที่ยังไม่เปิดยืนยันตัวตนด้วย Firebase):</label>
                       <input
                         type="password"
                         placeholder="BACKUP_SECRET"
@@ -1277,7 +1278,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                         const r = await testD1Connection(d1Config);
                         setD1Status(r.message);
                         showToast(r.message, r.ok ? 'success' : 'info');
-                        if (r.ok && d1Config.secret) {
+                        if (r.ok && hasD1Credentials(d1Config)) {
                           const list = await listD1Backups(15);
                           setD1List(list);
                         }

@@ -782,13 +782,15 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
                               </span>
                             </div>
                             {r.isSilverSide && (
-                              <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-gradient-to-r from-slate-100 to-zinc-200 text-slate-800 text-[10px] font-bold border border-slate-300">
-                                เงิน
+                              <span className="inline-flex items-center gap-1 w-fit px-1.5 py-0.5 rounded-md bg-gradient-to-r from-slate-200 via-zinc-100 to-slate-200 text-slate-900 text-[10px] font-black border border-slate-400 shadow-2xs">
+                                <span className="w-2 h-2 rounded-full bg-gradient-to-br from-slate-400 via-white to-slate-600 ring-1 ring-slate-500 shrink-0" />
+                                <span>เงิน</span>
                               </span>
                             )}
                             {r.isWhiteSide && (
-                              <span className="inline-flex items-center w-fit px-1.5 py-0.2 rounded bg-white text-slate-800 text-[10px] font-bold border border-slate-300">
-                                ขาว
+                              <span className="inline-flex items-center gap-1 w-fit px-1.5 py-0.5 rounded-md bg-white text-slate-950 text-[10px] font-black border-2 border-slate-400 shadow-2xs">
+                                <span className="w-2 h-2 rounded-full bg-white ring-1 ring-slate-700 shrink-0" />
+                                <span>ขาว</span>
                               </span>
                             )}
                           </div>

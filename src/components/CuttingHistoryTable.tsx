@@ -28,7 +28,11 @@ import {
   ArrowRight,
   Clock,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  CheckCircle2,
+  RefreshCw,
+  Ban,
+  CalendarClock
 } from 'lucide-react';
 import { exportCutRecordsToCSV, exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { formatMeters, compareLotAndRoll, formatThaiDateTime, formatThaiDate } from '../utils/formatters';
@@ -36,6 +40,7 @@ import { exportAuditLogsToCSV } from '../utils/auditLogger';
 import { UserMode } from '../utils/auth';
 import { getPatternStyle } from '../utils/patternStyles';
 import { SODetailModal } from './SODetailModal';
+import { SOReservationHubView } from './SOReservationHubView';
 
 export type HistoryCategory = 'all' | 'foil' | 'sandwich';
 type SortField = 'date' | 'so' | 'type' | 'details' | 'pattern' | 'side' | 'used' | 'ng' | 'remaining' | 'recorder';
@@ -68,6 +73,7 @@ export interface UnifiedHistoryItem {
   recordedBy: string;
   notes?: string;
   createdAt: string;
+  cutStatus?: 'completed' | 'reserved' | 'cancelled';
   // Raw references
   rawFoil?: StockCutRecord;
   rawSandwich?: PuSandwichCutRecord;
@@ -83,10 +89,15 @@ interface CuttingHistoryTableProps {
   onEditSandwichRecord?: (record: PuSandwichCutRecord) => void;
   onOpenCutModal: () => void;
   onOpenPuSandwichModal?: () => void;
+  onConfirmProduction?: (recordId: string, soNumber: string) => Promise<void> | void;
+  onReallocateRoll?: (record: StockCutRecord) => void;
+  onCancelProduction?: (record: StockCutRecord) => void;
   initialCategory?: HistoryCategory;
   userMode?: UserMode;
   onRequestUnlock?: (action?: () => void) => void;
   auditLogs?: SOAuditLogItem[];
+  onVerifyRecord?: (record: StockCutRecord) => void;
+  onNavigateToAuditHub?: () => void;
 }
 
 export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
@@ -99,13 +110,18 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   onEditSandwichRecord,
   onOpenCutModal,
   onOpenPuSandwichModal,
+  onConfirmProduction,
+  onReallocateRoll,
+  onCancelProduction,
   initialCategory = 'all',
   userMode = 'visitor',
   onRequestUnlock,
   auditLogs = [],
+  onVerifyRecord,
+  onNavigateToAuditHub,
 }) => {
-  // Main Mode: 'records' (ตารางตัดสต๊อกปกติ) | 'audit' (ตรวจสอบประวัติการแก้ไข SO)
-  const [historyMode, setHistoryMode] = useState<'records' | 'audit'>('records');
+  // Main Mode: 'records' (ตารางตัดสต๊อกปกติ) | 'reservations' (คิวจอง SO) | 'audit' (ตรวจสอบประวัติการแก้ไข SO)
+  const [historyMode, setHistoryMode] = useState<'records' | 'reservations' | 'audit'>('records');
 
   // Audit Trail Filters
   const [auditSearchQuery, setAuditSearchQuery] = useState('');
@@ -214,6 +230,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         recordedBy: r.recordedBy || '-',
         notes: r.notes,
         createdAt: r.createdAt || '',
+        cutStatus: r.cutStatus || 'completed',
         rawFoil: r,
       });
     });
@@ -496,37 +513,66 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
 
             <button
               type="button"
-              onClick={() => setHistoryMode('audit')}
+              onClick={() => setHistoryMode('reservations')}
               className={`px-4 py-2 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
-                historyMode === 'audit'
+                historyMode === 'reservations'
                   ? 'bg-amber-400 text-slate-950 shadow-xs font-black'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <History className={`w-4 h-4 ${historyMode === 'audit' ? 'text-amber-950' : 'text-amber-600'}`} />
-              <span>ตรวจสอบประวัติการแก้ไข SO (Audit Trail & Diff)</span>
+              <CalendarClock className={`w-4 h-4 ${historyMode === 'reservations' ? 'text-amber-950' : 'text-amber-600'}`} />
+              <span>คิวจอง SO (รอตัดจริง)</span>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                historyMode === 'audit' ? 'bg-amber-950 text-amber-200' : 'bg-amber-100 text-amber-950'
+                historyMode === 'reservations' ? 'bg-amber-950 text-amber-200' : 'bg-amber-100 text-amber-950'
+              }`}>
+                {records.filter((r) => r.cutStatus === 'reserved').length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setHistoryMode('audit')}
+              className={`px-4 py-2 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
+                historyMode === 'audit'
+                  ? 'bg-slate-900 text-white shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <History className={`w-4 h-4 ${historyMode === 'audit' ? 'text-amber-400' : 'text-slate-500'}`} />
+              <span>ประวัติการแก้ไข SO (Audit Trail)</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                historyMode === 'audit' ? 'bg-slate-800 text-amber-300' : 'bg-slate-200 text-slate-800'
               }`}>
                 {auditLogs.length}
               </span>
             </button>
           </div>
 
-          {historyMode === 'audit' && (
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            {historyMode === 'audit' && (
               <button
                 type="button"
                 onClick={() => exportAuditLogsToCSV(filteredAuditLogs)}
                 disabled={filteredAuditLogs.length === 0}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                 title="ส่งออกรายงานประวัติการแก้ไขเป็นไฟล์ CSV/Excel"
               >
                 <Download className="w-3.5 h-3.5 text-emerald-100" />
-                <span>ส่งออกรายงาน Audit (Excel/CSV)</span>
+                <span>ส่งออกรายงาน Audit</span>
               </button>
-            </div>
-          )}
+            )}
+            {onNavigateToAuditHub && (
+              <button
+                type="button"
+                onClick={onNavigateToAuditHub}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                title="เปิดศูนย์ตรวจ SO แบบเต็มจอ"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>ศูนย์ตรวจ SO เต็มจอ</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -730,6 +776,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                 <tr>
                   {/* STICKY SO HEADER (ตรึงซ้าย กะทัดรัด) */}
                   {renderSortTh('so', 'รหัส SO', 'left', true)}
+                  <th className="px-2.5 py-2 text-center text-xs font-bold text-slate-600 bg-slate-50/95">
+                    สถานะ
+                  </th>
                   {renderSortTh('type', 'ประเภท', 'center')}
                   {renderSortTh('details', 'ล็อต / เบอร์ / กว้าง')}
                   {renderSortTh('pattern', 'ท้อง')}
@@ -737,7 +786,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                   {renderSortTh('ng', 'NG ที่เสีย', 'right')}
                   {renderSortTh('remaining', 'ก่อน / หลังตัด', 'right')}
                   {renderSortTh('recorder', 'ผู้บันทึก & หมายเหตุ')}
-                  <th className="px-2.5 py-2 text-center text-xs font-bold text-slate-600 w-32 bg-slate-50/95">
+                  <th className="px-2.5 py-2 text-center text-xs font-bold text-slate-600 w-36 bg-slate-50/95">
                     จัดการ
                   </th>
                 </tr>
@@ -769,6 +818,26 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         >
                           {item.soNumber}
                         </button>
+                      </td>
+
+                      {/* 1.5 สถานะ (Status Badge: ตัดจริง 🟢 / รอตัด 🟡 / ยกเลิก ⚪) */}
+                      <td className="px-2.5 py-2 text-center whitespace-nowrap">
+                        {item.cutStatus === 'reserved' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            <span>รอตัด</span>
+                          </span>
+                        ) : item.cutStatus === 'cancelled' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-300">
+                            <Ban className="w-3 h-3 text-rose-500" />
+                            <span>ยกเลิก</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-2xs">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>ตัดจริง</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* 2. ประเภท (Type Badge) */}
@@ -840,11 +909,11 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         )}
                       </td>
 
-                      {/* 4. ท้อง (ลาย) - กรอบท้องคลุมแค่ขาว จุดสีอยู่นอกกรอบ ขาว/เงิน ไล่เชดสีไม่มีกรอบ */}
+                      {/* 4. ท้อง (ลาย) - กรอบชื่อลาย พร้อมจุดและป้ายตัวเลือก ท้องเงิน / ท้องขาว คมชัด มีขอบ */}
                       <td className="px-2.5 py-2 whitespace-nowrap">
                         {isFoil && item.rawFoil ? (
                           <div className="inline-flex items-center gap-1.5">
-                            {/* กรอบท้องคลุมแค่ชื่อลาย/ขาว */}
+                            {/* กรอบท้องคลุมชื่อลาย */}
                             <span
                               className={`px-2 py-0.5 rounded-md border font-bold text-xs shadow-2xs ${
                                 patternStyle
@@ -860,18 +929,32 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               {item.rawFoil.pattern || 'ขาว'}
                             </span>
 
-                            {/* จุดสีอยู่นอกกรอบ: ขาว เงิน แบบไล่เชดสีไม่มีกรอบ */}
+                            {/* จุดและป้ายตัวเลือก: ท้องเงิน (สีเงินเมทัลลิก คมชัด มีขอบ) */}
                             {item.isSilverSide && (
                               <span
-                                className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-slate-300 via-slate-100 to-zinc-400 shadow-sm shrink-0 border-0"
-                                title="ตัวเลือก: ท้องเงิน"
-                              />
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-slate-200 via-zinc-100 to-slate-200 text-slate-900 border border-slate-400 text-[11px] font-black shadow-2xs"
+                                title="ตัวเลือกพิเศษ: ท้องเงิน"
+                              >
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-slate-400 via-white to-slate-600 ring-1 ring-slate-500 shadow-xs shrink-0"
+                                  aria-hidden="true"
+                                />
+                                <span>เงิน</span>
+                              </span>
                             )}
+
+                            {/* จุดและป้ายตัวเลือก: ท้องขาว (สีขาว คมชัด ขอบเข้มตัดพื้นชัดเจน) */}
                             {item.isWhiteSide && (
                               <span
-                                className="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-300 shadow-sm shrink-0 border-0"
-                                title="ตัวเลือก: ท้องขาว"
-                              />
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white text-slate-950 border-2 border-slate-400 text-[11px] font-black shadow-2xs"
+                                title="ตัวเลือกพิเศษ: ท้องขาว"
+                              >
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full bg-white ring-1.5 ring-slate-700 shadow-xs shrink-0"
+                                  aria-hidden="true"
+                                />
+                                <span>ขาว</span>
+                              </span>
                             )}
                           </div>
                         ) : (
@@ -924,6 +1007,51 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       {/* 9. จัดการ */}
                       <td className="px-2.5 py-2 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1">
+                            {/* ปุ่มสำหรับรายการจองรอตัด: ยืนยันผลิตจริง / เปลี่ยนฟอยล์ / ยกเลิกผลิต */}
+                            {isFoil && item.rawFoil && item.cutStatus === 'reserved' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleActionGuarded(async () => {
+                                    if (onConfirmProduction) {
+                                      await onConfirmProduction(item.rawFoil!.id, item.rawFoil!.soNumber);
+                                    }
+                                  });
+                                }}
+                                title="กดยืนยันว่าผลิตจริงแล้ว (หักสต๊อกม้วนฟอยล์)"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-2xs transition-all active:scale-95 cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">ยืนยันผลิต</span>
+                              </button>
+                            )}
+
+                            {isFoil && item.rawFoil && item.cutStatus === 'reserved' && onReallocateRoll && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleActionGuarded(() => onReallocateRoll(item.rawFoil!));
+                                }}
+                                title="เปลี่ยนม้วนฟอยล์ที่ผูกไว้กับ SO นี้"
+                                className="p-1.5 rounded-lg text-amber-800 hover:text-amber-950 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer border border-amber-300"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
+                              </button>
+                            )}
+
+                            {isFoil && item.rawFoil && item.cutStatus === 'reserved' && onCancelProduction && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleActionGuarded(() => onCancelProduction(item.rawFoil!));
+                                }}
+                                title="ยกเลิกการผลิตและคืนยอดจอง"
+                                className="p-1.5 rounded-lg text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 transition-colors cursor-pointer border border-rose-300"
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
                             {/* คัดลอกสรุปส่ง LINE */}
                             <button
                               type="button"
@@ -1309,6 +1437,21 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         </div>
       )}
 
+      {/* Sub-menu View: คิวจอง SO (รอตัดจริง) */}
+      {historyMode === 'reservations' && (
+        <div className="space-y-4">
+          <SOReservationHubView
+            rolls={rolls}
+            records={records}
+            onOpenCutModal={onOpenCutModal}
+            onConfirmProduction={onConfirmProduction || (async () => {})}
+            onOpenReallocateModal={onReallocateRoll || (() => {})}
+            onOpenCancelModal={onCancelProduction || (() => {})}
+            onViewSODetail={(rec) => setSelectedDetailRecord(rec)}
+          />
+        </div>
+      )}
+
       {/* Pop-up Modal: Foil SO Cut Details */}
       {selectedDetailRecord && (
         <SODetailModal
@@ -1321,6 +1464,10 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           userMode={userMode}
           onRequestUnlock={onRequestUnlock}
           auditLogs={auditLogs}
+          onVerifyRecord={onVerifyRecord}
+          onConfirmProduction={onConfirmProduction}
+          onReallocateRoll={onReallocateRoll}
+          onCancelProduction={onCancelProduction}
         />
       )}
 

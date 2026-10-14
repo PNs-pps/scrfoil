@@ -701,11 +701,26 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                               {res.timeline.map((step) => {
                                 const rec = step.record;
                                 return (
-                                  <tr key={rec.id} className="hover:bg-slate-50">
+                                  <tr 
+                                    key={rec.id} 
+                                    className={`transition-colors ${
+                                      rec.cutStatus === 'reserved'
+                                        ? 'bg-amber-50/80 hover:bg-amber-100/70 border-l-4 border-l-amber-400'
+                                        : 'hover:bg-slate-50'
+                                    }`}
+                                  >
                                     <td className="p-2.5 text-slate-400 font-mono">{step.index}</td>
-                                    <td className="p-2.5 font-mono font-bold text-slate-900">
+                                    <td className={`p-2.5 font-mono font-bold text-slate-900 ${
+                                      rec.cutStatus === 'reserved' ? 'bg-amber-50/90' : ''
+                                    }`}>
                                       <div className="flex items-center gap-1.5">
                                         <span>{rec.soNumber}</span>
+                                        {rec.cutStatus === 'reserved' && (
+                                          <span className="px-1.5 py-0.5 bg-amber-200 text-amber-950 border border-amber-300 rounded text-[10px] font-bold inline-flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                            <span>รอตัดจริง</span>
+                                          </span>
+                                        )}
                                         {step.isDuplicateSO && (
                                           <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-semibold">
                                             ซ้ำ {step.duplicateCount}x
@@ -714,7 +729,11 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                       </div>
                                     </td>
                                     <td className="p-2.5">
-                                      {step.isExactDuplicateSO ? (
+                                      {rec.cutStatus === 'reserved' ? (
+                                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-bold">
+                                          คิวจอง SO
+                                        </span>
+                                      ) : step.isExactDuplicateSO ? (
                                         <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 border border-rose-300 rounded text-[10px] font-bold inline-flex items-center gap-0.5">
                                           <AlertTriangle className="w-3 h-3 text-rose-600" />
                                           <span>ซ้ำยอดเท่ากัน</span>
@@ -754,7 +773,11 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                       )}
                                     </td>
                                     <td className="p-2.5">
-                                      {step.isChainValid ? (
+                                      {rec.cutStatus === 'reserved' ? (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                                          คิวจองรอตัด ⏳
+                                        </span>
+                                      ) : step.isChainValid ? (
                                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
                                           ต่อเนื่องปกติ ✅
                                         </span>

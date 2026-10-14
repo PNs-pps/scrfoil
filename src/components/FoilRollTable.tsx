@@ -3,6 +3,7 @@ import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS, isRollUnused, S
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { formatMeters, compareFoilRolls, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
+import { FoilStatusTube } from './FoilStatusTube';
 import { 
   Search, 
   Filter, 
@@ -96,6 +97,24 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
   const isZeroed = Boolean(roll.isZeroedOut);
   const rem = roll.remainingMeters;
   const isDepleted = rem <= 0 && !isZeroed;
+
+  const rollReservations = useMemo(
+    () => (records || []).filter((r) => r.foilId === roll.id && r.cutStatus === 'reserved'),
+    [records, roll.id]
+  );
+  const totalReservedMeters = useMemo(
+    () =>
+      rollReservations.reduce(
+        (sum, r) =>
+          sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
+        0
+      ),
+    [rollReservations]
+  );
+  const soNumberList = useMemo(
+    () => rollReservations.map((r) => r.soNumber).filter(Boolean).join(', '),
+    [rollReservations]
+  );
 
   const percentLeft = roll.totalMeters > 0 ? Math.round((rem / roll.totalMeters) * 100) : 0;
 
@@ -292,6 +311,12 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
                 เต็ม
               </span>
             )}
+            {rollReservations.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.2 rounded shrink-0 shadow-2xs" title={`จอง SO: ${soNumberList} (${formatMeters(totalReservedMeters)} ม.)`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span>จอง SO {soNumberList ? `(${soNumberList})` : ''}</span>
+              </span>
+            )}
             {highlightLevel === 'red' && (
               <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 shrink-0">
                 ≤50ม.
@@ -330,22 +355,9 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
           </div>
         </div>
 
-        {/* Thin Sleek Progress Line */}
-        <div className="w-full bg-slate-100 rounded-full h-1 my-1.5 overflow-hidden">
-          <div
-            className={`h-1 rounded-full transition-all duration-300 ${
-              isZeroed
-                ? 'bg-rose-500'
-                : highlightLevel === 'red'
-                ? 'bg-rose-600'
-                : highlightLevel === 'yellow'
-                ? 'bg-amber-500'
-                : isDepleted
-                ? 'bg-slate-300'
-                : 'bg-emerald-500'
-            }`}
-            style={{ width: `${percentLeft}%` }}
-          />
+        {/* หลอดไทม์ไลน์สถานะ 3 สี: เขียว (เหลือ), เหลือง (จอง), เทา (ใช้ไปแล้ว) */}
+        <div className="w-full my-1.5">
+          <FoilStatusTube roll={roll} records={records} size="sm" showStats={false} showLabels={true} />
         </div>
 
         {/* Row 2: Minimized secondary details (หน้ากว้าง, ลาย, ใช้ไป, NG) & Controls */}
@@ -465,11 +477,21 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [deleteConfirmRoll, setDeleteConfirmRoll] = useState<FoilRoll | null>(null);
 
   const inUseCount = useMemo(
-    () => rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && !isRollUnused(r)).length,
-    [rolls]
+    () =>
+      rolls.filter(
+        (r) =>
+          Number(r.remainingMeters) > 0 &&
+          !r.isZeroedOut &&
+          r.status !== 'depleted' &&
+          (!isRollUnused(r) || records.some((rec) => rec.foilId === r.id && rec.cutStatus === 'reserved'))
+      ).length,
+    [rolls, records]
   );
   const unusedCount = useMemo(
-    () => rolls.filter((r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r)).length,
+    () =>
+      rolls.filter(
+        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r)
+      ).length,
     [rolls]
   );
   const activeCount = inUseCount + unusedCount;
@@ -486,7 +508,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }
     if (statusFilter === 'in_use') {
       return rolls.filter(
-        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && !isRollUnused(r)
+        (r) =>
+          Number(r.remainingMeters) > 0 &&
+          !r.isZeroedOut &&
+          r.status !== 'depleted' &&
+          (!isRollUnused(r) || records.some((rec) => rec.foilId === r.id && rec.cutStatus === 'reserved'))
       );
     }
     if (statusFilter === 'unused') {
@@ -498,7 +524,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     const byId = new Map<string, FoilRoll>();
     [...rolls, ...archivedRolls].forEach((r) => byId.set(r.id, r));
     return Array.from(byId.values());
-  }, [rolls, archivedRolls, statusFilter]);
+  }, [rolls, archivedRolls, statusFilter, records]);
 
   // Unique lots for quick 1-click filter chips
   const uniqueLots = useMemo(() => {
@@ -816,6 +842,19 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     const rem = roll.remainingMeters;
     const isDepleted = rem <= 0 && !isZeroed;
 
+    const rollReservations = records.filter(
+      (r) => r.foilId === roll.id && r.cutStatus === 'reserved'
+    );
+    const totalReservedMeters = rollReservations.reduce(
+      (sum, r) =>
+        sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
+      0
+    );
+    const soNumberList = rollReservations
+      .map((r) => r.soNumber)
+      .filter(Boolean)
+      .join(', ');
+
     const percentLeft = roll.totalMeters > 0 
       ? Math.round((rem / roll.totalMeters) * 100) 
       : 0;
@@ -875,6 +914,12 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             ) : !isDepleted && (
               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200 shrink-0">
                 ใช้งาน
+              </span>
+            )}
+            {rollReservations.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shadow-2xs shrink-0" title={`จอง SO: ${soNumberList} (${formatMeters(totalReservedMeters)} ม.)`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span>จอง SO {soNumberList ? `(${soNumberList})` : ''} ({formatMeters(totalReservedMeters)} ม.)</span>
               </span>
             )}
             {highlightLevel === 'red' && (
@@ -951,22 +996,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </div>
           )}
 
-          {/* Visual Progress Bar */}
-          <div className="w-full bg-slate-200/80 rounded-full h-1.5 mt-1 overflow-hidden">
-            <div 
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                isZeroed ? 'bg-rose-500' :
-                highlightLevel === 'red' ? 'bg-rose-600' :
-                highlightLevel === 'yellow' ? 'bg-yellow-500' :
-                isDepleted ? 'bg-slate-300' :
-                'bg-emerald-500'
-              }`}
-              style={{ width: `${percentLeft}%` }}
-            />
+          {/* Visual Progress Tube (หลอดสถานะ 3 สี + สรุป 3 ค่า) */}
+          <div className="w-full mt-2 mb-1">
+            <FoilStatusTube roll={roll} records={records} size="sm" showStats={true} />
           </div>
-          <span className="text-[10px] text-slate-500 font-mono mt-0.5 block text-right">
-            คงเหลือ {percentLeft}%
-          </span>
 
           {/* Checkbox to zero-out roll (for rolls highlighted in red <= 50m, or currently zeroed) */}
           {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (

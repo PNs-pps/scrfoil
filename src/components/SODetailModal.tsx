@@ -21,11 +21,15 @@ import {
   Lock,
   Pencil,
   History,
-  ArrowRight
+  ArrowRight,
+  ShieldCheck,
+  RefreshCw,
+  Ban
 } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate, formatThaiDateTime } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 import { UserMode } from '../utils/auth';
+import { FoilStatusTube } from './FoilStatusTube';
 
 interface SODetailModalProps {
   record: StockCutRecord | null;
@@ -34,6 +38,10 @@ interface SODetailModalProps {
   onClose: () => void;
   onDeleteRecord?: (recordId: string) => void;
   onEditRecord?: (record: StockCutRecord) => void;
+  onVerifyRecord?: (record: StockCutRecord) => void;
+  onConfirmProduction?: (recordId: string, soNumber: string) => Promise<void> | void;
+  onReallocateRoll?: (record: StockCutRecord) => void;
+  onCancelProduction?: (record: StockCutRecord) => void;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
   auditLogs?: SOAuditLogItem[];
@@ -46,6 +54,10 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   onClose,
   onDeleteRecord,
   onEditRecord,
+  onVerifyRecord,
+  onConfirmProduction,
+  onReallocateRoll,
+  onCancelProduction,
   userMode = 'visitor',
   onRequestUnlock,
   auditLogs = [],
@@ -220,6 +232,55 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                     <span className="font-bold">หมายเหตุ:</span> {record.notes}
                   </div>
                 )}
+
+                {/* Production Status Badge (เขียว: ตัดจริง / เหลือง: รอตัด) */}
+                <div className="mt-2.5 pt-2 border-t border-amber-200/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  {record.cutStatus === 'reserved' ? (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-950 font-bold border border-amber-300">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                        <span>สถานะ: 🟡 รอตัด (คิวจองฟอยล์)</span>
+                      </span>
+                      <span className="text-[11px] text-amber-800">
+                        กันสต๊อกไว้แล้ว รอกดยืนยันเมื่อผลิตจริง
+                      </span>
+                    </div>
+                  ) : record.cutStatus === 'cancelled' ? (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-bold border border-slate-300">
+                        <Ban className="w-3.5 h-3.5 text-rose-500" />
+                        <span>สถานะ: ยกเลิกการผลิตแล้ว</span>
+                      </span>
+                      {record.cancelReason && (
+                        <span className="text-[11px] text-slate-500">
+                          (เหตุผล: {record.cancelReason})
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-950 font-bold border border-emerald-300">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>สถานะ: 🟢 ตัดจริง (ผลิตแล้ว)</span>
+                      </span>
+                      {record.confirmedAt && (
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          (ยืนยัน {formatThaiDate(record.confirmedAt)})
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* หลอดไทม์ไลน์สถานะ 3 สีสำหรับม้วนที่ผูกไว้ */}
+                {matchedRoll && (
+                  <div className="mt-3 pt-2.5 border-t border-amber-200/60 bg-white/70 p-2.5 rounded-xl">
+                    <span className="text-[10px] font-bold text-slate-600 block mb-1">
+                      สถานะม้วน LOT {matchedRoll.lotNumber} #{matchedRoll.rollNumber}:
+                    </span>
+                    <FoilStatusTube roll={matchedRoll} records={records} size="sm" showStats={true} />
+                  </div>
+                )}
               </div>
 
               {/* Cutting Amounts Grid */}
@@ -384,8 +445,66 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 </div>
               )}
 
-              {/* Action Buttons: Edit & Delete */}
+              {/* Action Buttons: Confirm Production, Reallocate Roll, Cancel, Edit & Delete */}
               <div className="pt-2 flex items-center justify-end gap-2 flex-wrap">
+                {/* 1. ปุ่มกดยืนยันว่าผลิตจริงแล้ว (สำหรับรายการรอตัด) */}
+                {onConfirmProduction && record.cutStatus === 'reserved' && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (userMode === 'visitor') {
+                        onRequestUnlock?.();
+                        return;
+                      }
+                      await onConfirmProduction(record.id, record.soNumber);
+                      onClose();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs cursor-pointer transition-colors active:scale-95"
+                    title="กดยืนยันว่าผลิตจริงแล้ว เพื่อหักสต๊อกฟอยล์และเปลี่ยนสถานะเป็นตัดจริง"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>กดยืนยันว่าผลิตจริงแล้ว</span>
+                  </button>
+                )}
+
+                {/* 2. ปุ่มแก้ไขสำหรับเปลี่ยนฟอยล์ */}
+                {onReallocateRoll && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (userMode === 'visitor') {
+                        onRequestUnlock?.();
+                        return;
+                      }
+                      onReallocateRoll(record);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs border border-amber-300 transition-colors cursor-pointer active:scale-95"
+                    title="สลับเปลี่ยนม้วนฟอยล์ที่ผูกไว้กับ SO นี้"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
+                    <span>เปลี่ยนฟอยล์</span>
+                  </button>
+                )}
+
+                {/* 3. ปุ่มยกเลิกการผลิต */}
+                {onCancelProduction && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (userMode === 'visitor') {
+                        onRequestUnlock?.();
+                        return;
+                      }
+                      onCancelProduction(record);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs border border-rose-300 transition-colors cursor-pointer active:scale-95"
+                    title="ยกเลิกการผลิต และคืนยอดจองกลับม้วนฟอยล์"
+                  >
+                    <Ban className="w-3.5 h-3.5 text-rose-600" />
+                    <span>ยกเลิกการผลิต</span>
+                  </button>
+                )}
+
                 {onEditRecord && (
                   <button
                     type="button"
@@ -483,13 +602,15 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                     <span>ลาย{record.pattern}</span>
                   </span>
                   {record.isSilverSide && (
-                    <span className="inline-flex items-center font-bold text-slate-800 bg-gradient-to-r from-slate-100 to-zinc-200 px-2 py-1 rounded-lg border border-slate-300 shadow-2xs">
-                      ท้องเงิน
+                    <span className="inline-flex items-center gap-1.5 font-bold text-slate-900 bg-gradient-to-r from-slate-200 via-zinc-100 to-slate-200 px-2.5 py-1 rounded-lg border border-slate-400 shadow-2xs">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-slate-400 via-white to-slate-600 ring-1 ring-slate-500 shadow-xs shrink-0" />
+                      <span>ท้องเงิน</span>
                     </span>
                   )}
                   {record.isWhiteSide && (
-                    <span className="inline-flex items-center font-bold text-slate-800 bg-white px-2 py-1 rounded-lg border border-slate-300 shadow-2xs">
-                      ท้องขาว
+                    <span className="inline-flex items-center gap-1.5 font-bold text-slate-950 bg-white px-2.5 py-1 rounded-lg border-2 border-slate-400 shadow-2xs">
+                      <span className="w-2.5 h-2.5 rounded-full bg-white ring-1.5 ring-slate-700 shadow-xs shrink-0" />
+                      <span>ท้องขาว</span>
                     </span>
                   )}
                   {matchedRoll?.dateReceived && (

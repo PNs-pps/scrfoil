@@ -16,12 +16,14 @@ import {
   User,
   Check,
   FileSpreadsheet,
+  ShieldCheck,
+  CalendarClock,
 } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'rolls' | 'history' | 'settings';
-  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'settings') => void;
+  activeTab: 'dashboard' | 'rolls' | 'history' | 'audit' | 'settings';
+  setActiveTab: (tab: 'dashboard' | 'rolls' | 'history' | 'audit' | 'settings') => void;
   onOpenAddModal: () => void;
   onOpenCutModal: (mode?: 'so' | 'non_so') => void;
   onOpenPuSandwichModal: () => void;
@@ -166,6 +168,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <History className="w-3.5 h-3.5 text-amber-600" />
               <span>ประวัติตัด</span>
             </button>
+
 
             <button
               id="tab-settings"

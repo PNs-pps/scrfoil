@@ -17,14 +17,17 @@ import {
   PlusCircle, 
   Trash2, 
   CheckCircle2,
+  Check,
   Building2,
   Wrench,
   ArrowRight,
   ShieldAlert,
   Lock,
-  Calculator
+  Calculator,
+  Clock
 } from 'lucide-react';
 import { TouchNumpad, TouchNumpadTarget } from './TouchNumpad';
+import { FoilStatusTube } from './FoilStatusTube';
 
 interface CutOrderItem {
   id: string;
@@ -84,6 +87,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const [filterWidth, setFilterWidth] = useState<string>('all');
   const [filterPattern, setFilterPattern] = useState<string>('all');
 
+  const [productionMode, setProductionMode] = useState<'immediate' | 'reservation'>('reservation');
   const [usageDate, setUsageDate] = useState<string>(today);
   const [recordedDate, setRecordedDate] = useState<string>(today);
   const [recordedBy, setRecordedBy] = useState<string>('');
@@ -459,11 +463,13 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         isWhiteSide: !!ord.isWhiteSide,
         soNumber: calc.identifier,
         cutType: ord.cutType,
+        cutStatus: productionMode === 'reservation' ? 'reserved' : 'completed',
         nonSoReason: ord.cutType === 'non_so' ? (ord.notes.trim() || calc.identifier) : '',
         productionRound: ord.cutType === 'so' && roundText ? roundText : undefined,
         roundNumber: ord.cutType === 'so' ? parsedRound : undefined,
         usedMeters: Math.abs(calc.numUsed),
         ngMeters: Math.abs(calc.numNg),
+        ngHeadTailMeters: Math.abs(calc.numNg),
         totalDeducted: Math.abs(calc.total),
         remainingBefore: Math.max(0, remBeforeThis),
         remainingAfter: Math.max(0, remAfterThis),
@@ -487,7 +493,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           );
           if (need > serverRem + 0.05) {
             throw new Error(
-              `สต๊อกไม่พอ! ยอดล่าสุดบนเซิร์ฟเวอร์เหลือ ${formatMeters(serverRem)} ม. แต่จะตัด ${formatMeters(need)} ม. (อาจมีเครื่องอื่นตัดไปแล้ว)`
+              `สต๊อกไม่พอ! ยอดล่าสุดบนเซิร์ฟเวอร์เหลือ ${formatMeters(serverRem)} ม. แต่ต้องใช้ ${formatMeters(need)} ม. (อาจมีเครื่องอื่นตัดไปแล้ว)`
             );
           }
           if (onRollRefreshed) onRollRefreshed(fresh);
@@ -502,17 +508,18 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         }
       }
       playSuccessFeedback();
+      const isRes = productionMode === 'reservation';
       setCutResult({
         ok: true,
-        title: 'ตัดสต๊อกสำเร็จ',
+        title: isRes ? 'จองม้วนฟอยล์สำเร็จ' : 'ตัดสต๊อกสำเร็จ',
         message:
           batchRecords.length === 1
-            ? `บันทึก SO ${batchRecords[0].soNumber} เรียบร้อย (ใช้ ${formatMeters(batchRecords[0].usedMeters)} ม.` +
+            ? `บันทึก SO ${batchRecords[0].soNumber} เรียบร้อย (${isRes ? 'คิวจองรอตัด' : 'ตัดจริง'} ${formatMeters(batchRecords[0].usedMeters)} ม.` +
               (batchRecords[0].ngMeters > 0
                 ? ` + NG ${formatMeters(batchRecords[0].ngMeters)} ม.`
                 : '') +
               `)`
-            : `บันทึก ${batchRecords.length} รายการใบงาน ยอดตัดรวม ${formatMeters(
+            : `บันทึก ${batchRecords.length} รายการใบงาน (${isRes ? 'จองรอตัด' : 'ตัดจริง'}) ยอดรวม ${formatMeters(
                 batchRecords.reduce((s, r) => s + r.totalDeducted, 0)
               )} ม.`,
         remainingAfter: batchRecords[batchRecords.length - 1]?.remainingAfter,
@@ -681,6 +688,40 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-sm">
+          {/* Mode Selector: จองรอตัด (คิวผลิต) vs ตัดทันที (ผลิตจริงแล้ว) */}
+          <div className="flex items-center gap-2 p-1.5 bg-slate-100 rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setProductionMode('reservation')}
+              className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                productionMode === 'reservation'
+                  ? 'bg-amber-400 text-slate-950 shadow-xs ring-1 ring-amber-500/30'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock className="w-4 h-4 text-amber-950" />
+              <span>จองรอตัด (คิวผลิต)</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-950 font-mono">
+                🟡 รอตัด
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setProductionMode('immediate')}
+              className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                productionMode === 'immediate'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Scissors className="w-4 h-4 text-white" />
+              <span>ตัดทันที (ผลิตจริงแล้ว)</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-700 text-emerald-100 font-mono">
+                🟢 ตัดจริง
+              </span>
+            </button>
+          </div>
+
           {!isStaff && (
             <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 flex items-start gap-2.5 animate-in fade-in">
               <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
@@ -803,25 +844,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                   <span className="font-semibold">ลาย {currentRoll.pattern}</span>
                 </div>
 
-                {/* แถว 3: คงเหลือเต็มความกว้าง ไม่ทับแถวบน */}
-                <div className="w-full">
-                  {currentRoll.remainingMeters <= 0 ? (
-                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-slate-200 text-slate-700 font-bold font-mono text-sm">
-                      ตัดหมดแล้ว (0.00 ม.)
-                    </span>
-                  ) : currentRoll.remainingMeters <= 50 ? (
-                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 border border-rose-300 font-bold font-mono text-sm animate-pulse">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. · วิกฤต ≤ 50 ม.
-                    </span>
-                  ) : currentRoll.remainingMeters <= 200 ? (
-                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-300 font-bold font-mono text-sm">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. · เหลือน้อย ≤ 200 ม.
-                    </span>
-                  ) : (
-                    <span className="inline-flex w-full justify-center px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono text-sm">
-                      คงเหลือ {formatMeters(currentRoll.remainingMeters)} ม. · พร้อมใช้
-                    </span>
-                  )}
+                {/* แถว 3: หลอดไทม์ไลน์สถานะ 3 สี & ข้อมูล 3 ค่า (จอง / เหลือจริง / ผลิตแล้วจะเหลือ) */}
+                <div className="w-full pt-1">
+                  <FoilStatusTube roll={currentRoll} records={existingRecords} size="md" showStats={true} />
                 </div>
               </div>
             )}
@@ -957,10 +982,18 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         </div>
                       </div>
 
-                      {/* ตัวเลือกท้อง — ปุ่มชิปชัดเจน ไม่วาง checkbox กับจุดสีซ้อนกัน */}
-                      <div className="pt-1 space-y-1.5">
-                        <span className="text-xs font-semibold text-slate-500">ตัวเลือกท้อง (ถ้ามี)</span>
-                        <div className="grid grid-cols-2 gap-2">
+                      {/* ตัวเลือกท้อง — ชิปเลือกสีเงิน/ขาว ชัดเจน พร้อมจุดสีคอนทราสต์สูงและไอคอน Check */}
+                      <div className="pt-1.5 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-700">ตัวเลือกท้องพิเศษ (ถ้ามี):</span>
+                          {(order.isSilverSide || order.isWhiteSide) && (
+                            <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300">
+                              เลือก: {order.isSilverSide ? 'ท้องเงิน' : 'ท้องขาว'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {/* ปุ่มเลือก ท้องเงิน */}
                           <button
                             type="button"
                             onClick={() =>
@@ -969,22 +1002,34 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                                 isWhiteSide: false,
                               })
                             }
-                            className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer ${
+                            className={`flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer shadow-xs ${
                               order.isSilverSide
-                                ? 'bg-slate-800 text-white border-slate-900 shadow-sm'
-                                : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                                ? 'bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400/40 shadow-sm'
+                                : 'bg-slate-50/80 text-slate-800 border-slate-300 hover:border-slate-500 hover:bg-slate-100'
                             }`}
                           >
-                            <span
-                              className={`w-3 h-3 rounded-full border shrink-0 ${
-                                order.isSilverSide
-                                  ? 'bg-gradient-to-r from-slate-300 to-zinc-100 border-white/40'
-                                  : 'bg-gradient-to-r from-slate-300 to-zinc-200 border-slate-400'
-                              }`}
-                              aria-hidden
-                            />
-                            ใช้เป็นท้องเงิน
+                            <div className="flex items-center gap-2">
+                              {/* จุดสีเงินเมทัลลิก ชัดเจน คอนทราสต์สูง */}
+                              <span
+                                className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center shadow-xs ${
+                                  order.isSilverSide
+                                    ? 'bg-gradient-to-br from-slate-200 via-white to-slate-400 border border-white ring-2 ring-amber-400'
+                                    : 'bg-gradient-to-br from-slate-300 via-zinc-100 to-slate-500 border border-slate-400'
+                                }`}
+                                aria-hidden="true"
+                              >
+                                {order.isSilverSide && <Check className="w-2.5 h-2.5 text-slate-900 stroke-[3]" />}
+                              </span>
+                              <span className="font-extrabold">ท้องเงิน</span>
+                            </div>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                              order.isSilverSide ? 'bg-slate-800 text-amber-300' : 'bg-slate-200 text-slate-600'
+                            }`}>
+                              {order.isSilverSide ? 'เปิดใช้งาน' : 'กดเพื่อเลือก'}
+                            </span>
                           </button>
+
+                          {/* ปุ่มเลือก ท้องขาว */}
                           <button
                             type="button"
                             onClick={() =>
@@ -993,21 +1038,31 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                                 isSilverSide: false,
                               })
                             }
-                            className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer ${
+                            className={`flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer shadow-xs ${
                               order.isWhiteSide
-                                ? 'bg-slate-100 text-slate-900 border-slate-400 shadow-sm'
-                                : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                                ? 'bg-amber-50 text-slate-950 border-amber-500 ring-2 ring-amber-400/40 shadow-sm'
+                                : 'bg-slate-50/80 text-slate-800 border-slate-300 hover:border-slate-500 hover:bg-slate-100'
                             }`}
                           >
-                            <span
-                              className={`w-3 h-3 rounded-full border shrink-0 ${
-                                order.isWhiteSide
-                                  ? 'bg-white border-slate-500'
-                                  : 'bg-white border-slate-300'
-                              }`}
-                              aria-hidden
-                            />
-                            ใช้เป็นท้องขาว
+                            <div className="flex items-center gap-2">
+                              {/* จุดสีขาวบริสุทธิ์ ขอบเข้มชัดเจน คอนทราสต์สูง */}
+                              <span
+                                className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center shadow-xs ${
+                                  order.isWhiteSide
+                                    ? 'bg-white border-2 border-slate-950 ring-2 ring-amber-400'
+                                    : 'bg-white border-2 border-slate-500'
+                                }`}
+                                aria-hidden="true"
+                              >
+                                {order.isWhiteSide && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
+                              </span>
+                              <span className="font-extrabold">ท้องขาว</span>
+                            </div>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                              order.isWhiteSide ? 'bg-amber-200 text-amber-950 font-bold' : 'bg-slate-200 text-slate-600'
+                            }`}>
+                              {order.isWhiteSide ? 'เปิดใช้งาน' : 'กดเพื่อเลือก'}
+                            </span>
                           </button>
                         </div>
                       </div>
@@ -1112,7 +1167,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         htmlFor={`input-ng-${order.id}`}
                         className="block text-xs font-semibold text-slate-700 mb-1"
                       >
-                        เศษเสีย NG (ม.)
+                        NG หัวท้าย (ยอดรวม) (ม.)
                       </label>
                       <div className="relative">
                         <input
@@ -1139,6 +1194,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         />
                         <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
                       </div>
+                      <span className="text-[10px] text-slate-400 block mt-0.5 font-medium">
+                        ยอดรวม NG หัวท้าย
+                      </span>
                     </div>
                   </div>
 
@@ -1333,8 +1391,16 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 </>
               ) : (
                 <>
-                  <Scissors className="w-4 h-4 stroke-[2.5]" />
-                  <span>ตรวจสอบก่อนตัด ({formatMeters(totalDeductedAll)} ม.)</span>
+                  {productionMode === 'reservation' ? (
+                    <Clock className="w-4 h-4 stroke-[2.5]" />
+                  ) : (
+                    <Scissors className="w-4 h-4 stroke-[2.5]" />
+                  )}
+                  <span>
+                    {productionMode === 'reservation'
+                      ? `บันทึกคิวจองรอตัด (${formatMeters(totalDeductedAll)} ม.)`
+                      : `ตรวจสอบก่อนตัดสต๊อก (${formatMeters(totalDeductedAll)} ม.)`}
+                  </span>
                 </>
               )}
             </button>

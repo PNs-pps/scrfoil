@@ -51,7 +51,9 @@ export const ExcelExportModal: React.FC<ExcelExportModalProps> = ({
   const [customStartDate, setCustomStartDate] = useState(() => {
     const d = new Date();
     d.setDate(1); // First day of current month
-    return d.toISOString().slice(0, 10);
+    // toISOString() is UTC: on a Thai device before 07:00 on the 1st it yields the
+    // last day of the previous month.
+    return todayLocalISO(d);
   });
   const [customEndDate, setCustomEndDate] = useState(today);
 
