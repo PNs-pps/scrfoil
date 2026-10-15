@@ -3,29 +3,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // จำกัดสิทธิ์เฉพาะพนักงาน (อีเมลเดียว) สำหรับการเขียน/แก้ไข/ลบ
-    // อีเมลต้องเป็นตัวพิมพ์เล็ก และต้องสมัครบัญชีนี้ในแอปไว้แล้ว
+    // ===== จำกัดสิทธิ์เฉพาะพนักงาน (อีเมลที่อนุญาต) =====
+    // อ่าน: ผู้ที่ล็อกอินแล้วทุกคน | เขียน/แก้ไข/ลบ: เฉพาะอีเมลใน allowlist ด้านล่าง
+    // หมายเหตุ: ไม่บังคับ email_verified เพราะบัญชี Google ที่ล็อกอินผ่านแอปถูกยืนยันอยู่แล้ว
+    // และการเช็ค claim นี้เคยทำให้บาง token เข้าไม่ได้
     function isStaff() {
       return request.auth != null &&
         request.auth.token.email != null &&
-        request.auth.token.email.lower() == 'ikuyisad@ikwai.com';
+        request.auth.token.email.lower() in [
+          'ikuyisad@ikwai.com'
+        ];
     }
 
     // ทุกบัญชีที่เข้าสู่ระบบสามารถอ่านดูข้อมูล สต๊อก และประวัติได้ (Read-only)
     function isSignedIn() {
       return request.auth != null;
     }
-
-    // NOTE: isValidId / isValidFoilRoll / isValidStockCutRecord below are
-    // currently NOT referenced by any match block — every collection below is
-    // gated on isStaff() alone. They are kept as the shape a future
-    // field-validation pass should adopt.
-    //
-    // Do NOT wire isValidStockCutRecord in as-is: it requires
-    // `totalDeducted >= 0`, but cycle-count adjustments legitimately write a
-    // negative totalDeducted (physical stock > system stock = restock), so
-    // enabling it would reject those writes. See StockCutRecord.totalDeducted
-    // in src/types.ts — the field is signed by design.
 
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
@@ -54,13 +47,20 @@ service cloud.firestore {
         data.recordedBy is string && data.recordedBy.size() <= 150;
     }
 
+    // NOTE: isValidId / isValidFoilRoll / isValidStockCutRecord ด้านบนยังไม่ได้ถูกอ้างอิง
+    // ใน match block ใด ๆ (ทุก collection ใช้ isStaff() คุมการเขียน) เก็บไว้เป็นแบบร่าง
+    // สำหรับการตรวจ field ในอนาคต
+    //
+    // ห้าม wire isValidStockCutRecord เข้ามาใช้ตรง ๆ: มันบังคับ `totalDeducted >= 0`
+    // แต่การนับสต๊อก (cycle count) เขียนค่าติดลบได้ (ของจริง > ระบบ = คืนยอดเข้าสต๊อก)
+    // ดู StockCutRecord.totalDeducted ใน src/types.ts — ฟิลด์นี้เป็น signed โดยตั้งใจ
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Foil rolls inventory collection — ทุกบัญชีที่เข้าสู่ระบบสามารถอ่านดูข้อมูลและดูม้วนที่หมดแล้วได้
-    // แต่เฉพาะแอดมิน/พนักงานเท่านั้นที่สามารถเพิ่ม แก้ไข ตัดสต๊อก หรือลบข้อมูลได้
+    // Foil rolls inventory collection — อ่านได้ทุกบัญชีที่ล็อกอิน เขียนได้เฉพาะพนักงาน
     match /foil_rolls/{rollId} {
       allow read: if isSignedIn();
       allow write: if isStaff();
