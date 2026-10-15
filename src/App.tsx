@@ -59,6 +59,7 @@ import {
   subscribeToAuthState,
 } from './lib/firebase';
 import { Navbar } from './components/Navbar';
+import { SandboxBanner } from './components/SandboxBanner';
 import { FirebaseSyncBar } from './components/FirebaseSyncBar';
 import { FirebaseRulesModal } from './components/FirebaseRulesModal';
 import { DashboardOverview } from './components/DashboardOverview';
@@ -86,6 +87,7 @@ import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, isStaffEmail, getStaffEmails, hasOperatorPassword, resetToVisitorMode, UserMode } from './utils/auth';
 import { confirmAction } from './utils/confirmAction';
+import { isSandboxActive } from './lib/sandbox';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON, getAllDueD1ScheduleSlots, markD1ScheduleSlotRun, getLastSnapshotFailure } from './utils/autoBackup';
 import { getD1BackupConfig, hasD1Credentials, uploadBackupToD1 } from './utils/d1Backup';
 import { trackCloudWrite, describeWriteFailure } from './utils/cloudWrite';
@@ -171,7 +173,8 @@ export default function App() {
   };
 
   // Visitor vs Data Entry (Editor) Mode State
-  const [userMode, setUserMode] = useState<UserMode>(() => getUserMode());
+  // โหมดทดลอง: ถือว่าผู้ใช้เป็น staff editor ทันที จึงข้ามการถามรหัสผ่านผู้ปฏิบัติการ
+  const [userMode, setUserMode] = useState<UserMode>(() => (isSandboxActive() ? 'editor' : getUserMode()));
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [pendingGuardedAction, setPendingGuardedAction] = useState<(() => void) | null>(null);
 
@@ -1216,6 +1219,12 @@ const updated = [newRoll, ...rolls];
   // Real authorization still belongs to Firestore Rules (see the header comment
   // in src/utils/auth.ts) — this gate is the UI layer on top of it.
   const requireEditorPermission = (action: () => void) => {
+    // โหมดทดลอง: ถือเป็น staff editor อยู่แล้ว ไม่ต้องกรอกรหัสผ่านผู้ปฏิบัติการ
+    if (isSandboxActive()) {
+      action();
+      return;
+    }
+
     // ตรวจสอบสิทธิ์อีเมลเจ้าหน้าที่ก่อน: หากอีเมลที่ล็อกอินไม่มีสิทธิ์คีย์ข้อมูล ให้บล็อกตั้งแต่ก่อนเปิดหน้าตัดใบงาน
     if (!currentUserEmail || !isStaffEmail(currentUserEmail)) {
       setErrorAlert({
@@ -2781,6 +2790,9 @@ const updated = [newRoll, ...rolls];
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] text-slate-900 flex flex-col antialiased selection:bg-amber-200">
+      {/* แถบเตือนโหมดทดลอง — แสดงเฉพาะเมื่อเปิดโหมดทดลองบนเครื่องนี้ */}
+      <SandboxBanner />
+
       {/* External update banner: another device changed data — offer a reload
           so this device doesn't keep working on a stale page. */}
       {externalUpdateAvailable && (

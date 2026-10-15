@@ -31,7 +31,10 @@ import {
   Sparkles,
   Cloud,
   FileSpreadsheet,
-  ArrowLeft
+  ArrowLeft,
+  FlaskConical,
+  KeyRound,
+  Trash2
 } from 'lucide-react';
 import { 
   AutoBackupConfig, 
@@ -47,6 +50,15 @@ import {
 } from '../utils/autoBackup';
 import { FoilRoll, StockCutRecord } from '../types';
 import { UserMode } from '../utils/auth';
+import {
+  isSandboxActive,
+  isSandboxUnlocked,
+  unlockSandboxDevice,
+  lockSandboxDevice,
+  enableSandbox,
+  disableSandbox,
+  resetSandboxData,
+} from '../lib/sandbox';
 import { 
   groupRollsByDateReceived, 
   groupCutsByDate, 
@@ -151,6 +163,11 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   const [copiedRules, setCopiedRules] = useState(false);
   const [isBackingUpNow, setIsBackingUpNow] = useState(false);
 
+  // โหมดทดลอง (Sandbox)
+  const [sandboxAllowed, setSandboxAllowed] = useState(() => isSandboxUnlocked());
+  const [sandboxCode, setSandboxCode] = useState('');
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
+
   // Date Grouped Folders for Incoming and Cuts
   const incomingDateFolders = useMemo(() => groupRollsByDateReceived(rolls), [rolls]);
   const cutsDateFolders = useMemo(() => groupCutsByDate(records), [records]);
@@ -161,6 +178,26 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       return;
     }
     action();
+  };
+
+  // --- โหมดทดลอง (Sandbox) ---------------------------------------------------
+  const handleUnlockSandbox = () => {
+    setSandboxError(null);
+    if (unlockSandboxDevice(sandboxCode)) {
+      setSandboxAllowed(true);
+      setSandboxCode('');
+      showToast('ปลดล็อกอุปกรณ์นี้สำหรับโหมดทดลองแล้ว');
+    } else {
+      setSandboxError('รหัสปลดล็อกไม่ถูกต้อง');
+    }
+  };
+
+  const handleResetSandboxData = async () => {
+    if (!(await confirmAction({
+      message: 'ล้างข้อมูลทดลองทั้งหมดบนเครื่องนี้ แล้วเติมชุดตัวอย่างใหม่? ข้อมูลจริงบนคลาวด์ไม่ได้รับผลกระทบ',
+      confirmLabel: 'ล้างและเติมใหม่',
+    }))) return;
+    resetSandboxData();
   };
 
   // Toggle backup setting
@@ -1148,6 +1185,102 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {activeSubTab === 'cloud' && (
         <div className="space-y-6">
+          {/* โหมดทดลอง (Sandbox) */}
+          <div className="bg-amber-50/70 rounded-2xl p-5 border border-amber-300/90 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold">
+                  <FlaskConical className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900">โหมดทดลอง (Sandbox)</h3>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    ทดลองใช้แอปทั้งระบบบนเครื่องนี้โดยไม่แตะข้อมูลคลาวด์จริง — ข้อมูลอยู่ในเครื่องเท่านั้น
+                  </p>
+                </div>
+              </div>
+              <span className={`text-xs font-bold px-3 py-1.5 rounded-xl self-start sm:self-auto ${
+                isSandboxActive() ? 'bg-rose-100 text-rose-800' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {isSandboxActive() ? 'โหมดทดลอง: เปิดอยู่' : 'โหมดทดลอง: ปิดอยู่'}
+              </span>
+            </div>
+
+            {!sandboxAllowed ? (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-900">
+                  เครื่องนี้ยังไม่ได้รับอนุญาตให้ใช้โหมดทดลอง — กรอกรหัสปลดล็อกเพื่อเปิดใช้
+                </p>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="text"
+                    value={sandboxCode}
+                    onChange={(e) => { setSandboxCode(e.target.value); setSandboxError(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleUnlockSandbox(); }}
+                    placeholder="รหัสปลดล็อกโหมดทดลอง"
+                    autoComplete="off"
+                    className="flex-1 px-3 py-2 text-sm bg-white border border-amber-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400 tracking-widest uppercase"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleUnlockSandbox}
+                    className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-sm font-bold shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    <span>ปลดล็อกอุปกรณ์นี้</span>
+                  </button>
+                </div>
+                {sandboxError && (
+                  <p className="text-[11px] text-rose-700 font-medium flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    {sandboxError}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-amber-900">
+                  เครื่องนี้ได้รับอนุญาตแล้ว เมื่อเปิดโหมดทดลอง แอปจะไม่เรียก Firestore/Auth เลย
+                  และใช้ข้อมูลตัวอย่างในเครื่องเท่านั้น (ปิดแล้วกลับไปใช้คลาวด์จริงตามเดิม)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {isSandboxActive() ? (
+                    <button
+                      type="button"
+                      onClick={() => disableSandbox()}
+                      className="py-2 px-3 rounded-xl bg-white border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100 cursor-pointer"
+                    >
+                      ปิดโหมดทดลอง
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { enableSandbox(); }}
+                      className="py-2 px-3 rounded-xl bg-amber-500 text-slate-950 text-xs font-bold hover:bg-amber-400 cursor-pointer"
+                    >
+                      เปิดโหมดทดลอง
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleResetSandboxData}
+                    className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    ล้างข้อมูลทดลอง
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { lockSandboxDevice(); setSandboxAllowed(false); }}
+                    className="py-2 px-3 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50 cursor-pointer"
+                  >
+                    เพิกถอนสิทธิ์เครื่องนี้
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>

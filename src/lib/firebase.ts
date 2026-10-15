@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { todayLocalISO } from '../utils/formatters';
-import { 
+// ในโหมดทดลอง (sandbox) gateway จะสลับไปใช้ implementation ในเครื่องอัตโนมัติ
+// โดยไม่ต้องแก้โค้ดส่วนอื่นในไฟล์นี้เลย — ไม่มีการเรียก Firestore/Auth ผ่านเครือข่าย
+import {
   getFirestore, 
   initializeFirestore,
   persistentLocalCache,
@@ -20,7 +22,7 @@ import {
   orderBy,
   where,
   Firestore
-} from 'firebase/firestore';
+} from './firebaseGateway';
 import { 
   getAuth, 
   GoogleAuthProvider, 
@@ -37,7 +39,8 @@ import {
   updateProfile,
   Auth, 
   User 
-} from 'firebase/auth';
+} from './firebaseGateway';
+import { isSandboxActive } from './sandbox';
 import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession, SOAuditLogItem } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 import { isCycleCountRecord, signedTotalDeducted } from '../utils/cutDeduction';
@@ -93,10 +96,23 @@ export function setActiveTarget(target: 'user' | 'managed'): void {
 export const activeTarget = getActiveTarget();
 export const firebaseConfig = activeTarget === 'managed' ? MANAGED_FIREBASE_CONFIG : USER_FIREBASE_CONFIG;
 
+// --- โหมดทดลอง (sandbox) ----------------------------------------------------
+// เปิดผ่านรหัสปลดล็อกในหน้าตั้งค่าเท่านั้น มีผลเฉพาะเบราว์เซอร์เครื่องนั้น
+// เมื่อเปิดอยู่ ทุกฟังก์ชันด้านล่างจะทำงานกับข้อมูลในเครื่อง 100% ไม่แตะคลาวด์
+const sandboxActive = isSandboxActive();
+if (sandboxActive) {
+  console.warn(
+    '[โหมดทดลอง] เปิดใช้งานอยู่ — ข้อมูลทั้งหมดเก็บในเครื่องนี้เท่านั้น ไม่ซิงค์ขึ้น Cloud และไม่มีการเรียก Firestore/Auth'
+  );
+}
+
 // Initialize Firebase App
+// โหมดทดลองไม่สร้างแอป Firebase จริง — ค่า firebaseApp จะไม่ถูกใช้ (mock ข้าม argument ทั้งหมด)
 const appName = activeTarget === 'managed' ? 'pufoam-managed' : '[DEFAULT]';
-export const firebaseApp: FirebaseApp = getApps().find(a => a.name === appName) 
-  || initializeApp(firebaseConfig, appName === '[DEFAULT]' ? undefined : appName);
+export const firebaseApp: FirebaseApp = sandboxActive
+  ? (null as unknown as FirebaseApp)
+  : getApps().find(a => a.name === appName)
+    || initializeApp(firebaseConfig, appName === '[DEFAULT]' ? undefined : appName);
 
 // Initialize Firestore with Persistent Local Cache (IndexedDB)
 // This dramatically reduces Firebase read quota by serving previously cached

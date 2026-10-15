@@ -1,0 +1,405 @@
+/**
+ * ชุดข้อมูลตัวอย่างสำหรับโหมดทดลอง (โหมดทดลองของผู้ปฏิบัติงาน)
+ *
+ * เติมข้อมูลลงใน store ของ mock Firestore ตอนเปิดโหมดทดลองครั้งแรก เพื่อให้
+ * ทดลองทุกหน้าจอได้ทันที (ม้วนฟอยล์, ใบตัดสถานะต่าง ๆ, PU Sandwich, รอบนับสต๊อก)
+ * ตั้งใจให้เล็ก (< 20 เอกสาร) และใช้ type จริงจาก src/types.ts เพื่อให้ UI เรนเดอร์ได้
+ *
+ * วันที่ถูกกำหนดตายตัวเพื่อให้ผลลัพธ์ซ้ำได้ (deterministic) ไม่อิงเวลาปัจจุบัน
+ */
+
+import { FoilRoll, StockCutRecord, PuSandwichCutRecord, CycleCountSession } from '../types';
+import { SandboxStore, getSandboxStore, replaceSandboxStore } from './mockFirestore';
+
+const D1 = '2026-10-05';
+const D2 = '2026-10-10';
+const D3 = '2026-10-14';
+
+const rolls: FoilRoll[] = [
+  {
+    id: 'roll-001',
+    lotNumber: 'LOT-6909-A',
+    rollNumber: '01',
+    width: 900,
+    pattern: 'ขาว',
+    totalMeters: 1000,
+    remainingMeters: 620,
+    usedMeters: 360,
+    ngMeters: 20,
+    dateReceived: '2026-09-20',
+    status: 'active',
+    notes: 'ม้วนตัวอย่างสำหรับโหมดทดลอง',
+    recentCuts: [
+      {
+        id: 'rec-002',
+        soNumber: 'SO6909-512',
+        cutType: 'so',
+        usedMeters: 220,
+        ngMeters: 10,
+        totalDeducted: 230,
+        remainingAfter: 620,
+        usageDate: D2,
+        recordedDate: D2,
+        recordedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+        notes: '',
+      },
+      {
+        id: 'rec-001',
+        soNumber: 'SO6909-500',
+        cutType: 'so',
+        usedMeters: 140,
+        ngMeters: 10,
+        totalDeducted: 150,
+        remainingAfter: 850,
+        usageDate: D1,
+        recordedDate: D1,
+        recordedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+        notes: '',
+      },
+    ],
+    createdAt: '2026-09-20T03:00:00.000Z',
+  },
+  {
+    id: 'roll-002',
+    lotNumber: 'LOT-6909-B',
+    rollNumber: '02',
+    width: 850,
+    pattern: 'ไม้อ่อน',
+    totalMeters: 1200,
+    remainingMeters: 1200,
+    usedMeters: 0,
+    ngMeters: 0,
+    dateReceived: '2026-10-01',
+    status: 'active',
+    isUnused: true,
+    notes: 'ม้วนเต็ม ยังไม่มีการตัด',
+    createdAt: '2026-10-01T03:00:00.000Z',
+  },
+  {
+    id: 'roll-003',
+    lotNumber: 'LOT-6908-C',
+    rollNumber: '03',
+    width: 880,
+    pattern: 'ดำ',
+    totalMeters: 1000,
+    remainingMeters: 850,
+    usedMeters: 145,
+    ngMeters: 5,
+    dateReceived: '2026-09-05',
+    status: 'active',
+    notes: '',
+    createdAt: '2026-09-05T03:00:00.000Z',
+  },
+  {
+    id: 'roll-004',
+    lotNumber: 'LOT-6907-D',
+    rollNumber: '04',
+    width: 900,
+    pattern: 'กลีบบัว',
+    totalMeters: 1000,
+    remainingMeters: 0,
+    usedMeters: 990,
+    ngMeters: 10,
+    dateReceived: '2026-08-15',
+    status: 'depleted',
+    depletedAt: '2026-09-30',
+    notes: 'ม้วนหมดแล้ว (สำหรับทดสอบหน้าคลังเก่า)',
+    createdAt: '2026-08-15T03:00:00.000Z',
+  },
+];
+
+const records: StockCutRecord[] = [
+  {
+    id: 'rec-001',
+    foilId: 'roll-001',
+    lotNumber: 'LOT-6909-A',
+    rollNumber: '01',
+    width: 900,
+    pattern: 'ขาว',
+    soNumber: 'SO6909-500',
+    cutType: 'so',
+    cutStatus: 'completed',
+    usedMeters: 140,
+    ngMeters: 10,
+    totalDeducted: 150,
+    remainingBefore: 1000,
+    remainingAfter: 850,
+    usageDate: D1,
+    recordedDate: D1,
+    recordedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+    confirmedAt: `${D1}T04:00:00.000Z`,
+    confirmedBy: 'ผู้ควบคุมงาน',
+    notes: '',
+    createdAt: `${D1}T04:00:00.000Z`,
+  },
+  {
+    id: 'rec-002',
+    foilId: 'roll-001',
+    lotNumber: 'LOT-6909-A',
+    rollNumber: '01',
+    width: 900,
+    pattern: 'ขาว',
+    soNumber: 'SO6909-512',
+    cutType: 'so',
+    cutStatus: 'completed',
+    usedMeters: 220,
+    ngMeters: 10,
+    totalDeducted: 230,
+    remainingBefore: 850,
+    remainingAfter: 620,
+    usageDate: D2,
+    recordedDate: D2,
+    recordedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+    confirmedAt: `${D2}T04:00:00.000Z`,
+    confirmedBy: 'ผู้ควบคุมงาน',
+    notes: '',
+    createdAt: `${D2}T04:00:00.000Z`,
+  },
+  {
+    id: 'rec-003',
+    foilId: 'roll-002',
+    lotNumber: 'LOT-6909-B',
+    rollNumber: '02',
+    width: 850,
+    pattern: 'ไม้อ่อน',
+    soNumber: 'SO6909-601',
+    cutType: 'so',
+    cutStatus: 'reserved',
+    usedMeters: 180,
+    ngMeters: 0,
+    totalDeducted: 180,
+    remainingBefore: 1200,
+    remainingAfter: 1020,
+    usageDate: D3,
+    recordedDate: D3,
+    recordedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+    notes: 'จองรอตัด — ยังไม่หักสต๊อก',
+    createdAt: `${D3}T02:00:00.000Z`,
+  },
+  {
+    id: 'rec-004',
+    foilId: 'roll-003',
+    lotNumber: 'LOT-6908-C',
+    rollNumber: '03',
+    width: 880,
+    pattern: 'ดำ',
+    soNumber: 'SO6909-530',
+    cutType: 'so',
+    cutStatus: 'cancelled',
+    usedMeters: 60,
+    ngMeters: 5,
+    totalDeducted: 65,
+    remainingBefore: 1000,
+    remainingAfter: 935,
+    usageDate: D1,
+    recordedDate: D1,
+    recordedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+    cancelledAt: `${D1}T06:00:00.000Z`,
+    cancelledBy: 'ผู้ควบคุมงาน',
+    cancelReason: 'ลูกค้าเปลี่ยนแบบ',
+    notes: '',
+    createdAt: `${D1}T05:00:00.000Z`,
+  },
+  {
+    id: 'rec-005',
+    foilId: 'roll-003',
+    lotNumber: 'LOT-6908-C',
+    rollNumber: '03',
+    width: 880,
+    pattern: 'ดำ',
+    soNumber: 'SO6909-541',
+    cutType: 'so',
+    cutStatus: 'completed',
+    usedMeters: 100,
+    ngMeters: 5,
+    totalDeducted: 105,
+    remainingBefore: 1000,
+    remainingAfter: 895,
+    usageDate: D2,
+    recordedDate: D2,
+    recordedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+    confirmedAt: `${D2}T05:00:00.000Z`,
+    confirmedBy: 'ผู้ควบคุมงาน',
+    notes: '',
+    createdAt: `${D2}T05:00:00.000Z`,
+  },
+  {
+    id: 'rec-006',
+    foilId: 'roll-003',
+    lotNumber: 'LOT-6908-C',
+    rollNumber: '03',
+    width: 880,
+    pattern: 'ดำ',
+    soNumber: 'สาขายืม',
+    cutType: 'non_so',
+    cutStatus: 'completed',
+    nonSoReason: 'สาขาพัทยายืมไปใช้งาน',
+    usedMeters: 45,
+    ngMeters: 0,
+    totalDeducted: 45,
+    remainingBefore: 895,
+    remainingAfter: 850,
+    usageDate: D3,
+    recordedDate: D3,
+    recordedBy: 'วิชัย ชัยชนะ',
+    confirmedAt: `${D3}T03:00:00.000Z`,
+    confirmedBy: 'ผู้ควบคุมงาน',
+    notes: '',
+    createdAt: `${D3}T03:00:00.000Z`,
+  },
+  {
+    id: 'rec-007',
+    foilId: 'roll-004',
+    lotNumber: 'LOT-6907-D',
+    rollNumber: '04',
+    width: 900,
+    pattern: 'กลีบบัว',
+    soNumber: 'SO6908-777',
+    cutType: 'so',
+    cutStatus: 'completed',
+    usedMeters: 990,
+    ngMeters: 10,
+    totalDeducted: 1000,
+    remainingBefore: 1000,
+    remainingAfter: 0,
+    usageDate: '2026-09-30',
+    recordedDate: '2026-09-30',
+    recordedBy: 'ธีรศักดิ์ สุวรรณ',
+    confirmedAt: '2026-09-30T04:00:00.000Z',
+    confirmedBy: 'ผู้ควบคุมงาน',
+    notes: '',
+    createdAt: '2026-09-30T04:00:00.000Z',
+  },
+];
+
+const puSandwichCuts: PuSandwichCutRecord[] = [
+  {
+    id: 'pu-001',
+    soNumber: 'SO6909-701',
+    productionDate: D2,
+    coilColor: 'ขาว',
+    thickness: '0.35',
+    coilNumber: 'C-1201',
+    weightBefore: 1250,
+    weightAfter: 980,
+    steelOrigin: 'เหล็กนอก',
+    weightUsed: 270,
+    soLengthMeters: 300,
+    ngKg: 5,
+    ngMeters: 6,
+    lengthMeters: 294,
+    recordedBy: 'ประภาส บรรเจิด',
+    notes: '',
+    createdAt: `${D2}T07:00:00.000Z`,
+  },
+  {
+    id: 'pu-002',
+    soNumber: 'SO6909-715',
+    productionDate: D3,
+    coilColor: 'เทา',
+    thickness: '0.40',
+    coilNumber: 'C-1205',
+    weightBefore: 1400,
+    weightAfter: 1105,
+    steelOrigin: 'เหล็กBlue Scope',
+    weightUsed: 295,
+    soLengthMeters: 330,
+    ngKg: 0,
+    ngMeters: 0,
+    lengthMeters: 330,
+    recordedBy: 'อนุชิต สดใส',
+    notes: '',
+    createdAt: `${D3}T07:30:00.000Z`,
+  },
+  {
+    id: 'pu-003',
+    soNumber: 'SO6909-720',
+    productionDate: D3,
+    coilColor: 'ดำ',
+    thickness: '0.30',
+    coilNumber: 'C-1209',
+    weightBefore: 980,
+    weightAfter: 900,
+    steelOrigin: 'อื่นๆ',
+    customSteelOrigin: 'เหล็กนำเข้า',
+    weightUsed: 80,
+    soLengthMeters: 95,
+    recordedBy: 'ประภาส บรรเจิด',
+    notes: '',
+    createdAt: `${D3}T08:15:00.000Z`,
+  },
+];
+
+const cycleCounts: CycleCountSession[] = [
+  {
+    id: 'cycle-2026-09',
+    period: '2026-09',
+    status: 'completed',
+    countedBy: 'สมชาย นพคุณ (ช่างเครื่อง)',
+    notes: 'ตัวอย่างรอบนับสต๊อกสำหรับโหมดทดลอง',
+    lines: [
+      {
+        rollId: 'roll-003',
+        lotNumber: 'LOT-6908-C',
+        rollNumber: '03',
+        width: 880,
+        pattern: 'ดำ',
+        systemRemaining: 850,
+        physicalCount: 848,
+        variance: -2,
+        reason: 'นับได้น้อยกว่าระบบเล็กน้อย',
+        adjusted: true,
+      },
+      {
+        rollId: 'roll-004',
+        lotNumber: 'LOT-6907-D',
+        rollNumber: '04',
+        width: 900,
+        pattern: 'กลีบบัว',
+        systemRemaining: 0,
+        physicalCount: 0,
+        variance: 0,
+        adjusted: false,
+      },
+    ],
+    createdAt: '2026-09-30T09:00:00.000Z',
+    updatedAt: '2026-09-30T09:30:00.000Z',
+    completedAt: '2026-09-30T09:30:00.000Z',
+    adjustmentRecordIds: [],
+  },
+];
+
+/** สร้าง store ตัวอย่างทั้งก้อน (ใช้ทั้งตอน seed และ reset) */
+function buildSeedStore(): SandboxStore {
+  return {
+    foil_rolls: rolls.reduce<Record<string, FoilRoll>>((acc, r) => {
+      acc[r.id] = r;
+      return acc;
+    }, {}),
+    stock_cut_records: records.reduce<Record<string, StockCutRecord>>((acc, r) => {
+      acc[r.id] = r;
+      return acc;
+    }, {}),
+    pu_sandwich_cuts: puSandwichCuts.reduce<Record<string, PuSandwichCutRecord>>((acc, r) => {
+      acc[r.id] = r;
+      return acc;
+    }, {}),
+    cycle_counts: cycleCounts.reduce<Record<string, CycleCountSession>>((acc, s) => {
+      acc[s.id] = s;
+      return acc;
+    }, {}),
+  };
+}
+
+/** เติมข้อมูลตัวอย่างถ้า store ยังว่าง (เรียกตอนเปิดโหมดทดลองครั้งแรก) */
+export function seedSandboxStoreIfEmpty(): void {
+  const store = getSandboxStore();
+  const rollsMap = store.foil_rolls;
+  if (rollsMap && Object.keys(rollsMap).length > 0) return;
+  replaceSandboxStore(buildSeedStore());
+}
+
+/** ล้างข้อมูลทดลองทั้งหมดแล้วเติมชุดตัวอย่างใหม่ */
+export function resetSandboxStore(): void {
+  replaceSandboxStore(buildSeedStore());
+}
