@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { getPendingCutRollIds, enqueuePendingCut } from './pendingCutQueue';
 import { parseAndValidateBackupJSON } from './autoBackup';
 import { groupCutsByDate, groupRollsByDateReceived } from './dateGrouping';
+import { isRollUnused } from '../types';
 import type { FoilRoll, StockCutRecord } from '../types';
 
 function fakeStorage(initial?: string) {
@@ -120,5 +121,49 @@ describe('groupRollsByDateReceived', () => {
     ];
     const [group] = groupRollsByDateReceived(rolls);
     expect(group.totalMeters).toBe(100);
+  });
+});
+
+describe('isRollUnused', () => {
+  const makeRoll = (o: Partial<FoilRoll> = {}): FoilRoll =>
+    ({
+      id: 'r1',
+      lotNumber: 'L1',
+      rollNumber: '01',
+      width: 850,
+      pattern: 'ท้องขาว',
+      totalMeters: 1000,
+      remainingMeters: 1000,
+      usedMeters: 0,
+      ngMeters: 0,
+      dateReceived: '2026-10-01',
+      status: 'active',
+      createdAt: '2026-10-01T00:00:00Z',
+      ...o,
+    } as FoilRoll);
+
+  it('treats a fresh full roll (no flag) as unused', () => {
+    expect(isRollUnused(makeRoll())).toBe(true);
+  });
+
+  it('corrects a stale isUnused=true once the roll has been cut', () => {
+    expect(isRollUnused(makeRoll({ usedMeters: 50, remainingMeters: 950, isUnused: true }))).toBe(false);
+  });
+
+  it('keeps an already-used roll (isUnused=false) as in-use even if it looks full again', () => {
+    expect(isRollUnused(makeRoll({ isUnused: false }))).toBe(false);
+  });
+
+  it('treats a roll with recent cuts as in-use even when flagged unused', () => {
+    expect(
+      isRollUnused(
+        makeRoll({
+          isUnused: true,
+          recentCuts: [
+            { id: 'c1', soNumber: 'SO-1', usedMeters: 0, ngMeters: 0, totalDeducted: 0, remainingAfter: 1000, usageDate: '2026-10-10', recordedDate: '2026-10-10', recordedBy: 'x' },
+          ],
+        })
+      )
+    ).toBe(false);
   });
 });

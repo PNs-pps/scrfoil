@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FoilRoll, StockCutRecord, PuSandwichCutRecord, SOAuditLogItem, CycleCountSession } from './types';
+import { FoilRoll, StockCutRecord, PuSandwichCutRecord, SOAuditLogItem, CycleCountSession, isRollUnused } from './types';
 import { 
   getStoredRolls, 
   saveStoredRolls, 
@@ -111,6 +111,7 @@ import {
 import { summarizeBatch, BatchWriteOutcome } from './utils/batchReconcile';
 import { formatMeters, round2 } from './utils/formatters';
 import { checkStockIntegrity, shouldRunAutoCheck, markAutoCheckRun, getCheckState, IntegrityMismatch } from './utils/integrityCheck';
+import { reservedMetersOfRoll } from './utils/rollAggregates';
 import { playFeedback } from './utils/feedback';
 import { SOAuditHubView } from './components/SOAuditHubView';
 import { SOReservationHubView } from './components/SOReservationHubView';
@@ -690,9 +691,9 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, [rolls, records, puSandwichRecords]);
 
-  // Automatic daily stock-integrity check (runs by itself, up to 2x/day, the
-  // first couple of times someone opens the app each day — see
-  // src/utils/integrityCheck.ts for how "automatic" works in a client-only app).
+  // Automatic weekly stock-integrity check (runs by itself, once per week on the
+  // first app open that week, weeks starting Monday — see src/utils/integrityCheck.ts
+  // for how "automatic" works in a client-only app).
   const hasRunAutoIntegrityCheckRef = useRef(false);
   useEffect(() => {
     if (rolls.length === 0 || records.length === 0) return;
@@ -703,7 +704,8 @@ export default function App() {
     // Small delay so this runs after the initial Firestore sync has settled,
     // not against a half-loaded local cache.
     const timer = setTimeout(() => {
-      const issues = checkStockIntegrity(rolls, records);
+      // ตัดม้วนที่ตั้งใจติ๊กเป็น 0 ออกจากการเตือน (เหมือนการตรวจแบบ manual=false)
+      const issues = checkStockIntegrity(rolls, records, { excludeZeroedOut: true });
       setStockIntegrityIssues(issues);
       markAutoCheckRun();
       if (issues.length > 0) {
@@ -1038,8 +1040,18 @@ const updated = [newRoll, ...rolls];
   };
 
   // Update existing foil roll
-  const handleUpdateRoll = async (updatedRoll: FoilRoll) => {
-    const previous = rollsRef.current.find((r) => r.id === updatedRoll.id) ?? null;
+  const handleUpdateRoll = async (updatedRollInput: FoilRoll) => {
+    const previous = rollsRef.current.find((r) => r.id === updatedRollInput.id) ?? null;
+
+    // อัปเดตธง "ม้วนใหม่" จากค่าจริง — EditFoilModal ไม่ได้ตั้งค่า isUnused
+    // จึงต้องคำนวณใหม่ ไม่งั้นธงค้างเก่า (ม้วนที่แก้ยอดจนใช้งานแล้วยังโชว์ "เต็ม")
+    // และถ้าม้วนมีการจองรอตัด (reserved) ให้ถือว่าใช้งานแล้วเช่นกัน
+    const hasReservation = reservedMetersOfRoll(recordsRef.current, updatedRollInput.id) > 0;
+    const updatedRoll: FoilRoll = {
+      ...updatedRollInput,
+      isUnused: !hasReservation && isRollUnused({ ...updatedRollInput, isUnused: undefined }),
+    };
+
     // ยอดตอนเปิดแก้ไข — ให้ Cloud เทียบว่ายังไม่ถูกตัดไปก่อน จึงอนุญาตให้เขียนทับยอด
     const expectedStock =
       editRollExpectedStockRef.current ??

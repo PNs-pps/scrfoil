@@ -210,15 +210,20 @@ export interface CycleCountSession {
 
 /** ตรวจสอบว่าม้วนนี้เป็นม้วนเต็มที่ยังไม่มีการใช้งานหรือไม่ */
 export function isRollUnused(roll: FoilRoll): boolean {
-  if (roll.isUnused !== undefined) return roll.isUnused;
-  return (
+  // ตรวจจากค่าจริงบนตัวม้วนก่อน เพื่อกันธง isUnused ที่ค้างเก่า
+  // (เช่น ม้วนถูกตัดไปแล้วทางอื่น แต่ธงยังเป็น true เพราะไม่ได้อัปเดต)
+  const looksUnused =
     roll.status === 'active' &&
     !roll.isZeroedOut &&
     Number(roll.usedMeters || 0) === 0 &&
     Number(roll.ngMeters || 0) === 0 &&
     Number(roll.remainingMeters) >= Number(roll.totalMeters) &&
-    (!roll.recentCuts || roll.recentCuts.length === 0)
-  );
+    (!roll.recentCuts || roll.recentCuts.length === 0);
+
+  // ธง true เชื่อถือได้เฉพาะเมื่อยังสอดคล้องกับค่าจริง; ธง false ให้ยึดเป็น "ใช้งานแล้ว" ไว้ก่อน (ปลอดภัยกว่า)
+  if (roll.isUnused === true) return looksUnused;
+  if (roll.isUnused === false) return false;
+  return looksUnused;
 }
 
 /**

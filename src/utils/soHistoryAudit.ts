@@ -1,5 +1,7 @@
 import { FoilRoll, StockCutRecord } from '../types';
 import { round2, formatMeters } from './formatters';
+import { signedTotalDeducted } from './cutDeduction';
+import { isCountableCut, reservedMetersOf } from './rollAggregates';
 
 export type SOBugType = 
   | 'RESERVED_SO_QUEUE'       // มีคิวจอง SO รอดำเนินการตัดบนม้วนนี้ (รอตัดจริง)
@@ -116,7 +118,9 @@ export function auditRollSOHistory(
   });
 
   // 1. Check for Duplicate SOs vs Split Production Rounds
-  soMap.forEach((cuts, soKey) => {
+  // นับเฉพาะใบที่ตัดจริง — ใบจอง (reserved) และใบยกเลิก (cancelled) ไม่ถือเป็น "ตัดซ้ำ"
+  soMap.forEach((allCuts, soKey) => {
+    const cuts = allCuts.filter(isCountableCut);
     if (cuts.length > 1) {
       // If cuts have explicit different production rounds, they are intentional split runs
       const explicitRounds = new Set(cuts.map((c) => (c.productionRound || '').trim()).filter(Boolean));
@@ -171,7 +175,7 @@ export function auditRollSOHistory(
       if (!hasExactDup) {
         const roundsDesc = cuts.map((c, i) => {
           const rLabel = (c.productionRound || '').trim() || `รอบที่ ${i + 1}`;
-          return `${rLabel}: ${round2(c.totalDeducted || (c.usedMeters + c.ngMeters))}ม.`;
+          return `${rLabel}: ${round2(signedTotalDeducted(c))}ม.`;
         }).join(', ');
 
         issues.push({
@@ -181,7 +185,7 @@ export function auditRollSOHistory(
           title: `SO ${soKey} แบ่งรอบการผลิต (${cuts.length} รอบ)`,
           description: `พบ SO ${soKey} ในม้วนนี้ ${cuts.length} ครั้ง (${roundsDesc}) — เป็นการแบ่งรอบการผลิตตามใบงาน ไม่ใช่ข้อผิดพลาด`,
           soNumber: soKey,
-          affectedMeters: round2(cuts.reduce((s, c) => s + (c.totalDeducted || (c.usedMeters + c.ngMeters)), 0)),
+          affectedMeters: round2(cuts.reduce((s, c) => s + signedTotalDeducted(c), 0)),
           suggestedAction: 'ไม่ต้องดำเนินการ (ดูรายละเอียดในแท็บ SO ซ้ำซ้อน / ประวัติม้วนจะแสดงเป็นรอบที่ 1, 2, …)',
           timestamp: cuts[0].createdAt,
         });
@@ -335,12 +339,7 @@ export function auditRollSOHistory(
 
   // ตรวจสอบคิวจอง SO ที่รอดำเนินการตัดบนม้วนนี้
   const reservedRecords = sortedRecords.filter((r) => r.cutStatus === 'reserved');
-  const totalReservedMeters = round2(
-    reservedRecords.reduce(
-      (sum, r) => sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
-      0
-    )
-  );
+  const totalReservedMeters = reservedMetersOf(reservedRecords);
 
   if (reservedRecords.length > 0) {
     const soListStr = reservedRecords.map((r) => r.soNumber).filter(Boolean).join(', ');
@@ -379,7 +378,7 @@ export function auditRollSOHistory(
       soNumber: `นับสต๊อก ${period}`,
       recordId: list.map((r) => r.id).join(','),
       affectedMeters: round2(
-        list.slice(1).reduce((s, r) => s + Math.abs(Number(r.totalDeducted) || 0), 0)
+        Math.abs(list.slice(1).reduce((s, r) => s + signedTotalDeducted(r), 0))
       ),
       suggestedAction:
         'ไปที่ประวัตินับสต๊อก → ลบงวดนี้ → นับและบันทึกใหม่เพียงครั้งเดียว',
@@ -425,12 +424,7 @@ export function auditRollSOHistory(
   } else {
     // ตรวจสอบคิวจอง SO ที่รอดำเนินการตัดบนม้วนนี้
     const reservedRecordsForRoll = sortedRecords.filter((r) => r.cutStatus === 'reserved');
-    const totalReservedMetersForRoll = round2(
-      reservedRecordsForRoll.reduce(
-        (sum, r) => sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
-        0
-      )
-    );
+    const totalReservedMetersForRoll = reservedMetersOf(reservedRecordsForRoll);
 
     // Check if remainingMeters does not match calculatedRemaining
     if (Math.abs(diff) > TOLERANCE) {

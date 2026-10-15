@@ -14,7 +14,7 @@
  */
 
 import { FoilRoll, StockCutRecord } from '../types';
-import { round2, todayLocalISO } from './formatters';
+import { round2 } from './formatters';
 
 export interface IntegrityMismatch {
   rollId: string;
@@ -147,42 +147,50 @@ export function checkStockIntegrity(
   return mismatches.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }
 
-// --- "1-2 times a day" scheduling, done client-side ------------------------
-// There's no server-side scheduler in this app (it's a pure client + Firestore
-// app), so "automatic" here means: the check runs by itself, without anyone
-// pressing a button, the first couple of times someone opens the app each day.
-// If nobody opens the app on a given day, no check runs that day — there's no
-// way around that without adding a real backend (see Cloud Functions option).
+// --- "สัปดาห์ละครั้ง (จันทร์)" scheduling, done client-side -------------------
+// ตรวจเต็มรูปแบบอัตโนมัติสัปดาห์ละ 1 ครั้ง โดยรันครั้งแรกที่เปิดแอปในสัปดาห์นั้น
+// (นับสัปดาห์เริ่มวันจันทร์) ตามข้อตกลง W1/W3
+// หมายเหตุ: เป็น client-only จึงตรวจได้เมื่อมีคนเปิดแอปเท่านั้น
 
 const STORAGE_KEY = 'pufoam_integrity_check_state';
-const MAX_AUTO_CHECKS_PER_DAY = 2;
+export const MAX_AUTO_CHECKS_PER_WEEK = 1;
 
-interface CheckState {
-  date: string; // YYYY-MM-DD
-  count: number;
+export interface CheckState {
+  date: string;            // กุญแจสัปดาห์ (วันจันทร์ YYYY-MM-DD)
+  count: number;           // จำนวนครั้งที่ตรวจอัตโนมัติในสัปดาห์นี้
   lastCheckedAt: string;
 }
 
-function todayStr(): string {
-  return todayLocalISO();
+/** วันจันทร์ของสัปดาห์ปัจจุบันตามเวลาเครื่อง (YYYY-MM-DD) ใช้เป็นกุญแจสัปดาห์ */
+function weekKey(): string {
+  const now = new Date();
+  const day = now.getDay(); // 0=อา. … 6=ส.
+  const daysSinceMonday = (day + 6) % 7; // จ.→0, อ.→1, … อา.→6
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - daysSinceMonday);
+  const y = monday.getFullYear();
+  const m = String(monday.getMonth() + 1).padStart(2, '0');
+  const d = String(monday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function readState(): CheckState {
+  const key = weekKey();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed: CheckState = JSON.parse(raw);
-      if (parsed.date === todayStr()) return parsed;
+      const parsed = JSON.parse(raw) as CheckState;
+      if (parsed.date === key) return parsed;
     }
   } catch (e) {
     // ignore corrupt/missing state
   }
-  return { date: todayStr(), count: 0, lastCheckedAt: '' };
+  return { date: key, count: 0, lastCheckedAt: '' };
 }
 
 export function shouldRunAutoCheck(): boolean {
   const state = readState();
-  return state.count < MAX_AUTO_CHECKS_PER_DAY;
+  return state.count < MAX_AUTO_CHECKS_PER_WEEK;
 }
 
 export function markAutoCheckRun(): void {

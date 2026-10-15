@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { confirmAction } from '../utils/confirmAction';
 import { StockCutRecord, FoilRoll, PuSandwichCutRecord, SOAuditLogItem } from '../types';
+import { isCountableCut } from '../utils/rollAggregates';
 import { 
   Search, 
   Download, 
@@ -341,12 +342,14 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   }, [filteredItems, sortField, sortDirection]);
 
   // Statistics of Current Filtered Set
+  // นับเฉพาะรายการที่ตัดจริง — ตัดใบจอง (reserved) และใบยกเลิก (cancelled) ออก
   const stats = useMemo(() => {
     const foilItems = sortedItems.filter((i) => i.type === 'foil');
+    const countableFoilItems = foilItems.filter(isCountableCut);
     const sandwichItems = sortedItems.filter((i) => i.type === 'sandwich');
 
-    const totalFoilUsed = foilItems.reduce((acc, i) => acc + i.usedValue, 0);
-    const totalFoilNg = foilItems.reduce((acc, i) => acc + i.ngValue, 0);
+    const totalFoilUsed = countableFoilItems.reduce((acc, i) => acc + i.usedValue, 0);
+    const totalFoilNg = countableFoilItems.reduce((acc, i) => acc + i.ngValue, 0);
 
     const totalSandwichKg = sandwichItems.reduce((acc, i) => acc + i.usedValue, 0);
     const totalSandwichNgKg = sandwichItems.reduce((acc, i) => acc + i.ngValue, 0);

@@ -1180,9 +1180,14 @@ export async function reconcileRollsInFirestore(
         remainingMeters: safeExpected,
         usedMeters: safeUsed,
         ngMeters: safeNg,
+        status: safeExpected > 0 ? ('active' as const) : ('depleted' as const),
         isZeroedOut: safeExpected > 0 ? false : (serverRoll.isZeroedOut ?? false),
         manualZeroedOriginalMeters: safeExpected > 0 ? undefined : serverRoll.manualZeroedOriginalMeters,
-        status: safeExpected > 0 ? ('active' as const) : ('depleted' as const),
+        // อัปเดตธง "ม้วนใหม่" ให้ตรงกับยอดจริง ไม่งั้นธงจะค้างเก่าหลังปรับยอด
+        isUnused:
+          safeUsed <= 0 &&
+          safeNg <= 0 &&
+          safeExpected >= Number(serverRoll.totalMeters || 0),
       };
 
       tx.set(rollRefs[idx], sanitizeForFirestore(updatedRoll), { merge: true });
@@ -1336,6 +1341,11 @@ export async function realignRollCutChainInFirestore(
       isZeroedOut: finalRemaining > 0 ? false : (serverRoll.isZeroedOut ?? false),
       manualZeroedOriginalMeters: finalRemaining > 0 ? undefined : serverRoll.manualZeroedOriginalMeters,
       status: finalRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+      // อัปเดตธง "ม้วนใหม่" ให้ตรงกับยอดจริงหลังจัดเรียงโซ่การตัด
+      isUnused:
+        totalUsed <= 0 &&
+        totalNg <= 0 &&
+        finalRemaining >= Number(serverRoll.totalMeters || 0),
       recentCuts: updatedRecords.slice(-50).map((r) => ({
         id: r.id,
         soNumber: r.soNumber || '',
@@ -2333,17 +2343,24 @@ export async function applyCycleCountAdjustments(
         createdAt: new Date().toISOString(),
       };
 
+      const nextUsedMeters = Math.max(
+        0,
+        Math.round(((serverRoll.usedMeters || 0) + usedPart) * 100) / 100
+      );
+
       const next: FoilRoll = {
         ...serverRoll,
         remainingMeters: safePhysical,
-        usedMeters: Math.max(
-          0,
-          Math.round(
-            ((serverRoll.usedMeters || 0) + (effectiveDeduct > 0 ? effectiveDeduct : 0)) * 100
-          ) / 100
-        ),
+        usedMeters: nextUsedMeters,
         status: safePhysical > 0 ? ('active' as const) : ('depleted' as const),
-        isZeroedOut: safePhysical <= 0 ? true : false,
+        // ห้ามตั้ง isZeroedOut=true อัตโนมัติจากยอดเหลือ 0 เพราะจะล็อกม้วนและต้องกด "คืนค่า" ก่อนใช้ต่อ
+        // ให้คงค่าที่ผู้ใช้ตั้งใจไว้เท่านั้น (ม้วนที่เหลือ 0 จากนับสต๊อกคือ depleted ไม่ใช่ zeroedOut)
+        isZeroedOut: safePhysical > 0 ? false : (serverRoll.isZeroedOut ?? false),
+        // นับสต๊อกเป็นการใช้งานม้วน (ถ้ามีการหักออกจริง) — ยกเว้นกรณีคืนยอดจนกลับมาเต็ม
+        isUnused:
+          nextUsedMeters <= 0 &&
+          (serverRoll.ngMeters || 0) <= 0 &&
+          safePhysical >= Number(serverRoll.totalMeters || 0),
         recentCuts: [
           {
             id: record.id,

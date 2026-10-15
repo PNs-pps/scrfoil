@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { todayLocalISO } from '../utils/formatters';
+import { isCountableCut } from '../utils/rollAggregates';
 import { 
   StockCutRecord, 
   FoilRoll,
@@ -85,6 +86,9 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
   const dayRecords = useMemo(() => {
     return records
       .filter((r) => {
+        // ตัดใบจอง (reserved) และใบยกเลิก (cancelled) ออก — ไม่นับเป็นผลิตรายวัน
+        if (!isCountableCut(r)) return false;
+
         const d = (r.usageDate || r.recordedDate || r.createdAt || '').slice(0, 10);
         if (d !== selectedDate) return false;
 

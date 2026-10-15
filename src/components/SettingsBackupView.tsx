@@ -1134,7 +1134,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                   </button>
                   {integrityCheckState && (
                     <div className="text-[11px] text-slate-500 text-center font-mono">
-                      วันนี้ตรวจอัตโนมัติแล้ว {integrityCheckState.count}/2 ครั้ง
+                      สัปดาห์นี้ตรวจอัตโนมัติแล้ว {integrityCheckState.count}/1 ครั้ง
                       {integrityCheckState.lastCheckedAt && (
                         <> • ล่าสุด {new Date(integrityCheckState.lastCheckedAt).toLocaleTimeString('th-TH')}</>
                       )}

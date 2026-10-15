@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord, CutHistoryItem } from '../types';
+import { reservedMetersOf } from '../utils/rollAggregates';
 import { 
   X, 
   Layers, 
@@ -210,10 +211,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     const td = Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0)));
     return sum + (td > 0 ? td : 0);
   }, 0);
-  const totalReserved = reservedHistoryItems.reduce((sum, r) => {
-    const td = Number(r.totalDeducted ?? ((r.cutMeters ?? r.usedMeters ?? 0) + (r.ngMeters || 0)));
-    return sum + Math.abs(td);
-  }, 0);
+  const totalReserved = reservedMetersOf(reservedHistoryItems);
   // ยอดคืนสต๊อกจากนับสต๊อก (ค่าติดลบใน totalDeducted)
   const totalStockIn = historyItems.reduce((sum, r) => {
     const td = Number(r.totalDeducted ?? 0);

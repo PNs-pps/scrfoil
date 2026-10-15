@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS, isRollUnused, StockCutRecord } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { formatMeters, compareFoilRolls, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
+import { reservedMetersOfRoll } from '../utils/rollAggregates';
 import { getPatternStyle } from '../utils/patternStyles';
 import { FoilStatusTube } from './FoilStatusTube';
 import { 
@@ -103,13 +104,8 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
     [records, roll.id]
   );
   const totalReservedMeters = useMemo(
-    () =>
-      rollReservations.reduce(
-        (sum, r) =>
-          sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
-        0
-      ),
-    [rollReservations]
+    () => reservedMetersOfRoll(records || [], roll.id),
+    [records, roll.id]
   );
   const soNumberList = useMemo(
     () => rollReservations.map((r) => r.soNumber).filter(Boolean).join(', '),
@@ -306,7 +302,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
                 #{highlightMatch(roll.rollNumber, searchQuery)}
               </span>
             </div>
-            {isRollUnused(roll) && (
+            {isRollUnused(roll) && rollReservations.length === 0 && (
               <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 shrink-0">
                 เต็ม
               </span>
@@ -490,9 +486,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const unusedCount = useMemo(
     () =>
       rolls.filter(
-        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r)
+        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r) && !records.some((rec) => rec.foilId === r.id && rec.cutStatus === 'reserved')
       ).length,
-    [rolls]
+    [rolls, records]
   );
   const activeCount = inUseCount + unusedCount;
 
@@ -517,7 +513,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     }
     if (statusFilter === 'unused') {
       return rolls.filter(
-        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r)
+        (r) => Number(r.remainingMeters) > 0 && !r.isZeroedOut && r.status !== 'depleted' && isRollUnused(r) && !records.some((rec) => rec.foilId === r.id && rec.cutStatus === 'reserved')
       );
     }
     // 'all' รวมทั้งม้วนพร้อมใช้และม้วนหมดแล้ว
@@ -845,11 +841,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     const rollReservations = records.filter(
       (r) => r.foilId === roll.id && r.cutStatus === 'reserved'
     );
-    const totalReservedMeters = rollReservations.reduce(
-      (sum, r) =>
-        sum + (Number(r.totalDeducted) || (Number(r.usedMeters || 0) + Number(r.ngMeters || 0))),
-      0
-    );
+    const totalReservedMeters = reservedMetersOfRoll(records, roll.id);
     const soNumberList = rollReservations
       .map((r) => r.soNumber)
       .filter(Boolean)
@@ -907,7 +899,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 #{highlightMatch(roll.rollNumber, searchQuery)}
               </span>
             </span>
-            {isRollUnused(roll) ? (
+            {isRollUnused(roll) && rollReservations.length === 0 ? (
               <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
                 ม้วนเต็ม
               </span>

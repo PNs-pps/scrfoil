@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { FoilRoll, StockCutRecord, PuSandwichCutRecord, WIDTH_SPECIFICATIONS } from '../types';
 import { formatMeters, todayLocalISO } from './formatters';
+import { countableRecords } from './rollAggregates';
 
 export interface DateFilterRange {
   startDate: string; // YYYY-MM-DD
@@ -624,7 +625,7 @@ function buildPurchasingBreakdownSheet(
   widths.forEach(w => {
     const matchingRolls = rolls.filter(r => Number(r.width) === w && r.status === 'active' && !r.isZeroedOut && Number(r.remainingMeters) > 0);
     const totalRemaining = matchingRolls.reduce((acc, r) => acc + Number(r.remainingMeters || 0), 0);
-    const matchingRecords = records.filter(rec => Number(rec.width) === w);
+    const matchingRecords = countableRecords(records).filter(rec => Number(rec.width) === w);
     const totalUsed = matchingRecords.reduce((acc, r) => acc + Number(r.usedMeters || 0), 0);
     const totalNg = matchingRecords.reduce((acc, r) => acc + Number(r.ngMeters || 0), 0);
     const spec = WIDTH_SPECIFICATIONS[w] || '-';
@@ -752,8 +753,10 @@ function buildExecutiveSummarySheet(
   ws.addRow([]); // Blank
 
   // Section 1: KPI Summary Cards (Simulated via Cells)
-  const totalFoilUsed = records.reduce((sum, r) => sum + Number(r.usedMeters || 0), 0);
-  const totalFoilNg = records.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
+  // นับเฉพาะรายการตัดจริง — ตัดใบจอง/ใบยกเลิกออก
+  const countableFoil = countableRecords(records);
+  const totalFoilUsed = countableFoil.reduce((sum, r) => sum + Number(r.usedMeters || 0), 0);
+  const totalFoilNg = countableFoil.reduce((sum, r) => sum + Number(r.ngMeters || 0), 0);
   const overallNgRate = totalFoilUsed > 0 ? (totalFoilNg / totalFoilUsed) * 100 : 0;
   const activeRolls = rolls.filter(r => r.status === 'active' && !r.isZeroedOut && Number(r.remainingMeters) > 0);
   const totalInventoryRemaining = activeRolls.reduce((sum, r) => sum + Number(r.remainingMeters || 0), 0);
@@ -763,7 +766,7 @@ function buildExecutiveSummarySheet(
 
   const kpiData = [
     ['ตัวชี้วัดหลัก (Key Metric)', 'ค่าตัวเลข', 'หน่วย', 'หมายเหตุ'],
-    ['ยอดตัดใช้ฟอยล์ทั้งหมด (ช่วงที่เลือก)', formatMeters(totalFoilUsed), 'เมตร', `จากทั้งหมด ${records.length} รายการตัด`],
+    ['ยอดตัดใช้ฟอยล์ทั้งหมด (ช่วงที่เลือก)', formatMeters(totalFoilUsed), 'เมตร', `จากทั้งหมด ${countableFoil.length} รายการตัด`],
     ['ยอดเศษเสียสะสม (NG) ฟอยล์', formatMeters(totalFoilNg), 'เมตร', `คิดเป็นของเสีย ${overallNgRate.toFixed(2)}%`],
     ['อัตราการสูญเสียของเสีย NG เฉลี่ย', overallNgRate.toFixed(2) + '%', '%', overallNgRate <= 3 ? 'อยู่ในเกณฑ์ดีเยี่ยม (<= 3%)' : 'ควรตรวจสอบเครื่องจักรหรือคนตัด'],
     ['สต๊อกฟอยล์คงเหลือในคลังปัจจุบัน', formatMeters(totalInventoryRemaining), 'เมตร', `พร้อมใช้งาน ${activeRolls.length} ม้วน`],
