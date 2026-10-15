@@ -1905,6 +1905,28 @@ export async function savePuSandwichCutToFirestore(record: PuSandwichCutRecord):
   }
 }
 
+/**
+ * บันทึกตัดแซนวิชหลายใบงานพร้อมกันแบบ atomic
+ * การตัดหลาย SO ในครั้งเดียวเป็น "การกระทำเดียว" ของช่าง — ถ้า Cloud รับไม่หมด
+ * ก็ต้องไม่รับเลย ไม่ใช่บางใบเข้า บางใบไม่เข้า จึงใช้ writeBatch (สำเร็จหมดหรือไม่บันทึกเลย)
+ * ซึ่งยังรองรับคิวออฟไลน์ของ Firestore SDK ตามปกติ
+ */
+export async function savePuSandwichCutsToFirestore(records: PuSandwichCutRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  try {
+    // Firestore จำกัด batch ไว้ 500 writes ต่อครั้ง — ฟอร์มไม่มีทางคีย์เกินนั้นอยู่แล้ว
+    const batch = writeBatch(db);
+    for (const record of records) {
+      const docRef = doc(db, PU_SANDWICH_COLLECTION, record.id);
+      batch.set(docRef, sanitizeForFirestore(record), { merge: true });
+    }
+    await batch.commit();
+  } catch (err: any) {
+    console.warn('Notice: Failed to save PU sandwich cut batch to Firestore:', err?.message || err);
+    throw err;
+  }
+}
+
 export async function deletePuSandwichCutFromFirestore(recordId: string): Promise<void> {
   try {
     const docRef = doc(db, PU_SANDWICH_COLLECTION, recordId);

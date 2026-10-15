@@ -622,6 +622,14 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     setShowConfirmSummary(true);
   };
 
+  /** Ctrl/Cmd+Enter จากจุดโฟกัสใดก็ได้ในโมดัล → เดียวกับกดปุ่มบันทึก (form submit เดียวกัน) */
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.currentTarget.querySelector('form')?.requestSubmit();
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -631,6 +639,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="cut-stock-title"
+        onKeyDown={handleModalKeyDown}
         className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[94dvh] animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
@@ -934,7 +943,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           value={order.soNumber}
                           onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value })}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                               e.preventDefault();
                               const target = usedMetersInputRefs.current[order.id];
                               if (target) {
@@ -1141,7 +1150,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                             setActiveNumpadTargetId(`used-${order.id}`);
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                               e.preventDefault();
                               const target = ngMetersInputRefs.current[order.id];
                               if (target) {
@@ -1184,6 +1193,12 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           }}
                           onClick={() => {
                             setActiveNumpadTargetId(`ng-${order.id}`);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+                              e.preventDefault();
+                              handleAddOrder();
+                            }
                           }}
                           placeholder="0.00"
                           className={`w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border rounded-lg focus:border-rose-400 focus:ring-1 focus:ring-rose-400 placeholder:text-slate-400 placeholder:font-normal transition-all ${

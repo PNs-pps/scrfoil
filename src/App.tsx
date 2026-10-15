@@ -28,6 +28,7 @@ import {
   saveSOAuditLogInFirestore,
   isRecentLocalWrite,
   savePuSandwichCutToFirestore,
+  savePuSandwichCutsToFirestore,
   deletePuSandwichCutFromFirestore,
   saveFoilRollToFirestore, 
   deleteFoilRollFromFirestore, 
@@ -1897,6 +1898,74 @@ const updated = [newRoll, ...rolls];
     showToast(`บันทึก SO แซนวิช ${record.soNumber} ในเครื่องแล้ว (รอซิงค์ Cloud)`, 'info');
   };
 
+  /**
+   * บันทึกตัดแซนวิช "หลายใบงานพร้อมกัน"
+   * ต่างจาก handleSavePuSandwichCut ตรงที่ Cloud เขียนแบบ atomic (writeBatch) —
+   * ทุกใบเข้าพร้อมกันหรือไม่มีใบไหนเข้าเลย จึงย้อนทั้งชุดเมื่อ Cloud ปฏิเสธ
+   */
+  const handleSavePuSandwichBatch = async (newRecords: PuSandwichCutRecord[]) => {
+    if (!currentUserEmail || !isStaffEmail(currentUserEmail)) {
+      setErrorAlert({
+        isOpen: true,
+        title: 'ไม่มีสิทธิ์บันทึกตัดแซนวิช',
+        message: `บัญชี ${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'} ไม่มีสิทธิ์บันทึกข้อมูลขึ้น Cloud`,
+        detail: `ระบบเปิดสิทธิ์ให้เฉพาะอีเมลเจ้าหน้าที่ที่ได้รับอนุญาตเท่านั้น (${getStaffEmails().join(', ')})`,
+      });
+      playFeedback('error');
+      throw new Error('PERMISSION_DENIED_NOT_STAFF');
+    }
+
+    if (newRecords.length === 0) return;
+
+    const previous = puSandwichRecords;
+    const existingIds = new Set(previous.map((r) => r.id));
+    const updated = [...newRecords.filter((r) => !existingIds.has(r.id)), ...previous];
+    setPuSandwichRecords(updated);
+    saveStoredPuSandwichRecords(updated);
+
+    // ย้อนทั้งชุดโดยอิง state ปัจจุบัน (ไม่ใช่ `previous` ที่ stale หลัง await)
+    const rollbackSave = () => {
+      const ids = new Set(newRecords.map((r) => r.id));
+      setPuSandwichRecords((cur) => {
+        const next = cur.filter((r) => !ids.has(r.id));
+        saveStoredPuSandwichRecords(next);
+        return next;
+      });
+    };
+
+    const batchLabel = `${newRecords.length} SO แซนวิช`;
+
+    const outcome = await trackCloudWrite(savePuSandwichCutsToFirestore(newRecords), undefined, (late) => {
+      console.warn('Queued sandwich batch was rejected later:', late.message);
+      setSyncStatus('permission-denied');
+      rollbackSave();
+      showToast(
+        `บันทึก ${batchLabel} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)} (ย้อนรายการในเครื่องแล้ว)`,
+        'error'
+      );
+    });
+
+    if (outcome.kind === 'committed') {
+      setSyncStatus('connected');
+      setLastSyncedTime(new Date().toLocaleTimeString('th-TH'));
+      showToast(`บันทึก ${batchLabel} สำเร็จ [Cloud]`, 'success');
+      return;
+    }
+
+    if (outcome.kind === 'rejected') {
+      rollbackSave();
+      setSyncStatus(outcome.reason === 'rules' ? 'permission-denied' : 'error');
+      showToast(
+        `บันทึก ${batchLabel} ไม่สำเร็จ — ${describeWriteFailure(outcome)} (ย้อนรายการในเครื่องแล้ว)`,
+        'error'
+      );
+      return;
+    }
+
+    setSyncStatus('offline');
+    showToast(`บันทึก ${batchLabel} ในเครื่องแล้ว (รอซิงค์ Cloud)`, 'info');
+  };
+
   const handleDeletePuSandwichCut = async (id: string) => {
     const previous = puSandwichRecords;
     const updated = previous.filter((r) => r.id !== id);
@@ -3213,6 +3282,7 @@ const updated = [newRoll, ...rolls];
         records={puSandwichRecords}
         currentUserEmail={currentUserEmail}
         onSaveCut={handleSavePuSandwichCut}
+        onSaveBatch={handleSavePuSandwichBatch}
         onDeleteRecord={(recId) => requireEditorPermission(() => handleDeletePuSandwichCut(recId))}
       />
 

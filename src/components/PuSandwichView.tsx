@@ -50,6 +50,66 @@ type SandwichSortField =
   | 'recorder';
 type SortDirection = 'asc' | 'desc';
 
+interface SandwichStats {
+  count: number;
+  totalCount: number;
+  totalKg: number;
+  totalTons: number;
+  externalSteelKg: number;
+  blueScopeKg: number;
+  otherSteelKg: number;
+  totalNgKg: number;
+  totalNgMeters: number;
+  totalSoMeters: number;
+  ngPercent: number;
+  ngRecordCount: number;
+}
+
+const computeSandwichStats = (list: PuSandwichCutRecord[]): SandwichStats => {
+  let totalKg = 0;
+  let externalSteelKg = 0;
+  let blueScopeKg = 0;
+  let otherSteelKg = 0;
+  let totalNgKg = 0;
+  let totalNgMeters = 0;
+  let totalSoMeters = 0;
+  let ngRecordCount = 0;
+
+  list.forEach((r) => {
+    const w = Number(r.weightUsed) || 0;
+    totalKg += w;
+    totalSoMeters += Number(r.soLengthMeters) || 0;
+    if (r.steelOrigin === 'เหล็กนอก') externalSteelKg += w;
+    else if (r.steelOrigin === 'เหล็กBlue Scope') blueScopeKg += w;
+    else otherSteelKg += w;
+
+    const ngK = Number(r.ngKg) || 0;
+    const ngM = Number(r.ngMeters) || 0;
+    totalNgKg += ngK;
+    totalNgMeters += ngM;
+    if (ngK > 0 || ngM > 0) {
+      ngRecordCount += 1;
+    }
+  });
+
+  const ngPercent = totalKg > 0 ? (totalNgKg / totalKg) * 100 : 0;
+
+  return {
+    count: list.length,
+    totalCount: list.length,
+    totalKg: Math.round(totalKg * 100) / 100,
+    totalTons: Math.round((totalKg / 1000) * 100) / 100,
+    externalSteelKg: Math.round(externalSteelKg * 100) / 100,
+    blueScopeKg: Math.round(blueScopeKg * 100) / 100,
+    otherSteelKg: Math.round(otherSteelKg * 100) / 100,
+    totalNgKg: Math.round(totalNgKg * 100) / 100,
+    totalNgMeters: Math.round(totalNgMeters * 10) / 10,
+    totalSoMeters: Math.round(totalSoMeters * 10) / 10,
+    ngPercent: Math.round(ngPercent * 100) / 100,
+    ngRecordCount,
+  };
+};
+
 export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   records = [],
   onEditRecord,
@@ -82,51 +142,101 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   }, [safeRecords]);
 
-  // Statistics
-  const stats = useMemo(() => {
-    let totalKg = 0;
-    let externalSteelKg = 0;
-    let blueScopeKg = 0;
-    let otherSteelKg = 0;
-    let totalNgKg = 0;
-    let totalNgMeters = 0;
-    let totalSoMeters = 0;
-    let ngRecordCount = 0;
-
-    safeRecords.forEach((r) => {
-      const w = Number(r.weightUsed) || 0;
-      totalKg += w;
-      totalSoMeters += Number(r.soLengthMeters) || 0;
-      if (r.steelOrigin === 'เหล็กนอก') externalSteelKg += w;
-      else if (r.steelOrigin === 'เหล็กBlue Scope') blueScopeKg += w;
-      else otherSteelKg += w;
-
-      const ngK = Number(r.ngKg) || 0;
-      const ngM = Number(r.ngMeters) || 0;
-      totalNgKg += ngK;
-      totalNgMeters += ngM;
-      if (ngK > 0 || ngM > 0) {
-        ngRecordCount += 1;
+  // Filtered + sorted records
+  const filteredRecords = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    const list = safeRecords.filter((r) => {
+      let matchesSearch = true;
+      if (q) {
+        if (searchScope === 'so') {
+          matchesSearch = (r.soNumber || '').toLowerCase().includes(q);
+        } else {
+          matchesSearch =
+            (r.soNumber || '').toLowerCase().includes(q) ||
+            (r.coilNumber || '').toLowerCase().includes(q) ||
+            (r.coilColor || '').toLowerCase().includes(q) ||
+            (r.recordedBy || '').toLowerCase().includes(q) ||
+            (r.notes || '').toLowerCase().includes(q) ||
+            (r.thickness || '').toLowerCase().includes(q);
+        }
       }
+
+      const matchesSteel = steelFilter === 'all' || r.steelOrigin === steelFilter;
+
+      const dateStr = r.productionDate || (r.createdAt ? r.createdAt.slice(0, 10) : '');
+      const matchesMonth = selectedMonth === 'all' || dateStr.startsWith(selectedMonth);
+
+      const matchesNg = !onlyWithNg || Number(r.ngKg) > 0 || Number(r.ngMeters) > 0;
+
+      return matchesSearch && matchesSteel && matchesMonth && matchesNg;
     });
 
-    const ngPercent = totalKg > 0 ? (totalNgKg / totalKg) * 100 : 0;
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case 'so':
+          cmp = (a.soNumber || '').localeCompare(b.soNumber || '', undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+          break;
+        case 'coil':
+          cmp = (a.coilNumber || '').localeCompare(b.coilNumber || '', undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+          break;
+        case 'weight':
+          cmp = (Number(a.weightUsed) || 0) - (Number(b.weightUsed) || 0);
+          break;
+        case 'soLength':
+          cmp = (Number(a.soLengthMeters) || 0) - (Number(b.soLengthMeters) || 0);
+          break;
+        case 'ngKg':
+          cmp = (Number(a.ngKg) || 0) - (Number(b.ngKg) || 0);
+          break;
+        case 'ngMeters':
+          cmp = (Number(a.ngMeters) || 0) - (Number(b.ngMeters) || 0);
+          break;
+        case 'thickness':
+          cmp = (parseFloat(String(a.thickness)) || 0) - (parseFloat(String(b.thickness)) || 0);
+          break;
+        case 'recorder':
+          cmp = (a.recordedBy || '').localeCompare(b.recordedBy || '', 'th');
+          break;
+        case 'date':
+        default: {
+          const da = a.productionDate || a.createdAt || '';
+          const db = b.productionDate || b.createdAt || '';
+          cmp = da.localeCompare(db);
+          if (cmp === 0) cmp = (a.createdAt || '').localeCompare(b.createdAt || '');
+          break;
+        }
+      }
+      return cmp * dir;
+    });
 
-    return {
-      count: safeRecords.length,
-      totalCount: safeRecords.length,
-      totalKg: Math.round(totalKg * 100) / 100,
-      totalTons: Math.round((totalKg / 1000) * 100) / 100,
-      externalSteelKg: Math.round(externalSteelKg * 100) / 100,
-      blueScopeKg: Math.round(blueScopeKg * 100) / 100,
-      otherSteelKg: Math.round(otherSteelKg * 100) / 100,
-      totalNgKg: Math.round(totalNgKg * 100) / 100,
-      totalNgMeters: Math.round(totalNgMeters * 10) / 10,
-      totalSoMeters: Math.round(totalSoMeters * 10) / 10,
-      ngPercent: Math.round(ngPercent * 100) / 100,
-      ngRecordCount,
-    };
-  }, [safeRecords]);
+    return list;
+  }, [
+    safeRecords,
+    searchTerm,
+    searchScope,
+    steelFilter,
+    selectedMonth,
+    onlyWithNg,
+    sortField,
+    sortDirection,
+  ]);
+
+  // Statistics (all records — context totals & NG badge)
+  const stats = useMemo(() => computeSandwichStats(safeRecords), [safeRecords]);
+
+  // Statistics (filtered records — drives the KPI cards)
+  const filteredStats = useMemo(() => computeSandwichStats(filteredRecords), [filteredRecords]);
+
+  const isFilterActive =
+    searchTerm.trim() !== '' || steelFilter !== 'all' || selectedMonth !== 'all' || onlyWithNg;
 
   const modalRecords = useMemo(() => {
     if (modalMonth === 'all') return safeRecords;
@@ -218,93 +328,6 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
     }
   };
 
-  // Filtered + sorted records
-  const filteredRecords = useMemo(() => {
-    const q = searchTerm.toLowerCase().trim();
-    const list = safeRecords.filter((r) => {
-      let matchesSearch = true;
-      if (q) {
-        if (searchScope === 'so') {
-          matchesSearch = (r.soNumber || '').toLowerCase().includes(q);
-        } else {
-          matchesSearch =
-            (r.soNumber || '').toLowerCase().includes(q) ||
-            (r.coilNumber || '').toLowerCase().includes(q) ||
-            (r.coilColor || '').toLowerCase().includes(q) ||
-            (r.recordedBy || '').toLowerCase().includes(q) ||
-            (r.notes || '').toLowerCase().includes(q) ||
-            (r.thickness || '').toLowerCase().includes(q);
-        }
-      }
-
-      const matchesSteel = steelFilter === 'all' || r.steelOrigin === steelFilter;
-
-      const dateStr = r.productionDate || (r.createdAt ? r.createdAt.slice(0, 10) : '');
-      const matchesMonth = selectedMonth === 'all' || dateStr.startsWith(selectedMonth);
-
-      const matchesNg = !onlyWithNg || Number(r.ngKg) > 0 || Number(r.ngMeters) > 0;
-
-      return matchesSearch && matchesSteel && matchesMonth && matchesNg;
-    });
-
-    const dir = sortDirection === 'asc' ? 1 : -1;
-    list.sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case 'so':
-          cmp = (a.soNumber || '').localeCompare(b.soNumber || '', undefined, {
-            numeric: true,
-            sensitivity: 'base',
-          });
-          break;
-        case 'coil':
-          cmp = (a.coilNumber || '').localeCompare(b.coilNumber || '', undefined, {
-            numeric: true,
-            sensitivity: 'base',
-          });
-          break;
-        case 'weight':
-          cmp = (Number(a.weightUsed) || 0) - (Number(b.weightUsed) || 0);
-          break;
-        case 'soLength':
-          cmp = (Number(a.soLengthMeters) || 0) - (Number(b.soLengthMeters) || 0);
-          break;
-        case 'ngKg':
-          cmp = (Number(a.ngKg) || 0) - (Number(b.ngKg) || 0);
-          break;
-        case 'ngMeters':
-          cmp = (Number(a.ngMeters) || 0) - (Number(b.ngMeters) || 0);
-          break;
-        case 'thickness':
-          cmp = (parseFloat(String(a.thickness)) || 0) - (parseFloat(String(b.thickness)) || 0);
-          break;
-        case 'recorder':
-          cmp = (a.recordedBy || '').localeCompare(b.recordedBy || '', 'th');
-          break;
-        case 'date':
-        default: {
-          const da = a.productionDate || a.createdAt || '';
-          const db = b.productionDate || b.createdAt || '';
-          cmp = da.localeCompare(db);
-          if (cmp === 0) cmp = (a.createdAt || '').localeCompare(b.createdAt || '');
-          break;
-        }
-      }
-      return cmp * dir;
-    });
-
-    return list;
-  }, [
-    safeRecords,
-    searchTerm,
-    searchScope,
-    steelFilter,
-    selectedMonth,
-    onlyWithNg,
-    sortField,
-    sortDirection,
-  ]);
-
   const renderSortHeader = (
     field: SandwichSortField,
     label: string,
@@ -354,33 +377,54 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
         </div>
       </div>
 
-      {/* KPI 2 แถวสไลด์ — เห็นทันทีใต้หัวข้อ */}
+      {/* KPI 2 แถวสไลด์ — เห็นทันทีใต้หัวข้อ (ยอดอ้างอิงตามตัวกรองปัจจุบัน) */}
       <div className="space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+              isFilterActive
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                : 'bg-slate-100 text-slate-500 border-slate-200'
+            }`}
+            title={
+              isFilterActive
+                ? 'KPI คำนวณจากรายการที่ผ่านการค้นหา/กรองเท่านั้น'
+                : 'KPI คำนวณจากข้อมูลทั้งหมด'
+            }
+          >
+            {isFilterActive ? <Filter className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
+            {isFilterActive ? 'ยอดรวมตามการกรอง' : 'ยอดรวมทั้งหมด'}
+          </span>
+          <span className="text-[11px] text-slate-500 font-mono">
+            แสดง <strong className="text-slate-900 font-bold">{filteredStats.count}</strong> จาก{' '}
+            {stats.totalCount} SO
+          </span>
+        </div>
         <KpiSlideRow
           title="สรุปผลิต · น้ำหนัก & ใบงาน"
           cards={[
             {
               id: 'meters',
               label: 'เมตรตามใบ SO',
-              value: stats.totalSoMeters.toLocaleString('th-TH', { maximumFractionDigits: 1 }),
+              value: filteredStats.totalSoMeters.toLocaleString('th-TH', { maximumFractionDigits: 1 }),
               unit: 'ม.',
               icon: <FileText className="w-4 h-4" />,
               iconClass: 'bg-teal-50 text-teal-700',
-              footer: <span className="text-teal-700 font-semibold">{stats.count} ใบงาน</span>,
+              footer: <span className="text-teal-700 font-semibold">{filteredStats.count} ใบงาน</span>,
             },
             {
               id: 'kg',
               label: 'น้ำหนักเหล็กใช้สะสม',
-              value: stats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              value: filteredStats.totalKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
               unit: 'กก.',
               icon: <Scale className="w-4 h-4" />,
               iconClass: 'bg-emerald-50 text-emerald-700',
-              footer: <span className="text-emerald-700 font-semibold">≈ {stats.totalTons} ตัน</span>,
+              footer: <span className="text-emerald-700 font-semibold">≈ {filteredStats.totalTons} ตัน</span>,
             },
             {
               id: 'so',
               label: 'จำนวนใบสั่งตัด SO',
-              value: String(stats.totalCount),
+              value: String(filteredStats.totalCount),
               unit: 'รายการ',
               icon: <FileText className="w-4 h-4" />,
               iconClass: 'bg-teal-50 text-teal-700',
@@ -389,15 +433,15 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             {
               id: 'ng',
               label: 'NG เสียหายสะสม',
-              value: stats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              value: filteredStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
               unit: 'กก.',
               icon: <AlertTriangle className="w-4 h-4" />,
               iconClass: 'bg-rose-50 text-rose-700',
               valueClass: 'text-rose-700',
               footer: (
                 <span>
-                  {stats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม. ·{' '}
-                  <strong>{stats.ngPercent.toFixed(2)}%</strong>
+                  {filteredStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม. ·{' '}
+                  <strong>{filteredStats.ngPercent.toFixed(2)}%</strong>
                 </span>
               ),
             },
@@ -409,34 +453,40 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             {
               id: 'ext',
               label: 'เหล็กนอก',
-              value: stats.externalSteelKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              value: filteredStats.externalSteelKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
               unit: 'กก.',
               icon: <Layers className="w-4 h-4" />,
               iconClass: 'bg-emerald-50 text-emerald-800',
               footer: `สัดส่วน ${
-                stats.totalKg > 0 ? ((stats.externalSteelKg / stats.totalKg) * 100).toFixed(1) : 0
+                filteredStats.totalKg > 0
+                  ? ((filteredStats.externalSteelKg / filteredStats.totalKg) * 100).toFixed(1)
+                  : 0
               }%`,
             },
             {
               id: 'bs',
               label: 'Blue Scope',
-              value: stats.blueScopeKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              value: filteredStats.blueScopeKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
               unit: 'กก.',
               icon: <Layers className="w-4 h-4" />,
               iconClass: 'bg-sky-50 text-sky-700',
               footer: `สัดส่วน ${
-                stats.totalKg > 0 ? ((stats.blueScopeKg / stats.totalKg) * 100).toFixed(1) : 0
+                filteredStats.totalKg > 0
+                  ? ((filteredStats.blueScopeKg / filteredStats.totalKg) * 100).toFixed(1)
+                  : 0
               }%`,
             },
             {
               id: 'other',
               label: 'เหล็กอื่นๆ',
-              value: stats.otherSteelKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
+              value: filteredStats.otherSteelKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
               unit: 'กก.',
               icon: <Layers className="w-4 h-4" />,
               iconClass: 'bg-slate-100 text-slate-600',
               footer: `สัดส่วน ${
-                stats.totalKg > 0 ? ((stats.otherSteelKg / stats.totalKg) * 100).toFixed(1) : 0
+                filteredStats.totalKg > 0
+                  ? ((filteredStats.otherSteelKg / filteredStats.totalKg) * 100).toFixed(1)
+                  : 0
               }%`,
             },
           ]}

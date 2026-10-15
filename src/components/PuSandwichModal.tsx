@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { confirmAction } from '../utils/confirmAction';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { todayLocalISO } from '../utils/formatters';
@@ -43,6 +43,8 @@ interface PuSandwichModalProps {
   onClose: () => void;
   onSaveRecord?: (record: Omit<PuSandwichCutRecord, 'id' | 'createdAt'>) => Promise<void> | void;
   onSaveCut?: (record: PuSandwichCutRecord) => Promise<void> | void;
+  /** บันทึกหลาย SO พร้อมกันเป็น batch (เรียกเมื่อมีมากกว่า 1 แถว) */
+  onSaveBatch?: (records: PuSandwichCutRecord[]) => Promise<void> | void;
   records?: PuSandwichCutRecord[];
   onDeleteRecord?: (recordId: string) => Promise<void> | void;
   initialMode?: 'create' | 'history';
@@ -52,11 +54,29 @@ interface PuSandwichModalProps {
 
 const COMMON_COIL_COLORS = ['สีขาว', 'สีดำ', 'สีน้ำตาล', 'สีเขียว', 'สีฟ้า', 'สีเทา', 'อลูซิงค์ (ซิงค์)'];
 
+/**
+ * แถวข้อมูลต่อ 1 SO (per-row) — ข้อมูลระดับม้วนคอล์ย (lot-level)
+ * เช่น สีคอล์ย / ความหนา / เบอร์คอล์ย / แหล่งเหล็ก / วันที่ผลิต / ผู้บันทึก
+ * เก็บแยกต่างหากและใช้ร่วมกันทุกแถวใน batch เดียวกัน
+ */
+export interface SandwichRow {
+  id: string;
+  soNumber: string;
+  soLengthMeters: string;
+  weightBefore: string;
+  weightAfter: string;
+  ngKg: string;
+  ngMeters: string;
+  lengthMeters: string;
+  notes: string;
+}
+
 export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   isOpen,
   onClose,
   onSaveRecord,
   onSaveCut,
+  onSaveBatch,
   records = [],
   onDeleteRecord,
   initialMode = 'create',
@@ -68,27 +88,40 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const panelRef = useModalA11y(isOpen, onClose, 'บันทึกการตัดสต๊อกแซนวิช');
   const recentOperators = getRecentOperators();
 
-  // Form State
-  const [soNumber, setSoNumber] = useState('');
+  // ===== Lot-level Form State (ใช้ร่วมกันทุกแถวใน batch) =====
   const [productionDate, setProductionDate] = useState(() => todayLocalISO());
-  const [soLengthMeters, setSoLengthMeters] = useState<string>('');
   const [coilColor, setCoilColor] = useState('');
   const [thickness, setThickness] = useState('0.35');
   const [coilNumber, setCoilNumber] = useState('');
-  const [weightBefore, setWeightBefore] = useState<string>('');
-  const [weightAfter, setWeightAfter] = useState<string>('');
-  const [ngKg, setNgKg] = useState<string>('0');
-  const [ngMeters, setNgMeters] = useState<string>('0');
   const [steelOrigin, setSteelOrigin] = useState<SteelOriginType>('เหล็กนอก');
   const [customSteelOrigin, setCustomSteelOrigin] = useState('');
-  const [lengthMeters, setLengthMeters] = useState<string>('');
   const [recordedBy, setRecordedBy] = useState(recentOperators[0] || '');
-  const [notes, setNotes] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isNgManuallyEdited, setIsNgManuallyEdited] = useState(false);
   const [customKgPerMeter, setCustomKgPerMeter] = useState<string>('');
   const [showCustomFactor, setShowCustomFactor] = useState(false);
+
+  // ===== Per-row Form State (1 แถว = 1 SO) =====
+  const createRowId = (index: number): string =>
+    `sandwich-row-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+
+  const createEmptyRow = (index: number): SandwichRow => ({
+    id: createRowId(index),
+    soNumber: `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`,
+    soLengthMeters: '',
+    weightBefore: '',
+    weightAfter: '',
+    ngKg: '0',
+    ngMeters: '0',
+    lengthMeters: '',
+    notes: '',
+  });
+
+  const [rows, setRows] = useState<SandwichRow[]>(() => [createEmptyRow(1)]);
+  /** แถวกำลังถูกโต้ตอบ (numpad / Enter flow) — ค่าเริ่มต้นคือแถวแรก */
+  const [activeRowId, setActiveRowId] = useState<string>('');
+  /** บันทึกสถานะว่า NG ของแถวไหนถูกแก้เอง เพื่อกันระบบคำนวณทับค่า (per-row) */
+  const [ngManuallyEditedRows, setNgManuallyEditedRows] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   /** หน้าต่างยืนยันก่อนบันทึกตัดแซนวิช */
   const [showConfirmSummary, setShowConfirmSummary] = useState(false);
 
@@ -101,28 +134,6 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   });
   const [activeNumpadTargetId, setActiveNumpadTargetId] = useState<string>('weightBefore');
-
-  const numpadTargets: TouchNumpadTarget[] = [
-    { id: 'weightBefore', label: 'ก่อนใช้', value: weightBefore, unit: 'กก.', isAccent: false },
-    { id: 'weightAfter', label: 'หลังใช้', value: weightAfter, unit: 'กก.', isAccent: false },
-    { id: 'soLengthMeters', label: 'ยาว SO', value: soLengthMeters, unit: 'ม.', isAccent: false },
-    { id: 'ngKg', label: 'NG', value: ngKg, unit: 'กก.', isAccent: true },
-    { id: 'ngMeters', label: 'NG', value: ngMeters, unit: 'ม.', isAccent: true },
-  ];
-
-  const handleNumpadValueChange = (targetId: string, val: string) => {
-    if (targetId === 'weightBefore') setWeightBefore(val);
-    else if (targetId === 'weightAfter') setWeightAfter(val);
-    else if (targetId === 'soLengthMeters') setSoLengthMeters(val);
-    else if (targetId === 'ngKg') handleNgKgChange(val);
-    else if (targetId === 'ngMeters') handleNgMetersChange(val);
-  };
-
-  const handleNextNumpadTarget = () => {
-    const curIdx = numpadTargets.findIndex(t => t.id === activeNumpadTargetId);
-    const nextIdx = (curIdx + 1) % numpadTargets.length;
-    setActiveNumpadTargetId(numpadTargets[nextIdx].id);
-  };
 
   // History search state
   const [historySearch, setHistorySearch] = useState('');
@@ -139,49 +150,44 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
     if (editingRecord) {
       setActiveTab('create');
-      setSoNumber(editingRecord.soNumber || '');
       setProductionDate(editingRecord.productionDate || todayLocalISO());
-      setSoLengthMeters(
-        editingRecord.soLengthMeters != null ? String(editingRecord.soLengthMeters) : ''
-      );
       setCoilColor(editingRecord.coilColor || '');
       setThickness(editingRecord.thickness || '0.35');
       setCoilNumber(editingRecord.coilNumber || '');
-      setWeightBefore(
-        editingRecord.weightBefore != null ? String(editingRecord.weightBefore) : ''
-      );
-      setWeightAfter(
-        editingRecord.weightAfter != null ? String(editingRecord.weightAfter) : ''
-      );
-      setNgKg(editingRecord.ngKg != null ? String(editingRecord.ngKg) : '0');
-      setNgMeters(editingRecord.ngMeters != null ? String(editingRecord.ngMeters) : '0');
       setSteelOrigin(editingRecord.steelOrigin || 'เหล็กนอก');
       setCustomSteelOrigin(editingRecord.customSteelOrigin || '');
-      setLengthMeters(
-        editingRecord.lengthMeters != null ? String(editingRecord.lengthMeters) : ''
-      );
       setRecordedBy(editingRecord.recordedBy || recentOperators[0] || '');
-      setNotes(editingRecord.notes || '');
-      setIsNgManuallyEdited(true);
+
+      // โหมดแก้ไขยังคงเป็น record เดียวเสมอ
+      const editRow: SandwichRow = {
+        id: createRowId(1),
+        soNumber: editingRecord.soNumber || '',
+        soLengthMeters:
+          editingRecord.soLengthMeters != null ? String(editingRecord.soLengthMeters) : '',
+        weightBefore:
+          editingRecord.weightBefore != null ? String(editingRecord.weightBefore) : '',
+        weightAfter: editingRecord.weightAfter != null ? String(editingRecord.weightAfter) : '',
+        ngKg: editingRecord.ngKg != null ? String(editingRecord.ngKg) : '0',
+        ngMeters: editingRecord.ngMeters != null ? String(editingRecord.ngMeters) : '0',
+        lengthMeters:
+          editingRecord.lengthMeters != null ? String(editingRecord.lengthMeters) : '',
+        notes: editingRecord.notes || '',
+      };
+      setRows([editRow]);
+      setActiveRowId(editRow.id);
+      setNgManuallyEditedRows({ [editRow.id]: true });
       return;
     }
 
     setActiveTab(initialMode);
-    const yy = getCurrentThaiYearBE2Digits();
-    const mm = getCurrentMonth2Digits();
-    setSoNumber(`so${yy}${mm}`);
+    const firstRow = createEmptyRow(1);
+    setRows([firstRow]);
+    setActiveRowId(firstRow.id);
+    setNgManuallyEditedRows({});
     setProductionDate(todayLocalISO());
-    setNgKg('0');
-    setNgMeters('0');
-    setSoLengthMeters('');
     setThickness('0.35');
-    setIsNgManuallyEdited(false);
     setCoilColor('');
     setCoilNumber('');
-    setWeightBefore('');
-    setWeightAfter('');
-    setNotes('');
-    setLengthMeters('');
     if (!recordedBy && recentOperators.length > 0) {
       setRecordedBy(recentOperators[0]);
     }
@@ -205,80 +211,271 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     ? customRateNum
     : standardKgPerMeter;
 
-  const numSoLength = parseCleanNum(soLengthMeters);
+  // ===== Per-row calculation: ใช้จริง / น้ำหนักตามทฤษฎี / NG อัตโนมัติ =====
+  const computeRowCalc = (row: SandwichRow) => {
+    const numSoLength = parseCleanNum(row.soLengthMeters);
+    const numBefore = parseCleanNum(row.weightBefore);
+    const numAfter = parseCleanNum(row.weightAfter);
 
-  // Real-time calculation of used weight (น้ำหนักขึ้น - ลง)
-  const numBefore = parseCleanNum(weightBefore);
-  const numAfter = parseCleanNum(weightAfter);
-  const calculatedUsed = (weightBefore !== '' && weightAfter !== '')
-    ? Math.max(0, Math.round((numBefore - numAfter) * 100) / 100)
-    : 0;
+    // Real-time calculation of used weight (น้ำหนักขึ้น - ลง)
+    const calculatedUsed = (row.weightBefore !== '' && row.weightAfter !== '')
+      ? Math.max(0, Math.round((numBefore - numAfter) * 100) / 100)
+      : 0;
 
-  // Auto-calculated theoretical SO steel weight (กก.)
-  const theoreticalSoWeight = numSoLength > 0
-    ? Math.round(numSoLength * effectiveKgPerMeter * 100) / 100
-    : 0;
+    // Auto-calculated theoretical SO steel weight (กก.)
+    const theoreticalSoWeight = numSoLength > 0
+      ? Math.round(numSoLength * effectiveKgPerMeter * 100) / 100
+      : 0;
 
-  // Auto-calculated ตัดตก / NG (กก.) = น้ำหนักขึ้น-ลง - น้ำหนักงาน SO
-  const autoCalculatedNgKg = (calculatedUsed > 0 && numSoLength > 0)
-    ? Math.max(0, Math.round((calculatedUsed - theoreticalSoWeight) * 100) / 100)
-    : 0;
+    // Auto-calculated ตัดตก / NG (กก.) = น้ำหนักขึ้น-ลง - น้ำหนักงาน SO
+    const autoCalculatedNgKg = (calculatedUsed > 0 && numSoLength > 0)
+      ? Math.max(0, Math.round((calculatedUsed - theoreticalSoWeight) * 100) / 100)
+      : 0;
 
-  // Auto-calculated ตัดตก / NG (เมตร) = autoCalculatedNgKg / effectiveKgPerMeter
-  const autoCalculatedNgMeters = (effectiveKgPerMeter > 0 && autoCalculatedNgKg > 0)
-    ? Math.max(0, Math.round((autoCalculatedNgKg / effectiveKgPerMeter) * 10) / 10)
-    : 0;
+    // Auto-calculated ตัดตก / NG (เมตร) = autoCalculatedNgKg / effectiveKgPerMeter
+    const autoCalculatedNgMeters = (effectiveKgPerMeter > 0 && autoCalculatedNgKg > 0)
+      ? Math.max(0, Math.round((autoCalculatedNgKg / effectiveKgPerMeter) * 10) / 10)
+      : 0;
 
-  // Automatically update ngKg & ngMeters fields when weight or SO length changes unless manually overridden
+    return { numSoLength, numBefore, numAfter, calculatedUsed, theoreticalSoWeight, autoCalculatedNgKg, autoCalculatedNgMeters };
+  };
+
+  /** ค่าที่จะบันทึกลง record ของแต่ละแถว (weightBefore / weightUsed ตามกติกาเดิม) */
+  const computeRowSaveValues = (row: SandwichRow) => {
+    const calc = computeRowCalc(row);
+    const numNgKg = parseCleanNum(row.ngKg);
+    const numNgMeters = parseCleanNum(row.ngMeters);
+    // weightUsed = ใช้จริง ถ้ามี, ไม่งั้นน้ำหนักตามทฤษฎีของ SO, ไม่งั้น 0
+    const weightUsed = calc.calculatedUsed > 0
+      ? calc.calculatedUsed
+      : calc.numSoLength > 0
+        ? calc.theoreticalSoWeight
+        : 0;
+    // weightBefore ที่บันทึก = ค่าที่กรอก, ถ้าไม่กรอกใช้น้ำหนักตามทฤษฎีของ SO
+    const weightBefore = calc.numBefore > 0 ? calc.numBefore : calc.theoreticalSoWeight;
+    const weightAfter = row.weightAfter !== '' && calc.numAfter >= 0 ? calc.numAfter : 0;
+    return { ...calc, numNgKg, numNgMeters, weightUsed, weightBefore, weightAfter };
+  };
+
+  const rowCalcs = rows.map((row) => ({ row, calc: computeRowSaveValues(row) }));
+  const activeRow = rows.find((r) => r.id === activeRowId) || rows[0] || null;
+  const activeRowIndex = activeRow ? rows.findIndex((r) => r.id === activeRow.id) : 0;
+
+  // Automatically update ngKg & ngMeters ของแต่ละแถวเมื่อ weight หรือ SO length เปลี่ยน
+  // เว้นแต่แถวนั้นถูกแก้ NG ด้วยมือ (per-row manual guard)
   useEffect(() => {
-    if (!isNgManuallyEdited && calculatedUsed > 0 && numSoLength > 0) {
-      setNgKg(autoCalculatedNgKg > 0 ? autoCalculatedNgKg.toFixed(2) : '0.00');
-      setNgMeters(autoCalculatedNgMeters > 0 ? autoCalculatedNgMeters.toFixed(1) : '0.0');
-    }
-  }, [calculatedUsed, numSoLength, effectiveKgPerMeter, autoCalculatedNgKg, autoCalculatedNgMeters, isNgManuallyEdited]);
+    let changed = false;
+    const next = rows.map((row) => {
+      if (ngManuallyEditedRows[row.id]) return row;
+      const c = computeRowCalc(row);
+      if (c.calculatedUsed <= 0 || c.numSoLength <= 0) return row;
+      const nextNgKg = c.autoCalculatedNgKg > 0 ? c.autoCalculatedNgKg.toFixed(2) : '0.00';
+      const nextNgMeters = c.autoCalculatedNgMeters > 0 ? c.autoCalculatedNgMeters.toFixed(1) : '0.0';
+      if (row.ngKg === nextNgKg && row.ngMeters === nextNgMeters) return row;
+      changed = true;
+      return { ...row, ngKg: nextNgKg, ngMeters: nextNgMeters };
+    });
+    if (changed) setRows(next);
+  }, [rows, effectiveKgPerMeter, ngManuallyEditedRows]);
 
-  // Two-way synchronized setters for ตัดตก / NG กก. <-> เมตร
-  const handleNgKgChange = (val: string) => {
-    setNgKg(val);
-    setIsNgManuallyEdited(true);
+  // ===== Row management =====
+  const handleAddRow = () => {
+    // โหมดแก้ไขยังคงเป็น record เดียว จึงไม่อนุญาตให้เพิ่มแถว
+    if (editingRecord) return;
+    const newRow = createEmptyRow(rows.length + 1);
+    setRows((prev) => [...prev, newRow]);
+    setActiveRowId(newRow.id);
+    setNgManuallyEditedRows((prev) => {
+      const copy = { ...prev };
+      delete copy[newRow.id];
+      return copy;
+    });
+    setTimeout(() => {
+      const el = soNumberInputRefs.current[newRow.id];
+      if (el) {
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      }
+    }, 100);
+  };
+
+  const handleRemoveRow = (rowId: string) => {
+    if (rows.length <= 1) return;
+    const next = rows.filter((r) => r.id !== rowId);
+    setRows(next);
+    setNgManuallyEditedRows((prev) => {
+      const copy = { ...prev };
+      delete copy[rowId];
+      return copy;
+    });
+    if (activeRowId === rowId) {
+      setActiveRowId(next[0]?.id || '');
+    }
+  };
+
+  const handleUpdateRow = (rowId: string, updates: Partial<SandwichRow>) => {
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, ...updates } : r)));
+  };
+
+  /** ตั้งแถวที่กำลังทำงาน (และหัวข้อ numpad ถ้าระบุ field) */
+  const activateRow = (rowId: string, numpadField?: string) => {
+    setActiveRowId(rowId);
+    if (numpadField) setActiveNumpadTargetId(numpadField);
+  };
+
+  // Two-way synchronized setters for ตัดตก / NG กก. <-> เมตร (per-row)
+  const handleNgKgChange = (rowId: string, val: string) => {
+    handleUpdateRow(rowId, { ngKg: val });
+    setNgManuallyEditedRows((prev) => (prev[rowId] ? prev : { ...prev, [rowId]: true }));
     const n = parseCleanNum(val);
     if (effectiveKgPerMeter > 0 && n >= 0) {
       const m = n > 0 ? Math.round((n / effectiveKgPerMeter) * 10) / 10 : 0;
-      setNgMeters(m > 0 ? m.toFixed(1) : '0.0');
+      handleUpdateRow(rowId, { ngMeters: m > 0 ? m.toFixed(1) : '0.0' });
     }
   };
 
-  const handleNgMetersChange = (val: string) => {
-    setNgMeters(val);
-    setIsNgManuallyEdited(true);
+  const handleNgMetersChange = (rowId: string, val: string) => {
+    handleUpdateRow(rowId, { ngMeters: val });
+    setNgManuallyEditedRows((prev) => (prev[rowId] ? prev : { ...prev, [rowId]: true }));
     const m = parseCleanNum(val);
     if (effectiveKgPerMeter > 0 && m >= 0) {
       const kg = m > 0 ? Math.round(m * effectiveKgPerMeter * 100) / 100 : 0;
-      setNgKg(kg > 0 ? kg.toFixed(2) : '0.00');
+      handleUpdateRow(rowId, { ngKg: kg > 0 ? kg.toFixed(2) : '0.00' });
     }
   };
 
-  const handleResetToAutoNg = () => {
-    setIsNgManuallyEdited(false);
-    if (calculatedUsed > 0 && numSoLength > 0) {
-      setNgKg(autoCalculatedNgKg > 0 ? autoCalculatedNgKg.toFixed(2) : '0.00');
-      setNgMeters(autoCalculatedNgMeters > 0 ? autoCalculatedNgMeters.toFixed(1) : '0.0');
+  // แก้ความยาว SO แล้วเปิดระบบคำนวณ NG อัตโนมัติกลับมา (เหมือน behavior เดิม)
+  const handleSoLengthChange = (rowId: string, val: string) => {
+    handleUpdateRow(rowId, { soLengthMeters: val });
+    setNgManuallyEditedRows((prev) => {
+      if (!prev[rowId]) return prev;
+      const copy = { ...prev };
+      delete copy[rowId];
+      return copy;
+    });
+  };
+
+  const handleResetToAutoNg = (rowId: string) => {
+    setNgManuallyEditedRows((prev) => {
+      const copy = { ...prev };
+      delete copy[rowId];
+      return copy;
+    });
+    const row = rows.find((r) => r.id === rowId);
+    if (!row) return;
+    const c = computeRowCalc(row);
+    if (c.calculatedUsed > 0 && c.numSoLength > 0) {
+      handleUpdateRow(rowId, {
+        ngKg: c.autoCalculatedNgKg > 0 ? c.autoCalculatedNgKg.toFixed(2) : '0.00',
+        ngMeters: c.autoCalculatedNgMeters > 0 ? c.autoCalculatedNgMeters.toFixed(1) : '0.0',
+      });
     } else {
-      setNgKg('0.00');
-      setNgMeters('0.0');
+      handleUpdateRow(rowId, { ngKg: '0.00', ngMeters: '0.0' });
+    }
+  };
+
+  // ===== Per-row input refs สำหรับ focus navigation (Enter flow) =====
+  const soNumberInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
+  const soLengthInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
+  const weightBeforeInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
+  const weightAfterInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
+  const ngKgInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
+  const ngMetersInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
+
+  const focusRowInput = (
+    refs: React.RefObject<{ [rowId: string]: HTMLInputElement | null }>,
+    rowId: string
+  ) => {
+    setTimeout(() => {
+      const el = refs.current[rowId];
+      if (!el) return;
+      el.focus();
+      if (el.type === 'text') {
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      }
+    }, 0);
+  };
+
+  /**
+   * Enter flow ภายในแถว:
+   * soNumber -> ยาว SO (ถ้ามี) -> ก่อนใช้ -> หลังใช้ -> NG กก. ... ngMeters Enter -> เพิ่มแถวใหม่
+   */
+  const handleRowKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    row: SandwichRow,
+    field: 'soNumber' | 'weightBefore' | 'weightAfter' | 'ngMeters'
+  ) => {
+    if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (field === 'soNumber') {
+      if (soLengthInputRefs.current[row.id]) {
+        focusRowInput(soLengthInputRefs, row.id);
+      } else {
+        focusRowInput(weightBeforeInputRefs, row.id);
+      }
+    } else if (field === 'weightBefore') {
+      focusRowInput(weightAfterInputRefs, row.id);
+    } else if (field === 'weightAfter') {
+      focusRowInput(ngKgInputRefs, row.id);
+    } else if (field === 'ngMeters') {
+      handleAddRow();
+    }
+  };
+
+  // ===== Tablet Numpad: ทำงานกับแถวที่กำลัง active =====
+  const numpadRowPrefix = rows.length > 1 ? `แถว ${activeRowIndex + 1} · ` : '';
+  const numpadTargets: TouchNumpadTarget[] = activeRow
+    ? [
+        { id: 'weightBefore', label: `${numpadRowPrefix}ก่อนใช้`, value: activeRow.weightBefore, unit: 'กก.', isAccent: false },
+        { id: 'weightAfter', label: `${numpadRowPrefix}หลังใช้`, value: activeRow.weightAfter, unit: 'กก.', isAccent: false },
+        { id: 'soLengthMeters', label: `${numpadRowPrefix}ยาว SO`, value: activeRow.soLengthMeters, unit: 'ม.', isAccent: false },
+        { id: 'ngKg', label: `${numpadRowPrefix}NG`, value: activeRow.ngKg, unit: 'กก.', isAccent: true },
+        { id: 'ngMeters', label: `${numpadRowPrefix}NG`, value: activeRow.ngMeters, unit: 'ม.', isAccent: true },
+      ]
+    : [];
+
+  const handleNumpadValueChange = (targetId: string, val: string) => {
+    if (!activeRow) return;
+    if (targetId === 'weightBefore') handleUpdateRow(activeRow.id, { weightBefore: val });
+    else if (targetId === 'weightAfter') handleUpdateRow(activeRow.id, { weightAfter: val });
+    else if (targetId === 'soLengthMeters') handleSoLengthChange(activeRow.id, val);
+    else if (targetId === 'ngKg') handleNgKgChange(activeRow.id, val);
+    else if (targetId === 'ngMeters') handleNgMetersChange(activeRow.id, val);
+  };
+
+  const handleNextNumpadTarget = () => {
+    if (numpadTargets.length === 0) return;
+    const curIdx = numpadTargets.findIndex(t => t.id === activeNumpadTargetId);
+    const nextIdx = (curIdx + 1) % numpadTargets.length;
+    setActiveNumpadTargetId(numpadTargets[nextIdx].id);
+  };
+
+  /**
+   * Keyboard ระดับ modal:
+   * - Ctrl/Cmd+Enter ที่ไหนก็ได้ใน modal -> submit ทั้ง batch (เส้นทางเดียวกับปุ่มบันทึก)
+   * - Enter ปกติใน input -> กันฟอร์ม submit (แต่ละแถวมี Enter flow ของตัวเอง)
+   */
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Enter') return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      if (activeTab === 'create' && !showConfirmSummary && !isSubmitting) {
+        void handleSubmit();
+      }
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      e.preventDefault();
     }
   };
 
   const validateSandwichForm = (): boolean => {
     setError(null);
-    if (!soNumber.trim()) {
-      setError('กรุณาระบุรหัส SO');
-      return false;
-    }
-    if (soLengthMeters !== '' && numSoLength < 0) {
-      setError('ความยาวตามใบงาน SO (เมตร) ต้องไม่ติดลบ');
-      return false;
-    }
+
+    // 1) ข้อมูลระดับม้วน (lot-level) ก่อน
     if (!coilColor.trim()) {
       setError('กรุณาระบุสีคอล์ย');
       return false;
@@ -291,34 +488,91 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setError('กรุณาระบุเบอร์คอล์ย');
       return false;
     }
-    if ((weightBefore === '' || numBefore <= 0) && numSoLength <= 0) {
-      setError('กรุณาระบุน้ำหนักคอล์ยก่อนใช้ (กก.) หรือความยาวตามใบงาน SO (เมตร)');
-      return false;
-    }
-    if (numBefore > 0 && weightAfter !== '' && numAfter > numBefore) {
-      setError('น้ำหนักหลังใช้ (กก.) ไม่สามารถมากกว่าน้ำหนักก่อนใช้ได้');
-      return false;
-    }
     if (steelOrigin === 'อื่นๆ' && !customSteelOrigin.trim()) {
       setError('กรุณาระบุรายละเอียดชนิดเหล็ก (กรณีเลือกอื่นๆ)');
       return false;
     }
 
-    const numNgKg = parseCleanNum(ngKg);
-    const numNgMeters = parseCleanNum(ngMeters);
-    if (numNgKg < 0) {
-      setError('ยอดตัดตก / NG (กก.) ต้องไม่ติดลบ');
-      return false;
-    }
-    if (numNgMeters < 0) {
-      setError('ยอดตัดตก / NG (เมตร) ต้องไม่ติดลบ');
-      return false;
-    }
-    if (calculatedUsed > 0 && numNgKg > calculatedUsed + 0.05) {
-      setError('ยอดตัดตก / NG (กก.) ต้องไม่เกินน้ำหนักเหล็กที่ใช้จริง');
-      return false;
+    // 2) ทีละแถวตามลำดับ หยุดที่ error แรก
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const c = computeRowCalc(row);
+      const rowLabel = `แถวที่ ${i + 1}: `;
+
+      if (!row.soNumber.trim()) {
+        setError(`${rowLabel}กรุณาระบุรหัส SO`);
+        return false;
+      }
+      if (row.soLengthMeters !== '' && c.numSoLength < 0) {
+        setError(`${rowLabel}ความยาวตามใบงาน SO (เมตร) ต้องไม่ติดลบ`);
+        return false;
+      }
+      if ((row.weightBefore === '' || c.numBefore <= 0) && c.numSoLength <= 0) {
+        setError(`${rowLabel}กรุณาระบุน้ำหนักคอล์ยก่อนใช้ (กก.) หรือความยาวตามใบงาน SO (เมตร)`);
+        return false;
+      }
+      if (c.numBefore > 0 && row.weightAfter !== '' && c.numAfter > c.numBefore) {
+        setError(`${rowLabel}น้ำหนักหลังใช้ (กก.) ไม่สามารถมากกว่าน้ำหนักก่อนใช้ได้`);
+        return false;
+      }
+
+      const numNgKg = parseCleanNum(row.ngKg);
+      const numNgMeters = parseCleanNum(row.ngMeters);
+      if (numNgKg < 0) {
+        setError(`${rowLabel}ยอดตัดตก / NG (กก.) ต้องไม่ติดลบ`);
+        return false;
+      }
+      if (numNgMeters < 0) {
+        setError(`${rowLabel}ยอดตัดตก / NG (เมตร) ต้องไม่ติดลบ`);
+        return false;
+      }
+      if (c.calculatedUsed > 0 && numNgKg > c.calculatedUsed + 0.05) {
+        setError(`${rowLabel}ยอดตัดตก / NG (กก.) ต้องไม่เกินน้ำหนักเหล็กที่ใช้จริง`);
+        return false;
+      }
     }
     return true;
+  };
+
+  const buildRowRecord = (
+    row: SandwichRow,
+    overrides?: { id?: string; createdAt?: string }
+  ): PuSandwichCutRecord => {
+    const s = computeRowSaveValues(row);
+
+    const payload: PuSandwichCutRecord = {
+      id: overrides?.id || `pusw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      soNumber: row.soNumber.trim(),
+      productionDate,
+      coilColor: coilColor.trim(),
+      thickness: thickness.trim(),
+      coilNumber: coilNumber.trim(),
+      weightBefore: s.weightBefore,
+      weightAfter: s.weightAfter,
+      weightUsed: s.weightUsed,
+      ngKg: s.numNgKg,
+      ngMeters: s.numNgMeters,
+      steelOrigin,
+      recordedBy: recordedBy.trim() || 'ช่างคุมเครื่อง PU',
+      createdAt: overrides?.createdAt || new Date().toISOString(),
+    };
+
+    if (s.numSoLength > 0) payload.soLengthMeters = s.numSoLength;
+    if (steelOrigin === 'อื่นๆ' && customSteelOrigin.trim()) {
+      payload.customSteelOrigin = customSteelOrigin.trim();
+    }
+    if (row.lengthMeters && parseFloat(row.lengthMeters) > 0) {
+      payload.lengthMeters = parseFloat(row.lengthMeters);
+    }
+    if (row.notes.trim()) payload.notes = row.notes.trim();
+    return payload;
+  };
+
+  const stripRecordMeta = (
+    record: PuSandwichCutRecord
+  ): Omit<PuSandwichCutRecord, 'id' | 'createdAt'> => {
+    const { id: _id, createdAt: _createdAt, ...rest } = record;
+    return rest;
   };
 
   const executeSandwichSave = async () => {
@@ -328,11 +582,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       return;
     }
 
-    const numNgKg = parseCleanNum(ngKg);
-    const numNgMeters = parseCleanNum(ngMeters);
-
     // ป้องกันกรณีไม่มีฟังก์ชันบันทึก: แจ้งเตือนแทนการปิดหน้าต่างเงียบๆ โดยไม่บันทึก
-    const canSave = editingRecord ? !!onSaveCut : !!(onSaveRecord || onSaveCut);
+    const canSave = editingRecord
+      ? !!onSaveCut
+      : !!(onSaveRecord || onSaveCut || onSaveBatch);
     if (!canSave) {
       setShowConfirmSummary(false);
       setError('ไม่สามารถบันทึกได้: ระบบยังไม่ได้เชื่อมต่อฟังก์ชันบันทึก กรุณาแจ้งผู้ดูแล');
@@ -346,63 +599,59 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         saveRecentOperator(recordedBy.trim());
       }
 
-      const finalWeightUsed = calculatedUsed > 0
-        ? calculatedUsed
-        : numSoLength > 0
-          ? theoreticalSoWeight
-          : 0;
-
-      const cleanPayload: any = {
-        soNumber: soNumber.trim(),
-        productionDate,
-        coilColor: coilColor.trim(),
-        thickness: thickness.trim(),
-        coilNumber: coilNumber.trim(),
-        weightBefore: numBefore > 0 ? numBefore : theoreticalSoWeight,
-        weightAfter: weightAfter !== '' && numAfter >= 0 ? numAfter : 0,
-        weightUsed: finalWeightUsed,
-        ngKg: numNgKg,
-        ngMeters: numNgMeters,
-        steelOrigin,
-        recordedBy: recordedBy.trim() || 'ช่างคุมเครื่อง PU',
-        createdAt: editingRecord?.createdAt || new Date().toISOString(),
-      };
-
-      if (numSoLength > 0) cleanPayload.soLengthMeters = numSoLength;
-      if (steelOrigin === 'อื่นๆ' && customSteelOrigin.trim()) {
-        cleanPayload.customSteelOrigin = customSteelOrigin.trim();
-      }
-      if (lengthMeters && parseFloat(lengthMeters) > 0) {
-        cleanPayload.lengthMeters = parseFloat(lengthMeters);
-      }
-      if (notes.trim()) cleanPayload.notes = notes.trim();
-
-      if (onSaveRecord && !editingRecord) {
-        await onSaveRecord(cleanPayload);
-      } else if (onSaveCut) {
-        await onSaveCut({
-          id: editingRecord?.id || `pusw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          ...cleanPayload,
-        } as PuSandwichCutRecord);
-      }
-
+      // โหมดแก้ไข: คงพฤติกรรม record เดียวไว้เหมือนเดิมทุกประการ
       if (editingRecord) {
+        const record = buildRowRecord(rows[0], {
+          id: editingRecord.id,
+          createdAt: editingRecord.createdAt || new Date().toISOString(),
+        });
+        if (onSaveCut) await onSaveCut(record);
         onClose();
+        return;
+      }
+
+      const recordsToSave = rows.map((row) => buildRowRecord(row));
+
+      if (recordsToSave.length === 1) {
+        // แถวเดียว: พฤติกรรมเดิม (onSaveCut ก่อนเพื่อคง behavior เดิมของ parent)
+        const record = recordsToSave[0];
+        if (onSaveCut) {
+          await onSaveCut(record);
+        } else if (onSaveRecord) {
+          await onSaveRecord(stripRecordMeta(record));
+        } else if (onSaveBatch) {
+          await onSaveBatch(recordsToSave);
+        }
+      } else if (onSaveBatch) {
+        await onSaveBatch(recordsToSave);
       } else {
-        const yy = getCurrentThaiYearBE2Digits();
-        const mm = getCurrentMonth2Digits();
-        setSoNumber(`so${yy}${mm}`);
-        setWeightBefore('');
-        setWeightAfter('');
-        setSoLengthMeters('');
-        setNgKg('0');
-        setNgMeters('0');
-        setIsNgManuallyEdited(false);
+        // ไม่มี onSaveBatch: เรียก onSaveCut ทีละแถวตามลำดับ
+        for (const record of recordsToSave) {
+          if (onSaveCut) {
+            await onSaveCut(record);
+          } else if (onSaveRecord) {
+            await onSaveRecord(stripRecordMeta(record));
+          }
+        }
+      }
+
+      if (recordsToSave.length === 1) {
+        // พฤติกรรมเดิมของแถวเดียว: รีเซ็ตฟอร์มแล้วสลับไปแท็บประวัติ
+        const freshRow = createEmptyRow(1);
+        setRows([freshRow]);
+        setActiveRowId(freshRow.id);
+        setNgManuallyEditedRows({});
         setCustomKgPerMeter('');
         setShowCustomFactor(false);
-        setNotes('');
-        setLengthMeters('');
         setActiveTab('history');
+      } else {
+        // บันทึกหลายแถว: คงข้อมูลระดับม้วนไว้ (ม้วนเดียวกันตัดหลาย SO)
+        // แล้วเริ่มแถวว่างใหม่บนแท็บคีย์ตัด SO เพื่อ batch ถัดไป
+        const freshRow = createEmptyRow(1);
+        setRows([freshRow]);
+        setActiveRowId(freshRow.id);
+        setNgManuallyEditedRows({});
+        setError(null);
       }
     } catch (err: any) {
       setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
@@ -411,8 +660,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!validateSandwichForm()) return;
     // แสดงสรุปยืนยันก่อนบันทึกจริง
     setShowConfirmSummary(true);
@@ -438,10 +687,28 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const totalNgKgAll = safeRecords.reduce((sum, r) => sum + (r.ngKg || 0), 0);
   const totalNgMetersAll = safeRecords.reduce((sum, r) => sum + (r.ngMeters || 0), 0);
 
+  // ยอดรวมทั้ง batch สำหรับหน้าต่างยืนยัน
+  const batchTotals = rowCalcs.reduce(
+    (sum, { calc }) => ({
+      weightBefore: sum.weightBefore + calc.weightBefore,
+      weightUsed: sum.weightUsed + calc.weightUsed,
+      weightAfter: sum.weightAfter + calc.weightAfter,
+      soLength: sum.soLength + calc.numSoLength,
+      ngKg: sum.ngKg + calc.numNgKg,
+      ngMeters: sum.ngMeters + calc.numNgMeters,
+    }),
+    { weightBefore: 0, weightUsed: 0, weightAfter: 0, soLength: 0, ngKg: 0, ngMeters: 0 }
+  );
+
+  const format2 = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200"
+      onKeyDown={handleModalKeyDown}
+    >
       <div
         ref={panelRef}
         tabIndex={-1} 
@@ -535,7 +802,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
           {activeTab === 'create' ? (
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} noValidate className="space-y-5">
               {!isStaff && (
                 <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-2xl flex items-start gap-2.5 text-xs text-rose-900 animate-in fade-in">
                   <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
@@ -557,113 +824,40 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 </div>
               )}
 
-              {/* Top Row: SO Number, Production Date & SO Length */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <Hash className="w-3.5 h-3.5 text-emerald-600" />
-                    รหัสใบสั่งตัด (SO Number) <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={soNumber}
-                    onChange={(e) => setSoNumber(e.target.value.toLowerCase())}
-                    placeholder="เช่น so6909001"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
-                    required
-                  />
-                  <span className="text-[11px] text-slate-400 mt-1 block">
-                    รูปแบบ: so + ปี พ.ศ. + เดือน + ลำดับ
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                    วันที่ตัด / ผลิต <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={productionDate}
-                    onChange={(e) => setProductionDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
-                    required
-                  />
-                  <span className="text-[11px] text-slate-400 mt-1 block">
-                    วันที่ดำเนินการผลิตแผ่นแซนวิช
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Ruler className="w-3.5 h-3.5 text-emerald-600" />
-                      ความยาวตามใบงาน SO (ม.) <span className="text-rose-500">*</span>
-                    </span>
-                    <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                      ใช้คำนวณ NG
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={soLengthMeters}
-                    onChange={(e) => {
-                      setSoLengthMeters(e.target.value);
-                      setIsNgManuallyEdited(false);
-                    }}
-                    onFocus={() => setActiveNumpadTargetId('soLengthMeters')}
-                    onClick={() => setActiveNumpadTargetId('soLengthMeters')}
-                    placeholder="เช่น 120.00 หรือ 250"
-                    className={`w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
-                      showTabletNumpad && activeNumpadTargetId === 'soLengthMeters'
-                        ? 'border-emerald-500 ring-2 ring-emerald-300 bg-emerald-50/20'
-                        : 'border-slate-300'
-                    }`}
-                    required
-                  />
-                  {/* Quick Chips for SO Length */}
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {['50', '100', '120', '150', '200', '300'].map((chip) => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => {
-                          setSoLengthMeters(chip);
-                          setIsNgManuallyEdited(false);
-                        }}
-                        className={`text-[10px] px-1.5 py-0.5 rounded-md border cursor-pointer transition-colors ${
-                          soLengthMeters === chip
-                            ? 'bg-emerald-600 text-white border-emerald-600 font-bold'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {chip}ม.
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* 5 Input Fields as requested by user */}
-              <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              {/* ========== Lot-level: ข้อมูลม้วนคอล์ย (ใช้ร่วกันทุกแถว) ========== */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 gap-2 flex-wrap">
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black">
-                      5
-                    </span>
-                    ช่องคีย์ข้อมูลคอล์ยเหล็ก & น้ำหนัก
+                    <Layers className="w-4 h-4 text-emerald-600" />
+                    ข้อมูลม้วนคอล์ย & วันที่ผลิต
                   </h3>
-                  <span className="text-xs text-slate-500">สำหรับฉีด PU Sandwich (ไม่ใช้ฟอยล์)</span>
+                  <span className="text-[11px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    ใช้ร่วกันทุกแถวใน batch
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* 1. สีคอล์ย */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                      วันที่ตัด / ผลิต <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={productionDate}
+                      onChange={(e) => setProductionDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                      required
+                    />
+                    <span className="text-[11px] text-slate-400 mt-1 block">
+                      วันที่ดำเนินการผลิตแผ่นแซนวิช
+                    </span>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <Palette className="w-3.5 h-3.5 text-emerald-600" />
-                      1. สีคอล์ย <span className="text-rose-500">*</span>
+                      สีคอล์ย <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -692,11 +886,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     </div>
                   </div>
 
-                  {/* 2. ความหนา */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <Gauge className="w-3.5 h-3.5 text-emerald-600" />
-                      2. ความหนา (มม.) <span className="text-rose-500">*</span>
+                      ความหนา (มม.) <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -725,11 +918,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     </div>
                   </div>
 
-                  {/* 3. เบอร์คอล์ย */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <Hash className="w-3.5 h-3.5 text-emerald-600" />
-                      3. เบอร์คอล์ย <span className="text-rose-500">*</span>
+                      เบอร์คอล์ย <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -744,290 +936,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     </span>
                   </div>
                 </div>
-
-                {/* Weight Inputs: 4. น้ำหนักก่อนใช้ & 5. น้ำหนักหลังใช้ */}
-                <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 mt-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-end">
-                    {/* 4. น้ำหนักก่อนใช้ */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
-                        <Scale className="w-3.5 h-3.5 text-emerald-700" />
-                        4. น้ำหนักก่อนใช้ (กก.) <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={weightBefore}
-                        onChange={(e) => setWeightBefore(e.target.value)}
-                        onFocus={() => setActiveNumpadTargetId('weightBefore')}
-                        onClick={() => setActiveNumpadTargetId('weightBefore')}
-                        placeholder="เช่น 2450.00"
-                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
-                          showTabletNumpad && activeNumpadTargetId === 'weightBefore'
-                            ? 'border-emerald-600 ring-2 ring-emerald-400 bg-emerald-50/20'
-                            : 'border-slate-300'
-                        }`}
-                        required
-                      />
-                    </div>
-
-                    {/* 5. น้ำหนักหลังใช้ */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
-                        <Scale className="w-3.5 h-3.5 text-emerald-700" />
-                        5. น้ำหนักหลังใช้ (กก.) <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={weightAfter}
-                        onChange={(e) => setWeightAfter(e.target.value)}
-                        onFocus={() => setActiveNumpadTargetId('weightAfter')}
-                        onClick={() => setActiveNumpadTargetId('weightAfter')}
-                        placeholder="เช่น 2120.00"
-                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
-                          showTabletNumpad && activeNumpadTargetId === 'weightAfter'
-                            ? 'border-emerald-600 ring-2 ring-emerald-400 bg-emerald-50/20'
-                            : 'border-slate-300'
-                        }`}
-                        required
-                      />
-                    </div>
-
-                    {/* Auto Calculated Used Weight Result */}
-                    <div className="bg-white p-3 rounded-xl border border-emerald-300 shadow-2xs">
-                      <span className="text-[11px] font-semibold text-emerald-800 block">
-                        น้ำหนักที่ใช้จริง (คำนวณอัตโนมัติ)
-                      </span>
-                      <div className="text-xl font-black font-mono text-emerald-700">
-                        {calculatedUsed.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
-                        <span className="text-xs font-normal text-slate-500">กก.</span>
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        (ก่อนใช้ - หลังใช้)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ยอดตัดตก / NG ของ PU Sandwich: คำนวณอัตโนมัติจาก (น้ำหนักขึ้น-ลง ลบงาน SO เป็นเมตร) */}
-                <div className="p-4 bg-rose-50/80 rounded-2xl border border-rose-200 mt-3 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-200/80 pb-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-rose-600 text-white flex items-center justify-center text-xs font-black shadow-2xs">
-                        NG
-                      </span>
-                      <div>
-                        <h4 className="text-xs sm:text-sm font-bold text-rose-950 flex items-center gap-1.5">
-                          <AlertTriangle className="w-4 h-4 text-rose-600" />
-                          ยอดตัดตก / NG ของ PU Sandwich (คำนวณอัตโนมัติ)
-                        </h4>
-                        <span className="text-[11px] text-rose-700">
-                          คำนวณจาก: น้ำหนักขึ้น-ลง (กก.) ลบงาน SO เป็นเมตร (ตัดตกเศษหัวท้าย / แผ่นเสีย)
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {!isNgManuallyEdited && (calculatedUsed > 0 && numSoLength > 0) && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
-                          <Sparkles className="w-3 h-3 text-emerald-600" />
-                          ระบบคำนวณให้อัตโนมัติ
-                        </span>
-                      )}
-                      {isNgManuallyEdited && (
-                        <button
-                          type="button"
-                          onClick={handleResetToAutoNg}
-                          className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 cursor-pointer shadow-2xs flex items-center gap-1 transition-colors"
-                          title="คลิกเพื่อนำค่าคำนวณอัตโนมัติกลับมาใส่"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                          ดึงค่าคำนวณอัตโนมัติกลับมา
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Auto-calculation breakdown card */}
-                  <div className="bg-white p-3 sm:p-4 rounded-xl border border-rose-200/90 shadow-2xs space-y-2.5">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                        <span className="text-[10px] font-semibold text-slate-500 block">1. น้ำหนักขึ้น-ลง (ใช้จริง)</span>
-                        <div className="font-mono font-bold text-slate-900 text-base">
-                          {calculatedUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-500">กก.</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono block truncate">
-                          ({numBefore.toLocaleString()} - {numAfter.toLocaleString()})
-                        </span>
-                      </div>
-
-                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-semibold text-slate-500 block">2. งาน SO เป็นเมตร</span>
-                          <button
-                            type="button"
-                            onClick={() => setShowCustomFactor(!showCustomFactor)}
-                            className="text-[11px] text-emerald-700 hover:underline cursor-pointer font-sans"
-                            title="คลิกเพื่อตรวจสอบหรือปรับอัตรา กก./ม."
-                          >
-                            {effectiveKgPerMeter.toFixed(2)} กก./ม.
-                          </button>
-                        </div>
-                        <div className="font-mono font-bold text-slate-900 text-base">
-                          {numSoLength.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-500">ม.</span>
-                        </div>
-                        <span className="text-[10px] text-emerald-700 font-mono block truncate">
-                          ≈ {theoreticalSoWeight.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (เหล็ก {thickness || '0.35'} มม.)
-                        </span>
-                      </div>
-
-                      <div className="bg-rose-50/90 p-2.5 rounded-xl border border-rose-300">
-                        <span className="text-[10px] font-bold text-rose-900 block">3. ยอดตัดตก / NG คำนวณได้</span>
-                        <div className="font-mono font-black text-rose-700 text-base">
-                          {autoCalculatedNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
-                          <span className="text-xs font-bold text-rose-600">กก.</span>
-                        </div>
-                        <span className="text-[10px] text-rose-800 font-mono block truncate">
-                          ≈ {autoCalculatedNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} เมตรตัดตก/เสีย
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Fine-tune factor option */}
-                    {showCustomFactor && (
-                      <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs space-y-1.5 animate-in fade-in">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-emerald-900 text-[11px]">
-                            อัตราน้ำหนักเหล็กต่อเมตร (กก./เมตร):
-                          </span>
-                          <span className="text-[10px] text-emerald-700">
-                            มาตรฐานความหนา {thickness || '0.35'} มม. = {standardKgPerMeter.toFixed(2)} กก./ม.
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0.1"
-                            value={customKgPerMeter}
-                            onChange={(e) => setCustomKgPerMeter(e.target.value)}
-                            placeholder={standardKgPerMeter.toFixed(2)}
-                            className="w-28 px-2 py-1 bg-white border border-emerald-300 rounded-lg text-xs font-mono font-bold"
-                          />
-                          <span className="text-xs text-slate-600">กก./ม.</span>
-                          {customKgPerMeter && (
-                            <button
-                              type="button"
-                              onClick={() => setCustomKgPerMeter('')}
-                              className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
-                            >
-                              รีเซ็ตค่ามาตรฐาน
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {numSoLength === 0 && (
-                      <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
-                        <span>กรุณาระบุ <strong>ความยาวตามใบงาน SO (เมตร)</strong> ด้านบนเพื่อเปิดใช้งานการคำนวณอัตโนมัติ (หรือระบุยอดตัดตกด้านล่างได้โดยตรง)</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                    {/* ยอดตัดตก / NG (กก.) */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                          ยอดตัดตก / NG (กก.) <span className="text-emerald-700 text-[10px] font-bold">[เชื่อมโยง 2 ทาง]</span>
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-normal">แก้ไขเพิ่มเติมได้</span>
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={ngKg}
-                        onChange={(e) => handleNgKgChange(e.target.value)}
-                        onFocus={() => setActiveNumpadTargetId('ngKg')}
-                        onClick={() => setActiveNumpadTargetId('ngKg')}
-                        placeholder="0.00"
-                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs ${
-                          showTabletNumpad && activeNumpadTargetId === 'ngKg'
-                            ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
-                            : 'border-rose-300'
-                        }`}
-                      />
-                      {/* Quick Chips for NG กก. */}
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {['0', '5', '10', '15', '20', '30'].map((chip) => (
-                          <button
-                            key={chip}
-                            type="button"
-                            onClick={() => handleNgKgChange(chip)}
-                            className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
-                              ngKg === chip
-                                ? 'bg-rose-600 text-white border-rose-600 font-bold'
-                                : 'bg-white text-slate-600 border-rose-200 hover:bg-rose-100'
-                            }`}
-                          >
-                            {chip} กก.
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* ยอดตัดตก / NG (เมตร) */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                          ยอดตัดตก / NG (เมตร) <span className="text-emerald-700 text-[10px] font-bold">[เชื่อมโยง 2 ทาง]</span>
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-normal">ความยาวแผ่นตัดตก</span>
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={ngMeters}
-                        onChange={(e) => handleNgMetersChange(e.target.value)}
-                        onFocus={() => setActiveNumpadTargetId('ngMeters')}
-                        onClick={() => setActiveNumpadTargetId('ngMeters')}
-                        placeholder="0.0"
-                        className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 outline-none transition-all shadow-2xs ${
-                          showTabletNumpad && activeNumpadTargetId === 'ngMeters'
-                            ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
-                            : 'border-rose-300'
-                        }`}
-                      />
-                      {/* Quick Chips for NG เมตร */}
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {['0', '1', '2', '3', '5', '10'].map((chip) => (
-                          <button
-                            key={chip}
-                            type="button"
-                            onClick={() => handleNgMetersChange(chip)}
-                            className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
-                              ngMeters === chip
-                                ? 'bg-rose-600 text-white border-rose-600 font-bold'
-                                : 'bg-white text-slate-600 border-rose-200 hover:bg-rose-100'
-                            }`}
-                          >
-                            {chip} ม.
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
 
-              {/* 1 Choice / Selection Field: 1. เหล็กนอก, 2. เหล็กBlue Scope, 3. อื่นๆ */}
+              {/* 1 Choice / Selection Field: 1. เหล็กนอก, 2. เหล็กBlue Scope, 3. อื่นๆ (lot-level) */}
               <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -1036,7 +947,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     </span>
                     ช่องตัวเลือกชนิดเหล็ก (แหล่งที่มา) <span className="text-rose-500">*</span>
                   </h3>
-                  <span className="text-xs text-slate-500">เลือก 1 รายการ</span>
+                  <span className="text-xs text-slate-500">เลือก 1 รายการ · ใช้ร่วกันทุกแถว</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
@@ -1065,7 +976,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   <label
                     className={`flex items-center gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all ${
                       steelOrigin === 'เหล็กBlue Scope'
-                        ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200 shadow-2xs'
+                        ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-200 shadow-2xs'
                         : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
@@ -1086,7 +997,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   <label
                     className={`flex items-center gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all ${
                       steelOrigin === 'อื่นๆ'
-                        ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-200 shadow-2xs'
+                        ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-200 shadow-2xs'
                         : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
@@ -1122,23 +1033,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 )}
               </div>
 
-              {/* Extra details: Length produced, Operator, Notes */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    ความยาวที่ผลิตได้ (เมตร) <span className="text-slate-400 font-normal">(ถ้ามี)</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={lengthMeters}
-                    onChange={(e) => setLengthMeters(e.target.value)}
-                    placeholder="เช่น 150.5"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
-                  />
-                </div>
-
+              {/* Lot-level: ผู้บันทึก + อัตราน้ำหนักเหล็กต่อเมตร */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
                     <User className="w-3.5 h-3.5 text-slate-500" />
@@ -1155,17 +1051,483 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    หมายเหตุ
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                    <Calculator className="w-3.5 h-3.5 text-emerald-600" />
+                    อัตราน้ำหนักเหล็กต่อเมตร (กก./ม.)
                   </label>
-                  <input
-                    type="text"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
-                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomFactor(!showCustomFactor)}
+                      className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold text-slate-900 hover:border-emerald-500 cursor-pointer transition-colors"
+                      title="คลิกเพื่อตรวจสอบหรือปรับอัตรา กก./ม."
+                    >
+                      {effectiveKgPerMeter.toFixed(2)} กก./ม.
+                    </button>
+                    <span className="text-[11px] text-slate-500">
+                      มาตรฐานความหนา {thickness || '0.35'} มม. = {standardKgPerMeter.toFixed(2)} กก./ม.
+                    </span>
+                  </div>
+                  {showCustomFactor && (
+                    <div className="mt-2 p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs space-y-1.5 animate-in fade-in">
+                      <span className="font-bold text-emerald-900 text-[11px] block">
+                        อัตราน้ำหนักเหล็กต่อเมตร (กก./เมตร):
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.1"
+                          value={customKgPerMeter}
+                          onChange={(e) => setCustomKgPerMeter(e.target.value)}
+                          placeholder={standardKgPerMeter.toFixed(2)}
+                          className="w-28 px-2 py-1 bg-white border border-emerald-300 rounded-lg text-xs font-mono font-bold"
+                        />
+                        <span className="text-xs text-slate-600">กก./ม.</span>
+                        {customKgPerMeter && (
+                          <button
+                            type="button"
+                            onClick={() => setCustomKgPerMeter('')}
+                            className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
+                          >
+                            รีเซ็ตค่ามาตรฐาน
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              {/* ========== Per-row: รายการตัด SO (1 แถว = 1 SO) ========== */}
+              <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span className="min-w-6 h-6 px-1 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black">
+                      {rows.length}
+                    </span>
+                    รายการตัด SO (กรอกทีละแถว)
+                  </h3>
+                  {!editingRecord && (
+                    <button
+                      type="button"
+                      onClick={handleAddRow}
+                      className="px-3 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      เพิ่มแถว SO
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                  Enter: รหัส SO → ยาว SO → ก่อนใช้ → หลังใช้ → NG → เพิ่มแถวใหม่ · Ctrl+Enter: ตรวจสอบและบันทึกทั้ง batch
+                </p>
+
+                {rowCalcs.map(({ row, calc }, idx) => {
+                  const isNgManual = !!ngManuallyEditedRows[row.id];
+                  return (
+                    <div
+                      key={row.id}
+                      className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-3.5"
+                    >
+                      {/* Row header */}
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-lg bg-slate-900 text-white flex items-center justify-center text-xs font-black">
+                            {idx + 1}
+                          </span>
+                          <span className="text-xs font-bold text-slate-800">
+                            แถวที่ {idx + 1}{rows.length > 1 ? ` จาก ${rows.length}` : ''}
+                          </span>
+                          <span className="text-[10px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded-md">
+                            1 แถว = 1 SO
+                          </span>
+                        </div>
+                        {!editingRecord && rows.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRow(row.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="ลบแถวนี้"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* SO Number + ความยาวตามใบงาน SO */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                            <Hash className="w-3.5 h-3.5 text-emerald-600" />
+                            รหัสใบสั่งตัด (SO Number) <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            ref={(el) => {
+                              soNumberInputRefs.current[row.id] = el;
+                            }}
+                            type="text"
+                            value={row.soNumber}
+                            onChange={(e) => handleUpdateRow(row.id, { soNumber: e.target.value.toLowerCase() })}
+                            onFocus={() => setActiveRowId(row.id)}
+                            onKeyDown={(e) => handleRowKeyDown(e, row, 'soNumber')}
+                            placeholder="เช่น so6909001"
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                            required
+                          />
+                          {idx === 0 && (
+                            <span className="text-[11px] text-slate-400 mt-1 block">
+                              รูปแบบ: so + ปี พ.ศ. + เดือน + ลำดับ
+                            </span>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <Ruler className="w-3.5 h-3.5 text-emerald-600" />
+                              ความยาวตามใบงาน SO (ม.) <span className="text-rose-500">*</span>
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                              ใช้คำนวณ NG
+                            </span>
+                          </label>
+                          <input
+                            ref={(el) => {
+                              soLengthInputRefs.current[row.id] = el;
+                            }}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={row.soLengthMeters}
+                            onChange={(e) => handleSoLengthChange(row.id, e.target.value)}
+                            onFocus={() => activateRow(row.id, 'soLengthMeters')}
+                            onClick={() => activateRow(row.id, 'soLengthMeters')}
+                            placeholder="เช่น 120.00 หรือ 250"
+                            className={`w-full px-3 py-2 bg-white border rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                              showTabletNumpad && activeNumpadTargetId === 'soLengthMeters' && activeRowId === row.id
+                                ? 'border-emerald-500 ring-2 ring-emerald-300 bg-emerald-50/20'
+                                : 'border-slate-300'
+                            }`}
+                            required
+                          />
+                          {/* Quick Chips for SO Length */}
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {['50', '100', '120', '150', '200', '300'].map((chip) => (
+                              <button
+                                key={chip}
+                                type="button"
+                                onClick={() => handleSoLengthChange(row.id, chip)}
+                                className={`text-[10px] px-1.5 py-0.5 rounded-md border cursor-pointer transition-colors ${
+                                  row.soLengthMeters === chip
+                                    ? 'bg-emerald-600 text-white border-emerald-600 font-bold'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {chip}ม.
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* น้ำหนักก่อนใช้ / หลังใช้ / ใช้จริง (per-row) */}
+                      <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-end">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
+                              <Scale className="w-3.5 h-3.5 text-emerald-700" />
+                              น้ำหนักก่อนใช้ (กก.) <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              ref={(el) => {
+                                weightBeforeInputRefs.current[row.id] = el;
+                              }}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={row.weightBefore}
+                              onChange={(e) => handleUpdateRow(row.id, { weightBefore: e.target.value })}
+                              onFocus={() => activateRow(row.id, 'weightBefore')}
+                              onClick={() => activateRow(row.id, 'weightBefore')}
+                              onKeyDown={(e) => handleRowKeyDown(e, row, 'weightBefore')}
+                              placeholder="เช่น 2450.00"
+                              className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                                showTabletNumpad && activeNumpadTargetId === 'weightBefore' && activeRowId === row.id
+                                  ? 'border-emerald-600 ring-2 ring-emerald-400 bg-emerald-50/20'
+                                  : 'border-slate-300'
+                              }`}
+                              required
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
+                              <Scale className="w-3.5 h-3.5 text-emerald-700" />
+                              น้ำหนักหลังใช้ (กก.) <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              ref={(el) => {
+                                weightAfterInputRefs.current[row.id] = el;
+                              }}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={row.weightAfter}
+                              onChange={(e) => handleUpdateRow(row.id, { weightAfter: e.target.value })}
+                              onFocus={() => activateRow(row.id, 'weightAfter')}
+                              onClick={() => activateRow(row.id, 'weightAfter')}
+                              onKeyDown={(e) => handleRowKeyDown(e, row, 'weightAfter')}
+                              placeholder="เช่น 2120.00"
+                              className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                                showTabletNumpad && activeNumpadTargetId === 'weightAfter' && activeRowId === row.id
+                                  ? 'border-emerald-600 ring-2 ring-emerald-400 bg-emerald-50/20'
+                                  : 'border-slate-300'
+                              }`}
+                              required
+                            />
+                          </div>
+
+                          {/* Auto Calculated Used Weight Result */}
+                          <div className="bg-white p-3 rounded-xl border border-emerald-300 shadow-2xs">
+                            <span className="text-[11px] font-semibold text-emerald-800 block">
+                              น้ำหนักที่ใช้จริง (คำนวณอัตโนมัติ)
+                            </span>
+                            <div className="text-xl font-black font-mono text-emerald-700">
+                              {calc.calculatedUsed.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                              <span className="text-xs font-normal text-slate-500">กก.</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              (ก่อนใช้ - หลังใช้)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ยอดตัดตก / NG ของแถว (per-row auto calculation) */}
+                      <div className="p-4 bg-rose-50/80 rounded-2xl border border-rose-200 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-200/80 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-rose-600 text-white flex items-center justify-center text-xs font-black shadow-2xs">
+                              NG
+                            </span>
+                            <div>
+                              <h4 className="text-xs sm:text-sm font-bold text-rose-950 flex items-center gap-1.5">
+                                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                                ยอดตัดตก / NG ของ PU Sandwich (คำนวณอัตโนมัติ)
+                              </h4>
+                              <span className="text-[11px] text-rose-700">
+                                แถวที่ {idx + 1} · คำนวณจาก: น้ำหนักขึ้น-ลง (กก.) ลบงาน SO เป็นเมตร (ตัดตกเศษหัวท้าย / แผ่นเสีย)
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {!isNgManual && (calc.calculatedUsed > 0 && calc.numSoLength > 0) && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                                <Sparkles className="w-3 h-3 text-emerald-600" />
+                                ระบบคำนวณให้อัตโนมัติ
+                              </span>
+                            )}
+                            {isNgManual && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetToAutoNg(row.id)}
+                                className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 cursor-pointer shadow-2xs flex items-center gap-1 transition-colors"
+                                title="คลิกเพื่อนำค่าคำนวณอัตโนมัติกลับมาใส่"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                ดึงค่าคำนวณอัตโนมัติกลับมา
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Auto-calculation breakdown card */}
+                        <div className="bg-white p-3 sm:p-4 rounded-xl border border-rose-200/90 shadow-2xs space-y-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                              <span className="text-[10px] font-semibold text-slate-500 block">1. น้ำหนักขึ้น-ลง (ใช้จริง)</span>
+                              <div className="font-mono font-bold text-slate-900 text-base">
+                                {calc.calculatedUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-500">กก.</span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-mono block truncate">
+                                ({calc.numBefore.toLocaleString()} - {calc.numAfter.toLocaleString()})
+                              </span>
+                            </div>
+
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                              <span className="text-[10px] font-semibold text-slate-500 block">2. งาน SO เป็นเมตร</span>
+                              <div className="font-mono font-bold text-slate-900 text-base">
+                                {calc.numSoLength.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-500">ม.</span>
+                              </div>
+                              <span className="text-[10px] text-emerald-700 font-mono block truncate">
+                                ≈ {calc.theoreticalSoWeight.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. (เหล็ก {thickness || '0.35'} มม. · {effectiveKgPerMeter.toFixed(2)} กก./ม.)
+                              </span>
+                            </div>
+
+                            <div className="bg-rose-50/90 p-2.5 rounded-xl border border-rose-300">
+                              <span className="text-[10px] font-bold text-rose-900 block">3. ยอดตัดตก / NG คำนวณได้</span>
+                              <div className="font-mono font-black text-rose-700 text-base">
+                                {calc.autoCalculatedNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
+                                <span className="text-xs font-bold text-rose-600">กก.</span>
+                              </div>
+                              <span className="text-[10px] text-rose-800 font-mono block truncate">
+                                ≈ {calc.autoCalculatedNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} เมตรตัดตก/เสีย
+                              </span>
+                            </div>
+                          </div>
+
+                          {calc.numSoLength === 0 && (
+                            <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                              <span>กรุณาระบุ <strong>ความยาวตามใบงาน SO (เมตร)</strong> ด้านบนเพื่อเปิดใช้งานการคำนวณอัตโนมัติ (หรือระบุยอดตัดตกด้านล่างได้โดยตรง)</span>
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                          {/* ยอดตัดตก / NG (กก.) */}
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                                ยอดตัดตก / NG (กก.) <span className="text-emerald-700 text-[10px] font-bold">[เชื่อมโยง 2 ทาง]</span>
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-normal">แก้ไขเพิ่มเติมได้</span>
+                            </label>
+                            <input
+                              ref={(el) => {
+                                ngKgInputRefs.current[row.id] = el;
+                              }}
+                              type="text"
+                              inputMode="decimal"
+                              value={row.ngKg}
+                              onChange={(e) => handleNgKgChange(row.id, e.target.value)}
+                              onFocus={() => activateRow(row.id, 'ngKg')}
+                              onClick={() => activateRow(row.id, 'ngKg')}
+                              placeholder="0.00"
+                              className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-300 outline-none transition-all shadow-2xs ${
+                                showTabletNumpad && activeNumpadTargetId === 'ngKg' && activeRowId === row.id
+                                  ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
+                                  : 'border-rose-300'
+                              }`}
+                            />
+                            {/* Quick Chips for NG กก. */}
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {['0', '5', '10', '15', '20', '30'].map((chip) => (
+                                <button
+                                  key={chip}
+                                  type="button"
+                                  onClick={() => handleNgKgChange(row.id, chip)}
+                                  className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
+                                    row.ngKg === chip
+                                      ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                                      : 'bg-white text-slate-600 border-rose-200 hover:bg-rose-100'
+                                  }`}
+                                >
+                                  {chip} กก.
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* ยอดตัดตก / NG (เมตร) */}
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                                ยอดตัดตก / NG (เมตร) <span className="text-emerald-700 text-[10px] font-bold">[เชื่อมโยง 2 ทาง]</span>
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-normal">ความยาวแผ่นตัดตก</span>
+                            </label>
+                            <input
+                              ref={(el) => {
+                                ngMetersInputRefs.current[row.id] = el;
+                              }}
+                              type="text"
+                              inputMode="decimal"
+                              value={row.ngMeters}
+                              onChange={(e) => handleNgMetersChange(row.id, e.target.value)}
+                              onFocus={() => activateRow(row.id, 'ngMeters')}
+                              onClick={() => activateRow(row.id, 'ngMeters')}
+                              onKeyDown={(e) => handleRowKeyDown(e, row, 'ngMeters')}
+                              placeholder="0.0"
+                              className={`w-full px-3 py-2.5 bg-white border rounded-xl text-base font-mono font-bold text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-300 outline-none transition-all shadow-2xs ${
+                                showTabletNumpad && activeNumpadTargetId === 'ngMeters' && activeRowId === row.id
+                                  ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
+                                  : 'border-rose-300'
+                              }`}
+                            />
+                            {/* Quick Chips for NG เมตร */}
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {['0', '1', '2', '3', '5', '10'].map((chip) => (
+                                <button
+                                  key={chip}
+                                  type="button"
+                                  onClick={() => handleNgMetersChange(row.id, chip)}
+                                  className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
+                                    row.ngMeters === chip
+                                      ? 'bg-rose-600 text-white border-rose-600 font-bold'
+                                      : 'bg-white text-slate-600 border-rose-200 hover:bg-rose-100'
+                                  }`}
+                                >
+                                  {chip} ม.
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ความยาวที่ผลิตได้ + หมายเหตุ (per-row) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            ความยาวที่ผลิตได้ (เมตร) <span className="text-slate-400 font-normal">(ถ้ามี)</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={row.lengthMeters}
+                            onChange={(e) => handleUpdateRow(row.id, { lengthMeters: e.target.value })}
+                            onFocus={() => setActiveRowId(row.id)}
+                            placeholder="เช่น 150.5"
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            หมายเหตุ
+                          </label>
+                          <input
+                            type="text"
+                            value={row.notes}
+                            onChange={(e) => handleUpdateRow(row.id, { notes: e.target.value })}
+                            onFocus={() => setActiveRowId(row.id)}
+                            placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Add Next Row Button */}
+                {!editingRecord && (
+                  <button
+                    type="button"
+                    onClick={handleAddRow}
+                    className="w-full py-2 px-3 border border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/50 text-slate-700 hover:text-emerald-900 rounded-xl font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>+ เพิ่มแถว SO ถัดไป</span>
+                  </button>
+                )}
               </div>
 
               {/* Touch Numpad for Tablet */}
@@ -1213,7 +1575,9 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                         ? 'กำลังบันทึก...'
                         : editingRecord
                           ? 'ตรวจสอบก่อนบันทึกแก้ไข'
-                          : 'ตรวจสอบก่อนตัด SO แซนวิช'}
+                          : rows.length > 1
+                            ? `ตรวจสอบก่อนบันทึก ${rows.length} แถว`
+                            : 'ตรวจสอบก่อนตัด SO แซนวิช'}
                     </>
                   )}
                 </button>
@@ -1404,7 +1768,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       {/* ========== ยืนยันก่อนตัด SO แซนวิช ========== */}
       {showConfirmSummary && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-emerald-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90dvh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-emerald-200 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90dvh] overflow-y-auto">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center justify-center shrink-0">
                 <Factory className="w-5 h-5 text-emerald-800" />
@@ -1415,15 +1779,13 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   ตรวจสอบสรุปด้านล่างก่อนบันทึกจริง
+                  {rows.length > 1 ? ` · จำนวน ${rows.length} รายการ` : ''}
                 </p>
               </div>
             </div>
 
+            {/* ข้อมูลระดับม้วน (lot-level) */}
             <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-2 text-sm">
-              <div className="flex justify-between gap-2">
-                <span className="text-slate-500 text-xs">รหัส SO</span>
-                <span className="font-bold text-slate-900 font-mono text-xs">{soNumber.trim()}</span>
-              </div>
               <div className="flex justify-between gap-2">
                 <span className="text-slate-500 text-xs">วันที่ผลิต</span>
                 <span className="font-semibold text-slate-800 text-xs">{productionDate}</span>
@@ -1443,49 +1805,62 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     : ''}
                 </span>
               </div>
-              <div className="pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <div className="text-[10px] text-slate-400 uppercase">ก่อนใช้</div>
-                  <div className="font-mono font-bold text-slate-800 text-xs">
-                    {numBefore.toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-emerald-600 uppercase">ใช้จริง</div>
-                  <div className="font-mono font-bold text-emerald-700 text-xs">
-                    {calculatedUsed.toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-400 uppercase">หลังใช้</div>
-                  <div className="font-mono font-bold text-slate-800 text-xs">
-                    {numAfter.toLocaleString('th-TH', { maximumFractionDigits: 2 })} กก.
-                  </div>
-                </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 text-xs">ผู้บันทึก</span>
+                <span className="text-xs font-semibold text-slate-800">{recordedBy.trim() || '-'}</span>
               </div>
-              <div className="flex justify-between gap-2 pt-1">
-                <span className="text-slate-500 text-xs">ความยาวตาม SO</span>
-                <span className="font-mono font-bold text-teal-800 text-xs">
-                  {numSoLength > 0 ? `${numSoLength.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.` : '—'}
-                </span>
-              </div>
-              {(parseFloat(ngKg) > 0 || parseFloat(ngMeters) > 0) && (
-                <div className="flex justify-between gap-2">
-                  <span className="text-rose-600 text-xs font-semibold">ยอด NG</span>
-                  <span className="font-mono font-bold text-rose-700 text-xs">
-                    {(parseFloat(ngKg) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก.
-                    {(parseFloat(ngMeters) || 0) > 0
-                      ? ` / ${(parseFloat(ngMeters) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.`
-                      : ''}
-                  </span>
-                </div>
-              )}
-              {recordedBy.trim() && (
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-500 text-xs">ผู้บันทึก</span>
-                  <span className="text-xs font-semibold text-slate-800">{recordedBy.trim()}</span>
-                </div>
-              )}
+            </div>
+
+            {/* ตารางรายการตัด SO ทุกแถว */}
+            <div className="border border-slate-200 rounded-xl overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                  <tr>
+                    <th className="py-2 px-2.5 text-left">SO</th>
+                    <th className="py-2 px-2.5 text-right">ก่อนใช้</th>
+                    <th className="py-2 px-2.5 text-right">ใช้จริง</th>
+                    <th className="py-2 px-2.5 text-right">หลังใช้</th>
+                    <th className="py-2 px-2.5 text-right">ยาว SO</th>
+                    <th className="py-2 px-2.5 text-right">NG</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono">
+                  {rowCalcs.map(({ row, calc }) => (
+                    <tr key={row.id}>
+                      <td className="py-2 px-2.5 font-bold text-slate-900 whitespace-nowrap">
+                        {row.soNumber.trim() || '-'}
+                      </td>
+                      <td className="py-2 px-2.5 text-right text-slate-600">{format2(calc.weightBefore)}</td>
+                      <td className="py-2 px-2.5 text-right font-bold text-emerald-700">{format2(calc.weightUsed)}</td>
+                      <td className="py-2 px-2.5 text-right text-slate-600">{format2(calc.weightAfter)}</td>
+                      <td className="py-2 px-2.5 text-right font-bold text-teal-700">
+                        {calc.numSoLength > 0 ? format2(calc.numSoLength) : '—'}
+                      </td>
+                      <td className="py-2 px-2.5 text-right text-rose-700">
+                        {format2(calc.numNgKg)}
+                        {calc.numNgMeters > 0 && (
+                          <span className="block text-[10px] text-rose-500">{format2(calc.numNgMeters)} ม.</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-100 border-t border-slate-300 font-bold text-slate-800">
+                  <tr>
+                    <td className="py-2 px-2.5 whitespace-nowrap">รวม {rows.length} แถว</td>
+                    <td className="py-2 px-2.5 text-right">{format2(batchTotals.weightBefore)}</td>
+                    <td className="py-2 px-2.5 text-right text-emerald-700">{format2(batchTotals.weightUsed)}</td>
+                    <td className="py-2 px-2.5 text-right">{format2(batchTotals.weightAfter)}</td>
+                    <td className="py-2 px-2.5 text-right text-teal-700">{format2(batchTotals.soLength)}</td>
+                    <td className="py-2 px-2.5 text-right text-rose-700">
+                      {format2(batchTotals.ngKg)}
+                      {batchTotals.ngMeters > 0 && (
+                        <span className="block text-[10px] text-rose-500">{format2(batchTotals.ngMeters)} ม.</span>
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
 
             <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950">
