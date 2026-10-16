@@ -253,6 +253,13 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   // เศษหัวท้ายม้วน (Head/Tail scrap) ที่ยังไม่ได้เจาะจงใบงาน = autoNgKg - totalExplicitNgKg
   const unassignedHeadTailNgKg = Math.max(0, Math.round((autoNgKg - totalExplicitNgKg) * 100) / 100);
 
+  // ยอด NG ที่จะบันทึกจริงรวมทุกแถว = ผลรวม NG รายแถว (explicit + เศษหัวท้ายที่ลงใบแรก)
+  // = max(autoNgKg, totalExplicitNgKg) เพื่อให้ยอดรวมท้ายตารางตรงกับผลรวมรายแถวเสมอ
+  const recordedNgKg = Math.round(Math.max(autoNgKg, totalExplicitNgKg) * 100) / 100;
+  const recordedNgMeters = (effectiveKgPerMeter > 0 && recordedNgKg > 0)
+    ? Math.max(0, Math.round((recordedNgKg / effectiveKgPerMeter) * 10) / 10)
+    : 0;
+
   // คำนวณน้ำหนักเหล็กใช้จริง (weightUsed) เฉลี่ยตามความยาวของแต่ละแถว และเกลี่ยเศษทศนิยมให้รวมเท่ากับ coilUsedWeight เป๊ะ
   const allocatedRowWeights = (() => {
     if (coilUsedWeight <= 0) return rows.map(() => 0);
@@ -671,8 +678,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     weightUsed: coilUsedWeight,
     soLength: totalSoLength,
     theoreticalWeight: totalTheoreticalWeight,
-    ngKg: autoNgKg,
-    ngMeters: autoNgMeters,
+    ngKg: recordedNgKg,
+    ngMeters: recordedNgMeters,
     totalExplicitNgKg,
     headTailNgKg: unassignedHeadTailNgKg,
   };
@@ -1348,7 +1355,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           >
                             <span className="text-[10px] font-bold text-slate-700 flex items-center justify-between">
                               <span>NG บันทึกลงใบนี้</span>
-                              {sv.isPrimary && sv.headTailNgKgPortion > 0 && rows.length > 1 && (
+                              {sv.isPrimary && sv.headTailNgKgPortion > 0 && (
                                 <span className="text-[9px] bg-amber-100 text-amber-900 px-1 py-0.2 rounded font-bold border border-amber-200">
                                   +หัวท้าย {format2(sv.headTailNgKgPortion)} กก.
                                 </span>
@@ -1360,7 +1367,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                             </div>
                             <span className="text-[10px] font-mono text-slate-500 block truncate">
                               ≈ {format2(sv.numNgMeters)} ม.
-                              {sv.isPrimary && sv.headTailNgKgPortion > 0 && rows.length > 1
+                              {sv.isPrimary && sv.headTailNgKgPortion > 0
                                 ? (calc.explicitNgKg > 0 ? ` (งานนี้ ${format2(calc.explicitNgKg)} + หัวท้าย)` : ' (รวมเศษหัวท้ายม้วน)')
                                 : (calc.explicitNgKg > 0 ? ' (ตามที่ระบุจริง)' : ' (ไม่มีของเสีย)')}
                             </span>
