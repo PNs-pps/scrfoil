@@ -89,6 +89,7 @@ import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
 import { getUserMode, setUserMode as saveUserMode, isStaffEmail, getStaffEmails, hasOperatorPassword, resetToVisitorMode, UserMode } from './utils/auth';
 import { confirmAction } from './utils/confirmAction';
 import { isSandboxActive } from './lib/sandbox';
+import { archivedRollsCacheKey } from './lib/localCache';
 import { createBackupSnapshot, getAutoBackupConfig, saveAutoBackupConfig, exportFullBackupJSON, getAllDueD1ScheduleSlots, markD1ScheduleSlotRun, getLastSnapshotFailure } from './utils/autoBackup';
 import { getD1BackupConfig, hasD1Credentials, uploadBackupToD1 } from './utils/d1Backup';
 import { trackCloudWrite, describeWriteFailure } from './utils/cloudWrite';
@@ -126,7 +127,7 @@ export default function App() {
   const rollsRef = useRef<FoilRoll[]>([]);
   const [archivedRolls, setArchivedRolls] = useState<FoilRoll[]>(() => {
     try {
-      const cached = localStorage.getItem('pufoam_archived_rolls_cache');
+      const cached = localStorage.getItem(archivedRollsCacheKey());
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -136,7 +137,7 @@ export default function App() {
   });
   const [archiveLoaded, setArchiveLoaded] = useState<boolean>(() => {
     try {
-      const cached = localStorage.getItem('pufoam_archived_rolls_cache');
+      const cached = localStorage.getItem(archivedRollsCacheKey());
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) return true;
@@ -413,7 +414,7 @@ export default function App() {
               depletedRolls.forEach((r) => map.set(r.id, r));
               const combined = Array.from(map.values());
               try {
-                localStorage.setItem('pufoam_archived_rolls_cache', JSON.stringify(combined));
+                localStorage.setItem(archivedRollsCacheKey(), JSON.stringify(combined));
               } catch {}
               return combined;
             });

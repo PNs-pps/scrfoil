@@ -16,9 +16,16 @@
  */
 
 import { seedSandboxStoreIfEmpty, resetSandboxStore } from './sandboxSeed';
+import {
+  SANDBOX_STORAGE_KEY,
+  SANDBOX_DEVICE_KEY,
+  isSandboxActive,
+  purgeSandboxCache,
+  clearRealDataCache,
+} from './localCache';
 
-export const SANDBOX_STORAGE_KEY = 'pufoam_sandbox_enabled';
-export const SANDBOX_DEVICE_KEY = 'pufoam_sandbox_device_allowed';
+export { SANDBOX_STORAGE_KEY, SANDBOX_DEVICE_KEY, isSandboxActive };
+
 export const SANDBOX_UNLOCK_CODE = 'PUFOAM-TEST';
 
 /** อ่านธงบูลีนจาก localStorage — คืน false เสมอถ้าอ่านไม่ได้/ยังไม่ตั้งค่า */
@@ -52,14 +59,6 @@ export function isSandboxUnlocked(): boolean {
 }
 
 /**
- * ตรวจว่ากำลังเปิดโหมดทดลองอยู่หรือไม่
- * ค่าถูกอ่านตอน module-eval — ถ้าเปลี่ยนต้อง reload
- */
-export function isSandboxActive(): boolean {
-  return readFlag(SANDBOX_STORAGE_KEY);
-}
-
-/**
  * ปลดล็อกเครื่องนี้ด้วยรหัส
  * @returns true เมื่อรหัสถูก (และบันทึกธงสำเร็จหรือไม่ก็ตาม — เทียบรหัสเป็นหลัก)
  */
@@ -70,10 +69,11 @@ export function unlockSandboxDevice(code: string): boolean {
   return true;
 }
 
-/** เพิกถอนสิทธิ์เครื่องนี้ และปิดโหมดทดลองไปพร้อมกัน */
+/** เพิกถอนสิทธิ์เครื่องนี้ และปิดโหมดทดลองไปพร้อมกัน (ล้างข้อมูลทดลองทั้งหมด) */
 export function lockSandboxDevice(): void {
   writeFlag(SANDBOX_STORAGE_KEY, false);
   writeFlag(SANDBOX_DEVICE_KEY, false);
+  purgeSandboxCache();
 }
 
 function reloadPage(): void {
@@ -103,9 +103,11 @@ export function enableSandbox(): boolean {
   return true;
 }
 
-/** ปิดโหมดทดลอง (คงสิทธิ์เครื่องไว้ เพื่อเปิดใหม่ได้โดยไม่ต้องกรอกรหัส) */
+/** ปิดโหมดทดลอง (คงสิทธิ์เครื่องไว้ เพื่อเปิดใหม่ได้โดยไม่ต้องกรอกรหัส)
+ *  ล้างแคชข้อมูลจริงเพื่อให้โหลดใหม่จาก Firestore สะอาด — กันระเบียนทดลองค้าง */
 export function disableSandbox(): void {
   writeFlag(SANDBOX_STORAGE_KEY, false);
+  clearRealDataCache();
   reloadPage();
 }
 

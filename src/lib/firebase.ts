@@ -41,6 +41,7 @@ import {
   User 
 } from './firebaseGateway';
 import { isSandboxActive } from './sandbox';
+import { archivedRollsCacheKey } from './localCache';
 import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCountSession, SOAuditLogItem } from '../types';
 import { normalizePattern } from '../utils/soFormatter';
 import { isCycleCountRecord, signedTotalDeducted } from '../utils/cutDeduction';
@@ -411,14 +412,14 @@ export async function fetchArchivedFoilRolls(): Promise<FoilRoll[]> {
     rolls.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     if (rolls.length > 0) {
       try {
-        localStorage.setItem('pufoam_archived_rolls_cache', JSON.stringify(rolls));
+        localStorage.setItem(archivedRollsCacheKey(), JSON.stringify(rolls));
       } catch {}
     }
     return rolls;
   } catch (err: any) {
     console.warn('fetchArchivedFoilRolls failed, checking local cache:', err?.message || err);
     try {
-      const cached = localStorage.getItem('pufoam_archived_rolls_cache');
+      const cached = localStorage.getItem(archivedRollsCacheKey());
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;

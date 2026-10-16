@@ -23,7 +23,8 @@
  *   semantics the callers rely on (read fresh -> validate -> write) still hold.
  */
 
-export const SANDBOX_STORE_KEY = 'pufoam_sandbox_store';
+export { SANDBOX_STORE_KEY } from './localCache';
+import { SANDBOX_STORE_KEY } from './localCache';
 
 type DocMap = Record<string, any>;
 export type SandboxStore = Record<string, DocMap>;

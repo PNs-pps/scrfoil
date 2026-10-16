@@ -2,27 +2,23 @@ import { FoilRoll, StockCutRecord, PuSandwichCutRecord } from '../types';
 import { todayLocalISO } from './formatters';
 import { INITIAL_FOIL_ROLLS, INITIAL_CUT_RECORDS } from '../data/initialData';
 import { normalizePattern } from './soFormatter';
+import { CACHE_BASE_KEYS, scopeKey, runCacheScopeMigration } from '../lib/localCache';
 
-const STORAGE_KEYS = {
-  ROLLS: 'pufoam_foil_rolls_v3',
-  RECORDS: 'pufoam_cut_records_v3',
-  PU_SANDWICH: 'pufoam_pu_sandwich_records_v1',
-  OPERATOR_NAMES: 'pufoam_operator_names_v3',
-  CLEAN_INITIALIZED: 'pufoam_clean_v3_initialized',
-};
+const STORAGE_KEYS = CACHE_BASE_KEYS;
 
 // Automatic one-time cleanup to ensure the requested empty clean state
 function checkAndCleanInitialState() {
+  runCacheScopeMigration();
   try {
-    if (!localStorage.getItem(STORAGE_KEYS.CLEAN_INITIALIZED)) {
+    if (!localStorage.getItem(scopeKey(STORAGE_KEYS.CLEAN_INITIALIZED))) {
       // Clear old cached test data
-      localStorage.removeItem('pufoam_foil_rolls_v1');
-      localStorage.removeItem('pufoam_cut_records_v1');
-      localStorage.removeItem('pufoam_foil_rolls_v2');
-      localStorage.removeItem('pufoam_cut_records_v2');
-      localStorage.setItem(STORAGE_KEYS.ROLLS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.CLEAN_INITIALIZED, 'true');
+      localStorage.removeItem(scopeKey(STORAGE_KEYS.OLD_ROLLS_V1));
+      localStorage.removeItem(scopeKey(STORAGE_KEYS.OLD_RECORDS_V1));
+      localStorage.removeItem(scopeKey(STORAGE_KEYS.OLD_ROLLS_V2));
+      localStorage.removeItem(scopeKey(STORAGE_KEYS.OLD_RECORDS_V2));
+      localStorage.setItem(scopeKey(STORAGE_KEYS.ROLLS), JSON.stringify([]));
+      localStorage.setItem(scopeKey(STORAGE_KEYS.RECORDS), JSON.stringify([]));
+      localStorage.setItem(scopeKey(STORAGE_KEYS.CLEAN_INITIALIZED), 'true');
     }
   } catch {}
 }
@@ -30,7 +26,7 @@ function checkAndCleanInitialState() {
 export function getStoredRolls(): FoilRoll[] {
   try {
     checkAndCleanInitialState();
-    const raw = localStorage.getItem(STORAGE_KEYS.ROLLS);
+    const raw = localStorage.getItem(scopeKey(STORAGE_KEYS.ROLLS));
     if (!raw) {
       saveStoredRolls(INITIAL_FOIL_ROLLS);
       return INITIAL_FOIL_ROLLS;
@@ -49,7 +45,7 @@ export function getStoredRolls(): FoilRoll[] {
 
 export function saveStoredRolls(rolls: FoilRoll[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.ROLLS, JSON.stringify(rolls));
+    localStorage.setItem(scopeKey(STORAGE_KEYS.ROLLS), JSON.stringify(rolls));
   } catch (err) {
     console.warn('Failed to save foil rolls to storage', err);
   }
@@ -58,7 +54,7 @@ export function saveStoredRolls(rolls: FoilRoll[]): void {
 export function getStoredCutRecords(): StockCutRecord[] {
   try {
     checkAndCleanInitialState();
-    const raw = localStorage.getItem(STORAGE_KEYS.RECORDS);
+    const raw = localStorage.getItem(scopeKey(STORAGE_KEYS.RECORDS));
     if (!raw) {
       saveStoredCutRecords(INITIAL_CUT_RECORDS);
       return INITIAL_CUT_RECORDS;
@@ -76,7 +72,7 @@ export function getStoredCutRecords(): StockCutRecord[] {
 
 export function saveStoredCutRecords(records: StockCutRecord[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(records));
+    localStorage.setItem(scopeKey(STORAGE_KEYS.RECORDS), JSON.stringify(records));
   } catch (err) {
     console.warn('Failed to save cut records to storage', err);
   }
@@ -101,7 +97,7 @@ export function getRecentOperators(): string[] {
     'อนุชิต สดใส'
   ];
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.OPERATOR_NAMES);
+    const raw = localStorage.getItem(scopeKey(STORAGE_KEYS.OPERATOR_NAMES));
     if (!raw) return defaultOperators;
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultOperators;
@@ -116,7 +112,7 @@ export function saveRecentOperator(name: string): void {
   const trimmed = name.trim();
   const updated = [trimmed, ...current.filter(n => n !== trimmed)].slice(0, 10);
   try {
-    localStorage.setItem(STORAGE_KEYS.OPERATOR_NAMES, JSON.stringify(updated));
+    localStorage.setItem(scopeKey(STORAGE_KEYS.OPERATOR_NAMES), JSON.stringify(updated));
   } catch {}
 }
 
@@ -212,7 +208,7 @@ export function exportRollsToCSV(rolls: FoilRoll[]): void {
 // ----------------------------------------------------
 export function getStoredPuSandwichRecords(): PuSandwichCutRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.PU_SANDWICH);
+    const raw = localStorage.getItem(scopeKey(STORAGE_KEYS.PU_SANDWICH));
     if (!raw) return [];
     return JSON.parse(raw);
   } catch (err) {
@@ -223,7 +219,7 @@ export function getStoredPuSandwichRecords(): PuSandwichCutRecord[] {
 
 export function saveStoredPuSandwichRecords(records: PuSandwichCutRecord[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.PU_SANDWICH, JSON.stringify(records));
+    localStorage.setItem(scopeKey(STORAGE_KEYS.PU_SANDWICH), JSON.stringify(records));
   } catch (err) {
     console.warn('Failed to save PU Sandwich records to storage', err);
   }
