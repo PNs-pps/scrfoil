@@ -62,6 +62,8 @@ export interface SandwichRow {
   soNumber: string;
   soLengthMeters: string;
   lengthMeters: string;
+  ngKg: string;
+  ngMeters: string;
   notes: string;
 }
 
@@ -105,6 +107,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     soNumber: `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`,
     soLengthMeters: '',
     lengthMeters: '',
+    ngKg: '',
+    ngMeters: '',
     notes: '',
   });
 
@@ -159,6 +163,10 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
           editingRecord.soLengthMeters != null ? String(editingRecord.soLengthMeters) : '',
         lengthMeters:
           editingRecord.lengthMeters != null ? String(editingRecord.lengthMeters) : '',
+        ngKg:
+          editingRecord.ngKg != null && editingRecord.ngKg > 0 ? String(editingRecord.ngKg) : '',
+        ngMeters:
+          editingRecord.ngMeters != null && editingRecord.ngMeters > 0 ? String(editingRecord.ngMeters) : '',
         notes: editingRecord.notes || '',
       };
       setRows([editRow]);
@@ -213,12 +221,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     const theoreticalSoWeight = numSoLength > 0
       ? Math.round(numSoLength * effectiveKgPerMeter * 100) / 100
       : 0;
-    return { numSoLength, theoreticalSoWeight };
+    const explicitNgKg = parseCleanNum(row.ngKg);
+    const explicitNgMeters = parseCleanNum(row.ngMeters);
+    return { numSoLength, theoreticalSoWeight, explicitNgKg, explicitNgMeters };
   };
 
   const rowCalcs = rows.map((row) => ({ row, calc: computeRowCalc(row) }));
 
-  // SO ใบแรกที่กรอก (มีรหัส SO) — เป็นใบที่ลงน้ำหนักใช้จริง + NG ทั้งหมด (ใบที่เหลือเป็น 0)
+  // SO ใบแรกที่กรอก (มีรหัส SO) — เป็นใบที่รวมเศษหัวท้ายม้วน
   const primaryRowIndex = (() => {
     const i = rows.findIndex((r) => r.soNumber.trim() !== '');
     return i >= 0 ? i : 0;
@@ -229,7 +239,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const totalSoLength = rowCalcs.reduce((sum, { calc }) => sum + calc.numSoLength, 0);
   const totalTheoreticalWeight = rowCalcs.reduce((sum, { calc }) => sum + calc.theoreticalSoWeight, 0);
 
-  // NG (กก.) = น้ำหนักขึ้น-ลงรวมทั้งม้วน − น้ำหนักตามทฤษฎีของงาน SO รวมทุกแถว
+  // NG (กก.) รวมทั้งม้วน = น้ำหนักขึ้น-ลงรวมทั้งม้วน − น้ำหนักตามทฤษฎีของงาน SO รวมทุกแถว
   const autoNgKg = coilUsedWeight > 0
     ? Math.max(0, Math.round((coilUsedWeight - totalTheoreticalWeight) * 100) / 100)
     : 0;
@@ -237,21 +247,58 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     ? Math.max(0, Math.round((autoNgKg / effectiveKgPerMeter) * 10) / 10)
     : 0;
 
+  // ผลรวมของเสียที่ระบุเฉพาะในแต่ละแถว
+  const totalExplicitNgKg = rowCalcs.reduce((sum, { calc }) => sum + calc.explicitNgKg, 0);
+
+  // เศษหัวท้ายม้วน (Head/Tail scrap) ที่ยังไม่ได้เจาะจงใบงาน = autoNgKg - totalExplicitNgKg
+  const unassignedHeadTailNgKg = Math.max(0, Math.round((autoNgKg - totalExplicitNgKg) * 100) / 100);
+
+  // คำนวณน้ำหนักเหล็กใช้จริง (weightUsed) เฉลี่ยตามความยาวของแต่ละแถว และเกลี่ยเศษทศนิยมให้รวมเท่ากับ coilUsedWeight เป๊ะ
+  const allocatedRowWeights = (() => {
+    if (coilUsedWeight <= 0) return rows.map(() => 0);
+    if (totalSoLength <= 0) {
+      return rows.map((r) => (r.id === primaryRowId ? coilUsedWeight : 0));
+    }
+    const weights = rows.map((r) => {
+      const len = parseCleanNum(r.soLengthMeters);
+      return Math.round((len / totalSoLength) * coilUsedWeight * 100) / 100;
+    });
+    const sumW = weights.reduce((s, w) => s + w, 0);
+    const diffW = Math.round((coilUsedWeight - sumW) * 100) / 100;
+    if (diffW !== 0 && weights[primaryRowIndex] !== undefined) {
+      weights[primaryRowIndex] = Math.round((weights[primaryRowIndex] + diffW) * 100) / 100;
+    }
+    return weights;
+  })();
+
   const activeRow = rows.find((r) => r.id === activeRowId) || rows[0] || null;
   const activeRowIndex = activeRow ? rows.findIndex((r) => r.id === activeRow.id) : 0;
 
-  /** ค่าที่จะบันทึกลง record ของแต่ละแถว — น้ำหนักใช้จริง + NG ลงเฉพาะ SO ใบแรก */
+  /** ค่าที่จะบันทึกลง record ของแต่ละแถว */
   const computeRowSaveValues = (row: SandwichRow) => {
     const calc = computeRowCalc(row);
+    const rIdx = rows.findIndex((r) => r.id === row.id);
     const isPrimary = row.id === primaryRowId;
+    const rowWeightUsed = allocatedRowWeights[rIdx] ?? (isPrimary ? coilUsedWeight : 0);
+
+    // NG (กก.): ใช้ค่าที่ระบุจริงของใบงานนี้ + ถ้าเป็นใบแรกให้รวมเศษหัวท้ายม้วนเข้าไปด้วย
+    let numNgKg = calc.explicitNgKg;
+    if (isPrimary) {
+      numNgKg = Math.round((numNgKg + unassignedHeadTailNgKg) * 100) / 100;
+    }
+    const numNgMeters = (effectiveKgPerMeter > 0 && numNgKg > 0)
+      ? Math.max(0, Math.round((numNgKg / effectiveKgPerMeter) * 10) / 10)
+      : 0;
+
     return {
       ...calc,
       isPrimary,
       weightBefore: numWeightBefore,
       weightAfter: numWeightAfter,
-      weightUsed: isPrimary ? coilUsedWeight : 0,
-      numNgKg: isPrimary ? autoNgKg : 0,
-      numNgMeters: isPrimary ? autoNgMeters : 0,
+      weightUsed: rowWeightUsed,
+      numNgKg,
+      numNgMeters,
+      headTailNgKgPortion: isPrimary ? unassignedHeadTailNgKg : 0,
     };
   };
 
@@ -295,11 +342,20 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     handleUpdateRow(rowId, { soLengthMeters: val });
   };
 
+  const handleRowNgKgChange = (rowId: string, val: string) => {
+    const num = parseCleanNum(val);
+    const m = (effectiveKgPerMeter > 0 && num > 0)
+      ? String(Math.round((num / effectiveKgPerMeter) * 10) / 10)
+      : '';
+    handleUpdateRow(rowId, { ngKg: val, ngMeters: m });
+  };
+
   // ===== Input refs สำหรับ focus navigation (Enter flow) =====
   const lotWeightBeforeRef = useRef<HTMLInputElement | null>(null);
   const lotWeightAfterRef = useRef<HTMLInputElement | null>(null);
   const soNumberInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
   const soLengthInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
+  const soNgInputRefs = useRef<{ [rowId: string]: HTMLInputElement | null }>({});
 
   const focusRowInput = (
     refs: React.RefObject<{ [rowId: string]: HTMLInputElement | null }>,
@@ -318,7 +374,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
   /**
    * Enter flow:
-   * (ส่วน 1) ก่อนใช้ -> หลังใช้  (ส่วน 2) รหัส SO ใบแรก -> ยาว SO -> แถวถัดไป / เพิ่มแถวใหม่
+   * (ส่วน 1) ก่อนใช้ -> หลังใช้  (ส่วน 2) รหัส SO -> ยาว SO -> NG (ถ้ามี) -> แถวถัดไป / เพิ่มแถวใหม่
    */
   const handleLotWeightKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
@@ -337,7 +393,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const handleRowKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
     row: SandwichRow,
-    field: 'soNumber' | 'soLengthMeters'
+    field: 'soNumber' | 'soLengthMeters' | 'ngKg'
   ) => {
     if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
@@ -345,7 +401,11 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       focusRowInput(soLengthInputRefs, row.id);
       return;
     }
-    // field === 'soLengthMeters': ไปแถวถัดไป หรือเพิ่มแถวใหม่
+    if (field === 'soLengthMeters') {
+      focusRowInput(soNgInputRefs, row.id);
+      return;
+    }
+    // field === 'ngKg': ไปแถวถัดไป หรือเพิ่มแถวใหม่
     const idx = rows.findIndex((r) => r.id === row.id);
     const nextRow = idx >= 0 ? rows[idx + 1] : undefined;
     if (nextRow) {
@@ -355,13 +415,16 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   };
 
-  // ===== Tablet Numpad: น้ำหนักระดับม้วน + ความยาว SO ของแถวที่ active =====
+  // ===== Tablet Numpad: น้ำหนักระดับม้วน + ความยาว SO + NG ของแถวที่ active =====
   const numpadRowPrefix = rows.length > 1 ? `แถว ${activeRowIndex + 1} · ` : '';
   const numpadTargets: TouchNumpadTarget[] = [
     { id: 'weightBefore', label: 'ก่อนใช้ (ม้วน)', value: weightBefore, unit: 'กก.', isAccent: false },
     { id: 'weightAfter', label: 'หลังใช้ (ม้วน)', value: weightAfter, unit: 'กก.', isAccent: false },
     ...(activeRow
-      ? [{ id: 'soLengthMeters', label: `${numpadRowPrefix}ยาว SO`, value: activeRow.soLengthMeters, unit: 'ม.', isAccent: false }]
+      ? [
+          { id: 'soLengthMeters', label: `${numpadRowPrefix}ยาว SO`, value: activeRow.soLengthMeters, unit: 'ม.', isAccent: false },
+          { id: 'rowNgKg', label: `${numpadRowPrefix}NG ใบนี้`, value: activeRow.ngKg || '', unit: 'กก.', isAccent: true },
+        ]
       : []),
   ];
 
@@ -369,6 +432,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     if (targetId === 'weightBefore') setWeightBefore(val);
     else if (targetId === 'weightAfter') setWeightAfter(val);
     else if (targetId === 'soLengthMeters' && activeRow) handleSoLengthChange(activeRow.id, val);
+    else if (targetId === 'rowNgKg' && activeRow) handleRowNgKgChange(activeRow.id, val);
   };
 
   const handleNextNumpadTarget = () => {
@@ -609,6 +673,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     theoreticalWeight: totalTheoreticalWeight,
     ngKg: autoNgKg,
     ngMeters: autoNgMeters,
+    totalExplicitNgKg,
+    headTailNgKg: unassignedHeadTailNgKg,
   };
 
   const format2 = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1101,6 +1167,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
 
                 {rowCalcs.map(({ row, calc }, idx) => {
                   const isPrimary = row.id === primaryRowId;
+                  const sv = computeRowSaveValues(row);
                   return (
                     <div
                       key={row.id}
@@ -1207,53 +1274,95 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                         </div>
                       </div>
 
-                      {/* น้ำหนักตามทฤษฎีของงาน SO แถวนี้ + NG (ลงเฉพาะ SO ใบแรก) */}
-                      <div className="p-3.5 bg-rose-50/70 rounded-2xl border border-rose-200">
+                      {/* น้ำหนักคำนวณของแถวนี้ + ช่องกรอก NG เสียจริง */}
+                      <div className="p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {/* ช่อง 1: น้ำหนักใช้จริงของ SO นี้ (เฉลี่ยตามความยาว) */}
                           <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                            <span className="text-[10px] font-semibold text-slate-500 block">
-                              น้ำหนักตามทฤษฎีของ SO นี้
+                            <span className="text-[10px] font-semibold text-emerald-800 flex items-center justify-between">
+                              <span>น้ำหนักใช้จริงของ SO นี้</span>
+                              {totalSoLength > 0 && calc.numSoLength > 0 && (
+                                <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold border border-emerald-100">
+                                  {Math.round((calc.numSoLength / totalSoLength) * 100)}%
+                                </span>
+                              )}
                             </span>
-                            <div className="font-mono font-bold text-slate-900 text-base">
-                              {calc.theoreticalSoWeight.toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
+                            <div className="font-mono font-bold text-emerald-700 text-base">
+                              {format2(sv.weightUsed)}{' '}
                               <span className="text-xs font-normal text-slate-500">กก.</span>
                             </div>
                             <span className="text-[10px] text-slate-400 font-mono block truncate">
-                              {effectiveKgPerMeter.toFixed(2)} กก./ม. × {calc.numSoLength.toLocaleString('th-TH', { maximumFractionDigits: 2 })} ม.
+                              ทฤษฎี {format2(calc.theoreticalSoWeight)} กก.
                             </span>
                           </div>
 
+                          {/* ช่อง 2: ระบุ NG ที่เสียจริงของใบงานนี้ */}
+                          <div className="bg-white p-2.5 rounded-xl border border-rose-200 focus-within:border-rose-400 focus-within:ring-2 focus-within:ring-rose-100 transition-all">
+                            <label className="text-[10px] font-bold text-rose-900 flex items-center justify-between mb-1">
+                              <span>NG เสียจริงของใบนี้ (กก.)</span>
+                              <span className="text-[9px] text-slate-400 font-normal">ระบุถ้ามี</span>
+                            </label>
+                            <input
+                              ref={(el) => {
+                                soNgInputRefs.current[row.id] = el;
+                              }}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={row.ngKg}
+                              onChange={(e) => handleRowNgKgChange(row.id, e.target.value)}
+                              onFocus={() => activateRow(row.id, 'rowNgKg')}
+                              onClick={() => activateRow(row.id, 'rowNgKg')}
+                              onKeyDown={(e) => handleRowKeyDown(e, row, 'ngKg')}
+                              placeholder="0.00"
+                              className={`w-full px-2 py-1 bg-white border rounded-lg text-sm font-mono font-bold text-rose-700 outline-none transition-all ${
+                                showTabletNumpad && activeNumpadTargetId === 'rowNgKg' && activeRowId === row.id
+                                  ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
+                                  : 'border-slate-300'
+                              }`}
+                            />
+                            {/* Quick NG chips */}
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {['0', '2', '5', '10', '20'].map((chip) => (
+                                <button
+                                  key={chip}
+                                  type="button"
+                                  onClick={() => handleRowNgKgChange(row.id, chip === '0' ? '' : chip)}
+                                  className={`text-[9px] px-1.5 py-0.5 rounded border cursor-pointer transition-colors ${
+                                    row.ngKg === chip || (chip === '0' && !row.ngKg)
+                                      ? 'bg-rose-100 text-rose-800 border-rose-300 font-bold'
+                                      : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {chip === '0' ? 'ไม่มี' : `${chip}กก.`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* ช่อง 3: ยอด NG สรุปที่จะบันทึกลงใบงานนี้ */}
                           <div
                             className={`p-2.5 rounded-xl border ${
-                              isPrimary ? 'bg-rose-50/90 border-rose-300' : 'bg-slate-50 border-slate-200'
+                              sv.numNgKg > 0 ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200'
                             }`}
                           >
-                            <span className={`text-[10px] font-bold block ${isPrimary ? 'text-rose-900' : 'text-slate-500'}`}>
-                              ยอดตัดตก / NG (กก.)
+                            <span className="text-[10px] font-bold text-slate-700 flex items-center justify-between">
+                              <span>NG บันทึกลงใบนี้</span>
+                              {sv.isPrimary && sv.headTailNgKgPortion > 0 && rows.length > 1 && (
+                                <span className="text-[9px] bg-amber-100 text-amber-900 px-1 py-0.2 rounded font-bold border border-amber-200">
+                                  +หัวท้าย {format2(sv.headTailNgKgPortion)} กก.
+                                </span>
+                              )}
                             </span>
-                            <div className={`font-mono font-black text-base ${isPrimary ? 'text-rose-700' : 'text-slate-400'}`}>
-                              {(isPrimary ? autoNgKg : 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}{' '}
+                            <div className={`font-mono font-black text-base ${sv.numNgKg > 0 ? 'text-rose-700' : 'text-slate-400'}`}>
+                              {format2(sv.numNgKg)}{' '}
                               <span className="text-xs font-normal">กก.</span>
                             </div>
-                            <span className="text-[10px] font-mono block">
-                              {isPrimary ? 'ลงที่ SO ใบแรก' : '0 (รวมที่ SO ใบแรก)'}
-                            </span>
-                          </div>
-
-                          <div
-                            className={`p-2.5 rounded-xl border ${
-                              isPrimary ? 'bg-rose-50/90 border-rose-300' : 'bg-slate-50 border-slate-200'
-                            }`}
-                          >
-                            <span className={`text-[10px] font-bold block ${isPrimary ? 'text-rose-900' : 'text-slate-500'}`}>
-                              ยอดตัดตก / NG (เมตร)
-                            </span>
-                            <div className={`font-mono font-black text-base ${isPrimary ? 'text-rose-700' : 'text-slate-400'}`}>
-                              {(isPrimary ? autoNgMeters : 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
-                              <span className="text-xs font-normal">ม.</span>
-                            </div>
-                            <span className="text-[10px] font-mono block">
-                              {isPrimary ? 'ลงที่ SO ใบแรก' : '0 (รวมที่ SO ใบแรก)'}
+                            <span className="text-[10px] font-mono text-slate-500 block truncate">
+                              ≈ {format2(sv.numNgMeters)} ม.
+                              {sv.isPrimary && sv.headTailNgKgPortion > 0 && rows.length > 1
+                                ? (calc.explicitNgKg > 0 ? ` (งานนี้ ${format2(calc.explicitNgKg)} + หัวท้าย)` : ' (รวมเศษหัวท้ายม้วน)')
+                                : (calc.explicitNgKg > 0 ? ' (ตามที่ระบุจริง)' : ' (ไม่มีของเสีย)')}
                             </span>
                           </div>
                         </div>
@@ -1325,7 +1434,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     <Calculator className="w-4 h-4 text-emerald-400" />
                     ส่วนที่ 3: สรุปการคำนวณ
                   </h3>
-                  <span className="text-[11px] text-slate-400 ml-auto">NG ลงที่ SO ใบแรกเท่านั้น</span>
+                  <span className="text-[11px] text-slate-400 ml-auto">NG ลงตามใบงานที่เสียจริง + เศษหัวท้ายม้วนรวมที่ SO แรก</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1360,7 +1469,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       {format2(autoNgKg)} <span className="text-xs font-normal text-rose-200">กก.</span>
                     </div>
                     <span className="text-[10px] text-rose-200/90 font-mono block truncate">
-                      ≈ {autoNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม. · ลงที่ SO ใบแรก
+                      ≈ {autoNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม. · เสียจริง {format2(totalExplicitNgKg)} กก. / หัวท้าย {format2(unassignedHeadTailNgKg)} กก.
                     </span>
                   </div>
                 </div>
@@ -1674,26 +1783,31 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                       <tr key={row.id}>
                         <td className="py-2 px-2.5 text-slate-900 font-bold">
                           {row.soNumber.trim() || '—'}
-                          {sv.isPrimary && (
-                            <span className="ml-1 text-[9px] font-bold text-rose-600">[SO แรก]</span>
+                          {sv.isPrimary && rows.length > 1 && (
+                            <span className="ml-1 text-[9px] font-bold text-amber-600">[SO แรก]</span>
                           )}
                         </td>
                         <td className="py-2 px-2.5 text-right text-slate-600">
-                          {sv.isPrimary ? format2(sv.weightBefore) : '—'}
+                          {format2(sv.weightBefore)}
                         </td>
                         <td className="py-2 px-2.5 text-right font-bold text-emerald-700">
-                          {sv.isPrimary ? format2(sv.weightUsed) : '—'}
+                          {format2(sv.weightUsed)}
                         </td>
                         <td className="py-2 px-2.5 text-right text-slate-600">
-                          {sv.isPrimary ? format2(sv.weightAfter) : '—'}
+                          {format2(sv.weightAfter)}
                         </td>
                         <td className="py-2 px-2.5 text-right font-bold text-teal-700">
                           {sv.numSoLength > 0 ? format2(sv.numSoLength) : '—'}
                         </td>
                         <td className="py-2 px-2.5 text-right text-rose-700">
-                          {sv.isPrimary ? format2(sv.numNgKg) : '—'}
-                          {sv.isPrimary && sv.numNgMeters > 0 && (
+                          {format2(sv.numNgKg)}
+                          {sv.numNgMeters > 0 && (
                             <span className="block text-[10px] text-rose-500">{format2(sv.numNgMeters)} ม.</span>
+                          )}
+                          {sv.isPrimary && sv.headTailNgKgPortion > 0 && rows.length > 1 && (
+                            <span className="block text-[9px] text-amber-600 font-sans">
+                              (รวมหัวท้าย +{format2(sv.headTailNgKgPortion)})
+                            </span>
                           )}
                         </td>
                       </tr>
