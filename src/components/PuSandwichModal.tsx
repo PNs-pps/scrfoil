@@ -221,8 +221,11 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     const theoreticalSoWeight = numSoLength > 0
       ? Math.round(numSoLength * effectiveKgPerMeter * 100) / 100
       : 0;
-    const explicitNgKg = parseCleanNum(row.ngKg);
+    // ผู้ใช้กรอก NG เป็น "เมตร" — แปลงเป็น กก. เพื่อเทียบกับเศษหัวท้ายม้วนที่คำนวณเป็น กก.
     const explicitNgMeters = parseCleanNum(row.ngMeters);
+    const explicitNgKg = (effectiveKgPerMeter > 0 && explicitNgMeters > 0)
+      ? Math.round(explicitNgMeters * effectiveKgPerMeter * 100) / 100
+      : 0;
     return { numSoLength, theoreticalSoWeight, explicitNgKg, explicitNgMeters };
   };
 
@@ -349,12 +352,12 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     handleUpdateRow(rowId, { soLengthMeters: val });
   };
 
-  const handleRowNgKgChange = (rowId: string, val: string) => {
+  const handleRowNgMetersChange = (rowId: string, val: string) => {
     const num = parseCleanNum(val);
-    const m = (effectiveKgPerMeter > 0 && num > 0)
-      ? String(Math.round((num / effectiveKgPerMeter) * 10) / 10)
+    const kg = (effectiveKgPerMeter > 0 && num > 0)
+      ? String(Math.round(num * effectiveKgPerMeter * 100) / 100)
       : '';
-    handleUpdateRow(rowId, { ngKg: val, ngMeters: m });
+    handleUpdateRow(rowId, { ngMeters: val, ngKg: kg });
   };
 
   // ===== Input refs สำหรับ focus navigation (Enter flow) =====
@@ -400,7 +403,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const handleRowKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
     row: SandwichRow,
-    field: 'soNumber' | 'soLengthMeters' | 'ngKg'
+    field: 'soNumber' | 'soLengthMeters' | 'ngMeters'
   ) => {
     if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
@@ -412,7 +415,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       focusRowInput(soNgInputRefs, row.id);
       return;
     }
-    // field === 'ngKg': ไปแถวถัดไป หรือเพิ่มแถวใหม่
+    // field === 'ngMeters': ไปแถวถัดไป หรือเพิ่มแถวใหม่
     const idx = rows.findIndex((r) => r.id === row.id);
     const nextRow = idx >= 0 ? rows[idx + 1] : undefined;
     if (nextRow) {
@@ -430,7 +433,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     ...(activeRow
       ? [
           { id: 'soLengthMeters', label: `${numpadRowPrefix}ยาว SO`, value: activeRow.soLengthMeters, unit: 'ม.', isAccent: false },
-          { id: 'rowNgKg', label: `${numpadRowPrefix}NG ใบนี้`, value: activeRow.ngKg || '', unit: 'กก.', isAccent: true },
+          { id: 'rowNgMeters', label: `${numpadRowPrefix}NG ใบนี้`, value: activeRow.ngMeters || '', unit: 'ม.', isAccent: true },
         ]
       : []),
   ];
@@ -439,7 +442,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     if (targetId === 'weightBefore') setWeightBefore(val);
     else if (targetId === 'weightAfter') setWeightAfter(val);
     else if (targetId === 'soLengthMeters' && activeRow) handleSoLengthChange(activeRow.id, val);
-    else if (targetId === 'rowNgKg' && activeRow) handleRowNgKgChange(activeRow.id, val);
+    else if (targetId === 'rowNgMeters' && activeRow) handleRowNgMetersChange(activeRow.id, val);
   };
 
   const handleNextNumpadTarget = () => {
@@ -1306,7 +1309,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                           {/* ช่อง 2: ระบุ NG ที่เสียจริงของใบงานนี้ */}
                           <div className="bg-white p-2.5 rounded-xl border border-rose-200 focus-within:border-rose-400 focus-within:ring-2 focus-within:ring-rose-100 transition-all">
                             <label className="text-[10px] font-bold text-rose-900 flex items-center justify-between mb-1">
-                              <span>NG เสียจริงของใบนี้ (กก.)</span>
+                              <span>NG เสียจริงของใบนี้ (เมตร)</span>
                               <span className="text-[9px] text-slate-400 font-normal">ระบุถ้ามี</span>
                             </label>
                             <input
@@ -1316,32 +1319,32 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                               type="number"
                               step="0.01"
                               min="0"
-                              value={row.ngKg}
-                              onChange={(e) => handleRowNgKgChange(row.id, e.target.value)}
-                              onFocus={() => activateRow(row.id, 'rowNgKg')}
-                              onClick={() => activateRow(row.id, 'rowNgKg')}
-                              onKeyDown={(e) => handleRowKeyDown(e, row, 'ngKg')}
+                              value={row.ngMeters}
+                              onChange={(e) => handleRowNgMetersChange(row.id, e.target.value)}
+                              onFocus={() => activateRow(row.id, 'rowNgMeters')}
+                              onClick={() => activateRow(row.id, 'rowNgMeters')}
+                              onKeyDown={(e) => handleRowKeyDown(e, row, 'ngMeters')}
                               placeholder="0.00"
                               className={`w-full px-2 py-1 bg-white border rounded-lg text-sm font-mono font-bold text-rose-700 outline-none transition-all ${
-                                showTabletNumpad && activeNumpadTargetId === 'rowNgKg' && activeRowId === row.id
+                                showTabletNumpad && activeNumpadTargetId === 'rowNgMeters' && activeRowId === row.id
                                   ? 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20'
                                   : 'border-slate-300'
                               }`}
                             />
                             {/* Quick NG chips */}
                             <div className="flex flex-wrap gap-1 mt-1.5">
-                              {['0', '2', '5', '10', '20'].map((chip) => (
+                              {['0', '1', '2', '5', '10'].map((chip) => (
                                 <button
                                   key={chip}
                                   type="button"
-                                  onClick={() => handleRowNgKgChange(row.id, chip === '0' ? '' : chip)}
+                                  onClick={() => handleRowNgMetersChange(row.id, chip === '0' ? '' : chip)}
                                   className={`text-[9px] px-1.5 py-0.5 rounded border cursor-pointer transition-colors ${
-                                    row.ngKg === chip || (chip === '0' && !row.ngKg)
+                                    row.ngMeters === chip || (chip === '0' && !row.ngMeters)
                                       ? 'bg-rose-100 text-rose-800 border-rose-300 font-bold'
                                       : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
                                   }`}
                                 >
-                                  {chip === '0' ? 'ไม่มี' : `${chip}กก.`}
+                                  {chip === '0' ? 'ไม่มี' : `${chip} ม.`}
                                 </button>
                               ))}
                             </div>
@@ -1362,14 +1365,14 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                               )}
                             </span>
                             <div className={`font-mono font-black text-base ${sv.numNgKg > 0 ? 'text-rose-700' : 'text-slate-400'}`}>
-                              {format2(sv.numNgKg)}{' '}
-                              <span className="text-xs font-normal">กก.</span>
+                              {format2(sv.numNgMeters)}{' '}
+                              <span className="text-xs font-normal">ม.</span>
                             </div>
                             <span className="text-[10px] font-mono text-slate-500 block truncate">
-                              ≈ {format2(sv.numNgMeters)} ม.
+                              ≈ {format2(sv.numNgKg)} กก.
                               {sv.isPrimary && sv.headTailNgKgPortion > 0
-                                ? (calc.explicitNgKg > 0 ? ` (งานนี้ ${format2(calc.explicitNgKg)} + หัวท้าย)` : ' (รวมเศษหัวท้ายม้วน)')
-                                : (calc.explicitNgKg > 0 ? ' (ตามที่ระบุจริง)' : ' (ไม่มีของเสีย)')}
+                                ? (calc.explicitNgKg > 0 ? ` (งานนี้ ${format2(calc.explicitNgMeters)} + หัวท้าย)` : ' (รวมเศษหัวท้ายม้วน)')
+                                : (calc.explicitNgKg > 0 ? ` (ตามที่ระบุจริง ${format2(calc.explicitNgMeters)} ม.)` : ' (ไม่มีของเสีย)')}
                             </span>
                           </div>
                         </div>
