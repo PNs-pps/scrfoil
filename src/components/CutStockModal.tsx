@@ -145,6 +145,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const numpadTargets: TouchNumpadTarget[] = useMemo(() => {
     const list: TouchNumpadTarget[] = [];
+    // เรียงตามลำดับ Enter ต่อใบ: เมตรที่ใช้ -> NG ของใบเดียวกัน
     orders.forEach((o, idx) => {
       const labelPrefix = orders.length > 1 ? `SO#${idx + 1}` : 'ม้วนนี้';
       list.push({
@@ -1152,6 +1153,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                               e.preventDefault();
+                              // ต่อใบ: เมตร -> NG ของใบเดียวกัน
                               const target = ngMetersInputRefs.current[order.id];
                               if (target) {
                                 target.focus();
@@ -1197,7 +1199,17 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                               e.preventDefault();
-                              handleAddOrder();
+                              // ต่อใบ: NG -> SO ของใบถัดไป; ใบสุดท้ายแล้วจึงสร้างใบใหม่
+                              const nextOrder = orders[index + 1];
+                              const target = nextOrder
+                                ? soInputRefs.current[nextOrder.id]
+                                : null;
+                              if (target) {
+                                target.focus();
+                                target.select();
+                              } else {
+                                handleAddOrder();
+                              }
                             }
                           }}
                           placeholder="0.00"
