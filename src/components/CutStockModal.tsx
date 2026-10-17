@@ -623,11 +623,18 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     setShowConfirmSummary(true);
   };
 
-  /** Ctrl/Cmd+Enter จากจุดโฟกัสใดก็ได้ในโมดัล → เดียวกับกดปุ่มบันทึก (form submit เดียวกัน) */
+  /** Ctrl/Cmd+Enter จากจุดโฟกัสใดก็ได้ในโมดัล → เดียวกับกดปุ่มบันทึก (form submit เดียวกัน)
+   *  Enter ปกติในช่องกรอก (ไม่มี Enter flow ของตัวเอง เช่น หมายเหตุ) → กันฟอร์ม submit พลาด */
   const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       e.currentTarget.querySelector('form')?.requestSubmit();
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      e.preventDefault();
     }
   };
 
@@ -1200,9 +1207,12 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                             if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                               e.preventDefault();
                               // ต่อใบ: NG -> SO ของใบถัดไป; ใบสุดท้ายแล้วจึงสร้างใบใหม่
+                              // (ใบถัดไปเป็นแบบไม่มี SO ให้ไปที่ช่องเมตรที่ใช้แทน)
                               const nextOrder = orders[index + 1];
                               const target = nextOrder
-                                ? soInputRefs.current[nextOrder.id]
+                                ? (soInputRefs.current[nextOrder.id]
+                                  || usedMetersInputRefs.current[nextOrder.id]
+                                  || null)
                                 : null;
                               if (target) {
                                 target.focus();

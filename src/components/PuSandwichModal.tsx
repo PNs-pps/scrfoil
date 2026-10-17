@@ -156,6 +156,15 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
       setRecordedBy(editingRecord.recordedBy || recentOperators[0] || '');
 
       // โหมดแก้ไขยังคงเป็น record เดียวเสมอ
+      // ระเบียนเก่าที่เคยกรอก NG เป็น กก. แต่ไม่มี ngMeters — แปลงกลับเป็น เมตร เพื่อไม่ให้ NG หายตอนกดบันทึก
+      const editRateKgPerMeter =
+        editingRecord.thickness ? getSteelKgPerMeter(editingRecord.thickness) : 0;
+      const editNgMeters =
+        editingRecord.ngMeters != null && editingRecord.ngMeters > 0
+          ? String(editingRecord.ngMeters)
+          : editingRecord.ngKg != null && editingRecord.ngKg > 0 && editRateKgPerMeter > 0
+            ? String(Math.round((editingRecord.ngKg / editRateKgPerMeter) * 10) / 10)
+            : '';
       const editRow: SandwichRow = {
         id: createRowId(1),
         soNumber: editingRecord.soNumber || '',
@@ -165,8 +174,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
           editingRecord.lengthMeters != null ? String(editingRecord.lengthMeters) : '',
         ngKg:
           editingRecord.ngKg != null && editingRecord.ngKg > 0 ? String(editingRecord.ngKg) : '',
-        ngMeters:
-          editingRecord.ngMeters != null && editingRecord.ngMeters > 0 ? String(editingRecord.ngMeters) : '',
+        ngMeters: editNgMeters,
         notes: editingRecord.notes || '',
       };
       setRows([editRow]);
