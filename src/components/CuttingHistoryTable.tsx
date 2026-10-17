@@ -249,10 +249,10 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         categoryLabel: 'แซนวิช',
         detailsSummary: details,
         subDetails: s.steelOrigin,
-        usedDisplay: s.soLengthMeters ? `${formatMeters(s.soLengthMeters)} ม.` : `${formatMeters(s.weightUsed)} ม.`,
+        usedDisplay: s.soLengthMeters ? `${formatMeters(s.soLengthMeters)} ม.` : `${formatMeters(s.weightUsed)} กก.`,
         usedValue: Number(s.soLengthMeters || s.weightUsed) || 0,
-        ngDisplay: (s.ngMeters || 0) > 0 ? `${formatMeters(s.ngMeters)} ม.` : '—',
-        ngValue: Number(s.ngMeters) || 0,
+        ngDisplay: (s.ngMeters || 0) > 0 ? `${formatMeters(s.ngMeters)} ม.` : ((s.ngKg || 0) > 0 ? `${formatMeters(s.ngKg)} กก.` : '—'),
+        ngValue: Number(s.ngMeters || s.ngKg) || 0,
         remainingDisplay: '—',
         remainingValue: 0,
         remainingBeforeDisplay: undefined,
@@ -1583,19 +1583,19 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                       </div>
                     </div>
                   )}
-                  {selectedSandwichDetail.ngKg != null && Number(selectedSandwichDetail.ngKg) > 0 && (
-                    <div className="rounded-xl bg-rose-50 border border-rose-100 p-3">
-                      <div className="text-[10px] font-bold text-rose-600">NG (กก.)</div>
-                      <div className="font-mono font-bold text-rose-800 mt-0.5">
-                        {formatMeters(selectedSandwichDetail.ngKg)}
-                      </div>
-                    </div>
-                  )}
                   {selectedSandwichDetail.ngMeters != null && Number(selectedSandwichDetail.ngMeters) > 0 && (
                     <div className="rounded-xl bg-rose-50 border border-rose-100 p-3">
                       <div className="text-[10px] font-bold text-rose-600">NG (ม.)</div>
                       <div className="font-mono font-bold text-rose-800 mt-0.5">
-                        {formatMeters(selectedSandwichDetail.ngMeters)}
+                        {formatMeters(selectedSandwichDetail.ngMeters)} ม.
+                      </div>
+                    </div>
+                  )}
+                  {selectedSandwichDetail.ngKg != null && Number(selectedSandwichDetail.ngKg) > 0 && (
+                    <div className="rounded-xl bg-rose-50 border border-rose-100 p-3">
+                      <div className="text-[10px] font-bold text-rose-600">NG (กก.)</div>
+                      <div className="font-mono font-bold text-rose-800 mt-0.5">
+                        {formatMeters(selectedSandwichDetail.ngKg)} กก.
                       </div>
                     </div>
                   )}
