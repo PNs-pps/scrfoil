@@ -75,6 +75,7 @@ import { SODetailModal } from './components/SODetailModal';
 import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
 import { MonthlySummaryModal } from './components/MonthlySummaryModal';
 import { ExcelExportModal } from './components/ExcelExportModal';
+import { FullstackDataHubModal } from './components/FullstackDataHubModal';
 import { SOBatchImportModal } from './components/SOBatchImportModal';
 import { SettingsBackupView } from './components/SettingsBackupView';
 import { PuSandwichModal } from './components/PuSandwichModal';
@@ -150,6 +151,7 @@ export default function App() {
   const [puSandwichRecords, setPuSandwichRecords] = useState<PuSandwichCutRecord[]>([]);
   const [isDailyFlowOpen, setIsDailyFlowOpen] = useState(false);
   const [isExcelExportOpen, setIsExcelExportOpen] = useState(false);
+  const [isFullstackModalOpen, setIsFullstackModalOpen] = useState(false);
   const [historyInitialCategory, setHistoryInitialCategory] = useState<'all' | 'foil' | 'sandwich'>('all');
   
   // Persistent activeTab so that reloading keeps the user on the exact page being viewed
@@ -360,6 +362,7 @@ export default function App() {
     setRolls(loadedRolls);
     setRecords(loadedRecords);
     setPuSandwichRecords(loadedPuSandwich);
+
 
     // 2. Realtime listener for Foil Rolls (activeOnly: false เพื่อให้ทุกบัญชีรวมทั้ง non-admin ดูม้วนที่หมดแล้วได้)
     const unsubRolls = subscribeToFoilRolls(
@@ -3003,6 +3006,7 @@ const updated = [newRoll, ...rolls];
         currentUserEmail={currentUserEmail}
         onSignOut={handleSignOut}
         onOpenExcelExport={() => setIsExcelExportOpen(true)}
+        onOpenFullstackHub={() => setIsFullstackModalOpen(true)}
       />
 
       {(pendingCutCount > 0 || pendingRecordEditCount > 0) && (
@@ -3258,6 +3262,15 @@ const updated = [newRoll, ...rolls];
             onOpenCycleCount={() => requireEditorPermission(() => setIsCycleCountOpen(true))}
             onOpenCycleCountHistory={() => setIsCycleCountHistoryOpen(true)}
             onOpenExcelExport={() => setIsExcelExportOpen(true)}
+            onOpenFullstackHub={() => setIsFullstackModalOpen(true)}
+            onApplyFullstackData={(data) => {
+              if (data.rolls) updateRollsState(data.rolls);
+              if (data.cutRecords) updateRecordsState(data.cutRecords);
+              if (data.puSandwichCuts) {
+                setPuSandwichRecords(data.puSandwichCuts);
+                saveStoredPuSandwichRecords(data.puSandwichCuts);
+              }
+            }}
             onBack={() => setActiveTab('rolls')}
           />
         )}
@@ -3429,6 +3442,26 @@ const updated = [newRoll, ...rolls];
         rolls={[...rolls, ...archivedRolls]}
         records={records}
         puRecords={puSandwichRecords}
+      />
+
+      {/* Full-Stack Data Hub Modal */}
+      <FullstackDataHubModal
+        isOpen={isFullstackModalOpen}
+        onClose={() => setIsFullstackModalOpen(false)}
+        rolls={rolls}
+        cutRecords={records}
+        puRecords={puSandwichRecords}
+        onApplyData={(data) => {
+          if (data.rolls) updateRollsState(data.rolls);
+          if (data.cutRecords) updateRecordsState(data.cutRecords);
+          if (data.puSandwichCuts) {
+            setPuSandwichRecords(data.puSandwichCuts);
+            saveStoredPuSandwichRecords(data.puSandwichCuts);
+          }
+        }}
+        onSyncComplete={(data) => {
+          showToast(`ซิงค์ข้อมูลกับ Backend สำเร็จ (${data?.serverCounts?.rolls ?? 0} ม้วน, ${data?.serverCounts?.cutRecords ?? 0} รายการตัด)`, 'success');
+        }}
       />
 
       {/* Batch Import SO Modal */}

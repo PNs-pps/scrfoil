@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-10-22T00:00:00.000Z",
+  "rolls": [],
+  "cutRecords": [],
+  "puSandwichCuts": [],
+  "cycleCounts": [],
+  "soAuditLogs": [],
+  "metadata": {
+    "systemName": "ระบบตัดสต๊อกฟอยล์ PU Foam เมทัลชีท",
+    "branch": "หลังคาเย็นสยาม (ร่มเกล้า)",
+    "initializedAt": "2026-10-22T00:00:00.000Z"
+  }
+}

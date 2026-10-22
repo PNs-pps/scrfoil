@@ -220,10 +220,16 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                     </span>
                   </div>
                   <div className="text-right">
-                    <span className="text-[10px] font-semibold text-slate-500 block">วันที่ใช้งาน</span>
-                    <span className="font-mono font-bold text-slate-900 text-sm">
-                      {record.usageDate || '-'}
+                    <span className="text-[10px] font-semibold text-slate-500 block">วันที่ใช้งาน / วันที่ตัด</span>
+                    <span className="font-mono font-bold text-slate-900 text-sm flex items-center justify-end gap-1">
+                      <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>{formatThaiDate(record.usageDate || record.recordedDate) || '-'}</span>
                     </span>
+                    {(record.usageDate || record.recordedDate) && (
+                      <span className="text-[10px] font-mono text-slate-400 block">
+                        ({record.usageDate || record.recordedDate})
+                      </span>
+                    )}
                   </div>
                 </div>
 

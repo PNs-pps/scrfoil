@@ -183,8 +183,16 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
                         <td className="p-2.5 text-right font-mono font-bold text-emerald-700">
                           {formatMeters(r.remainingAfter)} ม.
                         </td>
-                        <td className="p-2.5 font-mono text-slate-600">
-                          {r.usageDate}
+                        <td className="p-2.5 whitespace-nowrap text-xs">
+                          <div className="flex items-center gap-1 font-mono font-bold text-slate-800">
+                            <Calendar className="w-3 h-3 text-amber-600 shrink-0" />
+                            <span>{formatThaiDate(r.usageDate || r.recordedDate) || '-'}</span>
+                          </div>
+                          {(r.usageDate || r.recordedDate) && (
+                            <div className="text-[10px] text-slate-400 font-mono pl-4">
+                              {r.usageDate || r.recordedDate}
+                            </div>
+                          )}
                         </td>
                         <td className="p-2.5 text-slate-700 truncate max-w-[120px]">
                           {r.recordedBy}

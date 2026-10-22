@@ -280,10 +280,14 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
       if (startDate && item.date && item.date < startDate) return false;
       if (endDate && item.date && item.date > endDate) return false;
 
-      // 3. Search Query (Matches SO, Details, RecordedBy, Notes, Pattern, Silver/White)
+      // 3. Search Query (Matches SO, Date, Details, RecordedBy, Notes, Pattern, Silver/White)
       if (!q) return true;
+      const thaiDate = formatThaiDate(item.date).toLowerCase();
       return (
         item.soNumber.toLowerCase().includes(q) ||
+        item.date.toLowerCase().includes(q) ||
+        thaiDate.includes(q) ||
+        (item.recordedDate && item.recordedDate.toLowerCase().includes(q)) ||
         item.detailsSummary.toLowerCase().includes(q) ||
         item.recordedBy.toLowerCase().includes(q) ||
         (item.notes && item.notes.toLowerCase().includes(q)) ||
@@ -779,6 +783,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                 <tr>
                   {/* STICKY SO HEADER (ตรึงซ้าย กะทัดรัด) */}
                   {renderSortTh('so', 'รหัส SO', 'left', true)}
+                  {renderSortTh('date', 'วันที่ตัด / ใช้งาน', 'left')}
                   <th className="px-2.5 py-2 text-center text-xs font-bold text-slate-600 bg-slate-50/95">
                     สถานะ
                   </th>
@@ -821,6 +826,19 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         >
                           {item.soNumber}
                         </button>
+                      </td>
+
+                      {/* 1.1 วันที่ตัด / วันที่ใช้งาน (Date Column แสดงเด่นชัด) */}
+                      <td className="px-2.5 py-2 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 font-mono text-slate-900 font-bold text-xs">
+                          <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>{formatThaiDate(item.date) || item.date || '-'}</span>
+                        </div>
+                        {item.date && (
+                          <div className="text-[10px] text-slate-400 font-mono pl-5">
+                            {item.date}
+                          </div>
+                        )}
                       </td>
 
                       {/* 1.5 สถานะ (Status Badge: ตัดจริง 🟢 / รอตัด 🟡 / ยกเลิก ⚪) */}

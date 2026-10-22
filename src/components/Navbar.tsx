@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
   ShieldCheck,
   CalendarClock,
+  Server,
 } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
@@ -42,6 +43,7 @@ interface NavbarProps {
   currentUserEmail?: string | null;
   onSignOut?: () => void;
   onOpenExcelExport?: () => void;
+  onOpenFullstackHub?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -65,6 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUserEmail,
   onSignOut,
   onOpenExcelExport,
+  onOpenFullstackHub,
 }) => {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
@@ -191,6 +194,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Right Controls: Excel Button (no .xlsx), Mode Switcher, Bug Inspector, Profile Avatar (Circle Only) */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             
+
             {/* Excel Report Button — NO .xlsx suffix */}
             {onOpenExcelExport && (
               <button

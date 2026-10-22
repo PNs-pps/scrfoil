@@ -960,8 +960,16 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                               </>
                             )}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap text-[11px]">
-                            {item.cutDate || item.usageDate || item.recordedDate || (item.createdAt ? item.createdAt.slice(0, 10) : '-')}
+                          <td className="py-2.5 px-3 whitespace-nowrap text-[11px]">
+                            <div className="flex items-center gap-1 font-mono font-bold text-slate-800">
+                              <Calendar className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>{formatThaiDate(item.cutDate || item.usageDate || item.recordedDate) || '-'}</span>
+                            </div>
+                            {(item.cutDate || item.usageDate || item.recordedDate) && (
+                              <div className="text-[10px] text-slate-400 font-mono pl-4">
+                                {item.cutDate || item.usageDate || item.recordedDate}
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-slate-600 max-w-[120px] truncate text-[11px]">
                             {item.recordedBy || '-'}

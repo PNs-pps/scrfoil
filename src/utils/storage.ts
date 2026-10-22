@@ -23,6 +23,20 @@ function checkAndCleanInitialState() {
   } catch {}
 }
 
+const SEED_DUMMY_ROLL_IDS = new Set([
+  'roll-830-01', 'roll-830-02', 'roll-830-03',
+  'roll-850-01', 'roll-850-02', 'roll-850-03',
+  'roll-880-01', 'roll-880-02', 'roll-880-03',
+  'roll-900-01', 'roll-900-02', 'roll-900-03',
+]);
+const SEED_DUMMY_CUT_IDS = new Set([
+  'cut-001', 'cut-002', 'cut-003', 'cut-004', 'cut-005',
+  'cut-006', 'cut-007', 'cut-008', 'cut-009',
+]);
+const SEED_DUMMY_PUSW_IDS = new Set([
+  'pusw-001', 'pusw-002', 'pusw-003', 'pusw-004',
+]);
+
 export function getStoredRolls(): FoilRoll[] {
   try {
     checkAndCleanInitialState();
@@ -32,8 +46,12 @@ export function getStoredRolls(): FoilRoll[] {
       return INITIAL_FOIL_ROLLS;
     }
     const parsed: FoilRoll[] = JSON.parse(raw);
+    const cleaned = parsed.filter(r => !SEED_DUMMY_ROLL_IDS.has(r.id));
+    if (cleaned.length !== parsed.length) {
+      saveStoredRolls(cleaned);
+    }
     // Normalize spelling for existing saved data
-    return parsed.map(r => ({
+    return cleaned.map(r => ({
       ...r,
       pattern: normalizePattern(r.pattern),
     }));
@@ -60,7 +78,11 @@ export function getStoredCutRecords(): StockCutRecord[] {
       return INITIAL_CUT_RECORDS;
     }
     const parsed: StockCutRecord[] = JSON.parse(raw);
-    return parsed.map(r => ({
+    const cleaned = parsed.filter(r => !SEED_DUMMY_CUT_IDS.has(r.id));
+    if (cleaned.length !== parsed.length) {
+      saveStoredCutRecords(cleaned);
+    }
+    return cleaned.map(r => ({
       ...r,
       pattern: normalizePattern(r.pattern),
     }));
@@ -210,7 +232,12 @@ export function getStoredPuSandwichRecords(): PuSandwichCutRecord[] {
   try {
     const raw = localStorage.getItem(scopeKey(STORAGE_KEYS.PU_SANDWICH));
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed: PuSandwichCutRecord[] = JSON.parse(raw);
+    const cleaned = parsed.filter(s => !SEED_DUMMY_PUSW_IDS.has(s.id));
+    if (cleaned.length !== parsed.length) {
+      saveStoredPuSandwichRecords(cleaned);
+    }
+    return cleaned;
   } catch (err) {
     console.warn('Failed to load PU Sandwich records from storage', err);
     return [];
