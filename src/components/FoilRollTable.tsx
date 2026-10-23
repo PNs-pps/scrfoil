@@ -72,6 +72,7 @@ interface SwipeableRollCardProps {
   onDelete: (roll: FoilRoll) => void;
   onOpenActionMenu: (roll: FoilRoll) => void;
   onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
+  onToggleReverseSide?: (roll: FoilRoll, isReverse: boolean) => void;
   highlightMatch: (text: string, query: string) => React.ReactNode;
 }
 
@@ -85,6 +86,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
   onDelete,
   onOpenActionMenu,
   onToggleZeroOut,
+  onToggleReverseSide,
   highlightMatch,
 }) => {
   const [translateX, setTranslateX] = useState(0);
@@ -313,6 +315,14 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
                 <span>จอง SO {soNumberList ? `(${soNumberList})` : ''}</span>
               </span>
             )}
+            {roll.isReverseSideOnly && (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] font-black text-amber-950 bg-amber-400 border border-amber-500 px-1.5 py-0.2 rounded shadow-2xs shrink-0"
+                title={`ฟอยล์เก่า/มีปัญหา ใช้ได้เฉพาะอีกด้าน${roll.reverseSideReason ? `: ${roll.reverseSideReason}` : ''}`}
+              >
+                <span>ใช้เฉพาะอีกด้าน</span>
+              </span>
+            )}
             {highlightLevel === 'red' && (
               <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 shrink-0">
                 ≤50ม.
@@ -371,6 +381,13 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
               {roll.ngMeters > 0 && <span className="text-rose-600 font-semibold ml-1">· NG {formatMeters(roll.ngMeters)}</span>}
             </span>
 
+            {/* สภาพ/เหตุผล เมื่อเป็นฟอยล์เก่า */}
+            {roll.isReverseSideOnly && roll.reverseSideReason && (
+              <span className="text-[10px] text-amber-900 bg-amber-100/90 border border-amber-300 px-1.5 py-0.2 rounded font-sans font-medium truncate max-w-[120px]" title={roll.reverseSideReason}>
+                {roll.reverseSideReason}
+              </span>
+            )}
+
             {/* วันที่หมด เมื่อม้วนหมดแล้ว */}
             {(isDepleted || isZeroed || roll.status === 'depleted') && (
               <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded font-sans font-bold shrink-0">
@@ -379,8 +396,30 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             )}
           </div>
 
-          {/* Quick Actions (ตัด 0 / เมนู) */}
+          {/* Quick Actions (ช่องติ๊กอีกด้าน / ตัด 0 / เมนู) */}
           <div className="flex items-center gap-1 shrink-0">
+            {onToggleReverseSide && (
+              <label
+                onClick={(e) => e.stopPropagation()}
+                htmlFor={`reverse-toggle-mob-${roll.id}`}
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold border cursor-pointer select-none transition-colors ${
+                  roll.isReverseSideOnly
+                    ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-2xs'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-amber-400'
+                }`}
+                title="ช่องติ๊กเลือก: ฟอยล์เก่า/มีปัญหา (ใช้ได้เฉพาะอีกด้านเท่านั้น)"
+              >
+                <input
+                  id={`reverse-toggle-mob-${roll.id}`}
+                  type="checkbox"
+                  checked={Boolean(roll.isReverseSideOnly)}
+                  onChange={(e) => onToggleReverseSide(roll, e.target.checked)}
+                  className="w-2.5 h-2.5 accent-amber-600 rounded cursor-pointer"
+                />
+                <span>อีกด้าน</span>
+              </label>
+            )}
+
             {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (
               <label
                 onClick={(e) => e.stopPropagation()}
@@ -436,8 +475,10 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   onOpenBatchImport,
   onOpenMonthlySummary,
   onEditRoll,
+  onUpdateRoll,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [onlyReverseSide, setOnlyReverseSide] = useState(false);
   const [advLot, setAdvLot] = useState('');
   const [advRoll, setAdvRoll] = useState('');
   const [advPattern, setAdvPattern] = useState('');
@@ -445,7 +486,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [isAdvancedDropdownOpen, setIsAdvancedDropdownOpen] = useState(false);
   const advancedDropdownRef = useRef<HTMLDivElement>(null);
 
-  const activeAdvCount = [advLot, advRoll, advPattern, advWidth].filter((v) => v.trim().length > 0).length;
+  const activeAdvCount = [advLot, advRoll, advPattern, advWidth].filter((v) => v.trim().length > 0).length + (onlyReverseSide ? 1 : 0);
 
   // ปิดเมนูค้นหาขั้นสูงเมื่อคลิกนอกพื้นที่
   useEffect(() => {
@@ -465,7 +506,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     };
   }, [isAdvancedDropdownOpen]);
   // เปิดแท็บ "ใช้งาน" เป็นค่าเริ่มต้น — แสดงเฉพาะม้วนที่มีการตัดแล้ว ลดงานเรนเดอร์
-  const [statusFilter, setStatusFilter] = useState<'all' | 'in_use' | 'unused' | 'depleted'>('in_use');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'in_use' | 'unused' | 'reverse_only' | 'depleted'>('in_use');
   const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedSubGroups, setCollapsedSubGroups] = useState<Record<string, boolean>>({});
@@ -490,9 +531,20 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       ).length,
     [rolls, records]
   );
+  const reverseOnlyCount = useMemo(
+    () =>
+      rolls.filter(
+        (r) =>
+          Boolean(r.isReverseSideOnly) &&
+          Number(r.remainingMeters) > 0 &&
+          !r.isZeroedOut &&
+          r.status !== 'depleted'
+      ).length,
+    [rolls]
+  );
   const activeCount = inUseCount + unusedCount;
 
-  // Source list: แยกม้วนเต็มที่ยังไม่มีการใช้งาน กับม้วนที่มีการใช้งานแล้ว และม้วนที่หมดแล้ว
+  // Source list: แยกม้วนเต็มที่ยังไม่มีการใช้งาน กับม้วนที่มีการใช้งานแล้ว ม้วนใช้ได้เฉพาะอีกด้าน และม้วนที่หมดแล้ว
   const sourceRolls = useMemo(() => {
     if (statusFilter === 'depleted') {
       const localDepleted = rolls.filter(
@@ -501,6 +553,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       const byId = new Map<string, FoilRoll>();
       [...archivedRolls, ...localDepleted].forEach((r) => byId.set(r.id, r));
       return Array.from(byId.values());
+    }
+    if (statusFilter === 'reverse_only') {
+      return rolls.filter(
+        (r) =>
+          Boolean(r.isReverseSideOnly) &&
+          Number(r.remainingMeters) > 0 &&
+          !r.isZeroedOut &&
+          r.status !== 'depleted'
+      );
     }
     if (statusFilter === 'in_use') {
       return rolls.filter(
@@ -582,8 +643,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           String(r.width).includes(q) ||
           `${r.width}มม`.includes(q) ||
           `${r.width} มม`.includes(q) ||
-          (r.notes ? r.notes.toLowerCase().includes(q) : false);
+          (r.notes ? r.notes.toLowerCase().includes(q) : false) ||
+          (r.isReverseSideOnly && (q.includes('เก่า') || q.includes('ปัญหา') || q.includes('อีกด้าน') || q.includes('หน้าหลัก') || q.includes('reverse'))) ||
+          (r.reverseSideReason ? r.reverseSideReason.toLowerCase().includes(q) : false);
         if (!matchMain) return false;
+      }
+
+      // Checkbox filter: เฉพาะฟอยล์เก่า / มีปัญหา (ใช้ได้เฉพาะอีกด้านเท่านั้น)
+      if (onlyReverseSide && !r.isReverseSideOnly) {
+        return false;
       }
 
       // 2. Advanced Search Inputs (ช่องกรอก: lot., no., ท้อง, หน้ากว้าง)
@@ -622,7 +690,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
     // เรียงลำดับ: ฟอล์ยที่หมดแล้วไปอยู่ข้างล่างม้วนที่ใช้อยู่ เรียงจากหมดนานแล้วจะอยู่ล่างสุด พึ่งหมดจะอยู่บน
     return [...list].sort((a, b) => compareFoilRolls(a, b, records));
-  }, [sourceRolls, searchQuery, advLot, advRoll, advPattern, advWidth, records]);
+  }, [sourceRolls, searchQuery, advLot, advRoll, advPattern, advWidth, onlyReverseSide, records]);
 
   const filteredTotalRemaining = filteredRolls.reduce((sum, r) => sum + r.remainingMeters, 0);
 
@@ -914,6 +982,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 <span>จอง SO {soNumberList ? `(${soNumberList})` : ''} ({formatMeters(totalReservedMeters)} ม.)</span>
               </span>
             )}
+            {roll.isReverseSideOnly && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-black text-amber-950 bg-amber-400 border border-amber-500 px-1.5 py-0.5 rounded shadow-2xs shrink-0"
+                title={`ฟอยล์เก่า/มีปัญหา ใช้ได้เฉพาะอีกด้าน${roll.reverseSideReason ? `: ${roll.reverseSideReason}` : ''}`}
+              >
+                <span>ใช้เฉพาะอีกด้าน (หน้าหลักเสีย)</span>
+              </span>
+            )}
             {highlightLevel === 'red' && (
               <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 shrink-0" title="สต๊อกใกล้หมด (<= 50 ม.)">
                 ≤50ม.
@@ -925,6 +1001,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               </span>
             )}
           </div>
+          {roll.isReverseSideOnly && (
+            <div className="text-[11px] font-semibold text-amber-800 flex items-center gap-1 mb-0.5 truncate max-w-[320px]">
+              <span>หน้าหลักเสีย · ใช้ได้เฉพาะอีกด้าน{roll.reverseSideReason ? ` (${roll.reverseSideReason})` : ''}</span>
+            </div>
+          )}
           {roll.notes && (
             <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={roll.notes}>
               {roll.notes}
@@ -1046,6 +1127,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     );
   };
 
+  const handleToggleReverseSide = (roll: FoilRoll, isReverse: boolean, reason?: string) => {
+    if (!onUpdateRoll) return;
+    const updated: FoilRoll = {
+      ...roll,
+      isReverseSideOnly: isReverse,
+      reverseSideReason: isReverse ? (reason ?? roll.reverseSideReason ?? 'หน้าหลักเสีย ใช้ได้เฉพาะอีกด้าน') : '',
+    };
+    onUpdateRoll(updated);
+  };
+
   const renderMobileCard = (roll: FoilRoll) => {
     return (
       <SwipeableRollCard
@@ -1058,6 +1149,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         onDelete={(r) => setDeleteConfirmRoll(r)}
         onOpenActionMenu={(r) => setActionMenuRoll(r)}
         onToggleZeroOut={onToggleZeroOut}
+        onToggleReverseSide={onUpdateRoll ? handleToggleReverseSide : undefined}
         highlightMatch={highlightMatch}
       />
     );
@@ -1121,6 +1213,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               </div>
             </div>
           </div>
+
 
           {/* ปุ่มค้นหาขั้นสูง Dropdown ตามกรอบสีเหลือง: เมนูช่องกรอกข้อมูล (lot., no., ท้อง, หน้ากว้าง) */}
           <div className="relative shrink-0" ref={advancedDropdownRef}>
@@ -1342,6 +1435,26 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                       ))}
                     </div>
                   </div>
+
+                  {/* 5. ฟอยล์เก่า / มีปัญหา ที่ใช้ได้เฉพาะอีกด้าน */}
+                  <div className="pt-2 border-t border-slate-100">
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-800 font-bold text-xs select-none p-1 rounded-lg hover:bg-amber-50">
+                      <input
+                        type="checkbox"
+                        checked={onlyReverseSide}
+                        onChange={(e) => setOnlyReverseSide(e.target.checked)}
+                        className="w-4 h-4 accent-amber-600 rounded cursor-pointer"
+                      />
+                      <span className="flex items-center gap-1.5 text-amber-950">
+                        <span>เฉพาะฟอยล์เก่า / มีปัญหา (ใช้ได้เฉพาะอีกด้าน)</span>
+                        {reverseOnlyCount > 0 && (
+                          <span className="px-1.5 py-0.2 rounded-full bg-slate-900 text-amber-300 text-[10px] font-black font-mono">
+                            {reverseOnlyCount}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  </div>
                 </div>
 
                 {/* Footer Actions */}
@@ -1428,6 +1541,18 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                   </button>
                 </span>
               )}
+              {onlyReverseSide && (
+                <span className="inline-flex items-center gap-1 bg-amber-400 border border-amber-500 px-2 py-0.5 rounded-md font-bold text-slate-950 shadow-2xs">
+                  <span>ฟอยล์เก่า/มีปัญหา (ใช้อีกด้าน)</span>
+                  <button
+                    type="button"
+                    onClick={() => setOnlyReverseSide(false)}
+                    className="text-slate-950 hover:text-rose-700 ml-0.5 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
               <span className="text-slate-500">
                 • พบ <strong className="text-amber-800 font-bold">{filteredRolls.length}</strong> ม้วน
               </span>
@@ -1436,6 +1561,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               type="button"
               onClick={() => {
                 setSearchQuery('');
+                setOnlyReverseSide(false);
                 setAdvLot('');
                 setAdvRoll('');
                 setAdvPattern('');
@@ -1523,6 +1649,16 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               title="ม้วนเต็มที่ยังไม่เคยตัด"
             >
               ม้วนเต็ม ({unusedCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('reverse_only')}
+              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 ${
+                statusFilter === 'reverse_only' ? 'bg-amber-400 text-slate-950 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="ฟอยล์เก่า / มีปัญหา ที่ใช้หน้าหลักไม่ได้แล้ว (ใช้ได้เฉพาะอีกด้าน)"
+            >
+              <span>เก่า/มีปัญหา ({reverseOnlyCount})</span>
             </button>
             <button
               type="button"
@@ -2011,10 +2147,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     <span className="text-[11px] font-bold uppercase text-amber-200/90">ล็อต</span>
                     <span className="lot-number-display text-base font-bold text-white">{actionMenuRoll.lotNumber}</span>
                   </span>
-                  <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-900 px-2.5 py-1 rounded-md">
+                  <span className="inline-flex items-center gap-1 bg-white border-2 border-amber-400 text-slate-950 px-2.5 py-1 rounded-md">
                     <span className="text-[11px] font-bold uppercase text-amber-700">เบอร์</span>
                     <span className="lot-number-display text-base font-bold">#{actionMenuRoll.rollNumber}</span>
                   </span>
+                  {actionMenuRoll.isReverseSideOnly && (
+                    <span className="inline-flex items-center gap-1 bg-amber-400 text-slate-950 font-bold text-xs px-2 py-0.5 rounded-md border border-amber-500 shadow-2xs">
+                      <span>ใช้ได้เฉพาะอีกด้าน</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   หน้ากว้าง {actionMenuRoll.width} มม. · {actionMenuRoll.pattern} · คงเหลือ {formatMeters(actionMenuRoll.remainingMeters)} ม.
@@ -2028,6 +2169,44 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Quick Toggle: ฟอยล์เก่า / มีปัญหา (ใช้ได้เฉพาะอีกด้านเท่านั้น) */}
+            {onUpdateRoll && (
+              <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-300">
+                <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                  <div className="space-y-0.5">
+                    <div className="text-xs sm:text-sm font-bold text-amber-950 flex items-center gap-1.5">
+                      <span>ฟอยล์เก่า / มีปัญหา (ใช้ได้เฉพาะอีกด้าน)</span>
+                    </div>
+                    <div className="text-[11px] text-amber-800 leading-relaxed">
+                      {actionMenuRoll.isReverseSideOnly
+                        ? 'ม้วนนี้ถูกตั้งเป็นฟอยล์เก่าแล้ว (หน้าหลักเสีย ใช้ได้เฉพาะอีกด้าน) — ติ๊กออกเพื่อยกเลิก'
+                        : 'ติ๊กเลือกหากหน้าหลักชำรุด มีรอยด่าง แต่ใช้ด้านหลัง (เช่น ท้องเงิน) ได้'}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(actionMenuRoll.isReverseSideOnly)}
+                    onChange={(e) => {
+                      const nextVal = e.target.checked;
+                      const updated: FoilRoll = {
+                        ...actionMenuRoll,
+                        isReverseSideOnly: nextVal,
+                        reverseSideReason: nextVal ? (actionMenuRoll.reverseSideReason || 'หน้าหลักเสีย ใช้ได้เฉพาะอีกด้าน') : '',
+                      };
+                      setActionMenuRoll(updated);
+                      onUpdateRoll(updated);
+                    }}
+                    className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500 accent-amber-600 cursor-pointer mt-0.5"
+                  />
+                </label>
+                {actionMenuRoll.isReverseSideOnly && actionMenuRoll.reverseSideReason && (
+                  <div className="mt-2 pt-2 border-t border-amber-200/80 text-[11px] text-amber-900 font-medium">
+                    สภาพ: {actionMenuRoll.reverseSideReason}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 4 Action Menu Options */}
             <div className="space-y-2">

@@ -827,7 +827,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         value={r.id}
                         disabled={r.remainingMeters <= 0}
                       >
-                        ล็อต {r.lotNumber} · เบอร์ #{r.rollNumber} · เหลือ {formatMeters(r.remainingMeters)} ม.{r.remainingMeters <= 0 ? ' (หมด)' : ''}
+                        ล็อต {r.lotNumber} · เบอร์ #{r.rollNumber} · เหลือ {formatMeters(r.remainingMeters)} ม.{r.isReverseSideOnly ? ' [ใช้เฉพาะอีกด้าน]' : ''}{r.remainingMeters <= 0 ? ' (หมด)' : ''}
                       </option>
                     ))
                   )}
@@ -838,7 +838,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             {/* Selected Roll Highlight — จัดเรียงแนวตั้ง กันตัวหนังสือทับกันบนมือถือ */}
             {currentRoll && (
               <div className="p-3 bg-amber-50 border-2 border-amber-400 rounded-xl space-y-2.5">
-                {/* แถว 1: ล็อต + เบอร์ */}
+                {/* แถว 1: ล็อต + เบอร์ + สถานะฟอยล์เก่า */}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 bg-slate-900 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm shrink-0">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-amber-200/90">ล็อต</span>
@@ -852,6 +852,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                       #{currentRoll.rollNumber}
                     </span>
                   </span>
+                  {currentRoll.isReverseSideOnly && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs shadow-xs border border-amber-600">
+                      <span>ใช้ได้เฉพาะอีกด้าน (หน้าหลักเสีย)</span>
+                    </span>
+                  )}
                 </div>
 
                 {/* แถว 2: หน้ากว้าง + ลาย */}
@@ -860,6 +865,21 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                   <span className="text-slate-300">·</span>
                   <span className="font-semibold">ลาย {currentRoll.pattern}</span>
                 </div>
+
+                {/* คำเตือนฟอยล์เก่า / สภาพม้วน */}
+                {currentRoll.isReverseSideOnly && (
+                  <div className="p-2.5 bg-amber-100/90 border border-amber-300 rounded-lg flex items-start gap-2 text-amber-950 text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">คำเตือน:</span> ม้วนนี้ถูกตั้งเป็น <strong>ฟอยล์เก่า / มีปัญหา</strong> หน้าหลักใช้ไม่ได้ ใช้ได้เฉพาะอีกด้านเท่านั้น (เช่น ท้องเงิน)
+                      {currentRoll.reverseSideReason && (
+                        <div className="text-amber-800 font-medium mt-0.5">
+                          สภาพ: {currentRoll.reverseSideReason}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* แถว 3: หลอดไทม์ไลน์สถานะ 3 สี & ข้อมูล 3 ค่า (จอง / เหลือจริง / ผลิตแล้วจะเหลือ) */}
                 <div className="w-full pt-1">

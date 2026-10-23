@@ -570,6 +570,8 @@ export async function saveFoilRollToFirestore(
       pattern: roll.pattern,
       dateReceived: roll.dateReceived,
       notes: roll.notes,
+      isReverseSideOnly: Boolean(roll.isReverseSideOnly),
+      reverseSideReason: roll.reverseSideReason || '',
     };
 
     // No compare-and-set requested: keep the original plain merge write.

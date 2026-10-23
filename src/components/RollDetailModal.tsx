@@ -1,7 +1,7 @@
 import React from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord } from '../types';
-import { X, ArrowLeft, Layers, Scissors, Calendar, User, FileText, CheckCircle2 } from 'lucide-react';
+import { X, ArrowLeft, Layers, Scissors, Calendar, User, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 
 interface RollDetailModalProps {
@@ -52,6 +52,11 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
               </h2>
               <p className="text-[11px] text-slate-300 truncate flex items-center gap-2">
                 <span>ลาย {roll.pattern} | หน้ากว้าง {roll.width} มม.</span>
+                {roll.isReverseSideOnly && (
+                  <span className="text-[10px] font-bold text-amber-950 bg-amber-400 px-1.5 py-0.2 rounded shadow-2xs">
+                    ใช้ได้เฉพาะอีกด้าน
+                  </span>
+                )}
                 {isDepleted && (
                   <span className="text-[10px] font-bold text-amber-300 bg-slate-800 px-1.5 py-0.2 rounded border border-slate-700">
                     หมดสต๊อก: {formatThaiDate(depletionDate)}
@@ -71,6 +76,20 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-5">
+          {roll.isReverseSideOnly && (
+            <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-xs flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-bold">ฟอยล์เก่า / มีปัญหา:</strong> ม้วนนี้ถูกตั้งสถานะว่าหน้าหลักใช้ไม่ได้แล้ว ใช้ได้เฉพาะอีกด้านเท่านั้น (เช่น ท้องเงิน)
+                {roll.reverseSideReason && (
+                  <div className="text-amber-800 font-medium mt-0.5">
+                    สภาพ/สาเหตุ: {roll.reverseSideReason}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Roll Stats Card */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">

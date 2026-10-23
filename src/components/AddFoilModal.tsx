@@ -51,6 +51,8 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   const [customPatternVal, setCustomPatternVal] = useState('');
   const [dateReceived, setDateReceived] = useState(today);
   const [notes, setNotes] = useState('');
+  const [isReverseSideOnly, setIsReverseSideOnly] = useState(false);
+  const [reverseSideReason, setReverseSideReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -159,6 +161,8 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
     setSingleRollNumber('01');
     setSingleTotalMeters(1000);
     setNotes('');
+    setIsReverseSideOnly(false);
+    setReverseSideReason('');
     setError(null);
   };
 
@@ -208,6 +212,8 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
           totalMeters: finalMeters,
           dateReceived: dateReceived || today,
           notes: notes.trim(),
+          isReverseSideOnly,
+          reverseSideReason: isReverseSideOnly ? reverseSideReason.trim() : '',
         });
         handleResetForm();
         onClose();
@@ -252,6 +258,8 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
         totalMeters: round2(Number(item.totalMeters)),
         dateReceived: dateReceived || today,
         notes: notes.trim(),
+        isReverseSideOnly,
+        reverseSideReason: isReverseSideOnly ? reverseSideReason.trim() : '',
       }));
 
       setIsSubmitting(true);
@@ -725,6 +733,42 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
                 className="w-full px-3 py-2 bg-white rounded-lg border border-slate-300 focus:border-amber-500 text-sm"
               />
             </div>
+          </div>
+
+          {/* ฟอยล์เก่า / มีปัญหา (ใช้ได้เฉพาะอีกด้านเท่านั้น) */}
+          <div className={`p-3 rounded-xl border transition-colors ${isReverseSideOnly ? 'bg-amber-50/80 border-amber-300' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-0.5">
+                <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                  <span>ฟอยล์เก่า / มีปัญหา (ใช้ได้เฉพาะอีกด้านเท่านั้น หน้าหลักใช้ไม่ได้)</span>
+                </span>
+                <span className="text-[11px] text-slate-600 block leading-relaxed">
+                  ติ๊กเลือกหากเป็นฟอยล์เก่าที่หน้าหลักชำรุด มีรอยด่าง หรือลอก แต่ยังสามารถนำไปตัดใช้สำหรับงานที่ใช้เฉพาะอีกด้านได้ (เช่น ท้องเงิน)
+                </span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                <input
+                  type="checkbox"
+                  checked={isReverseSideOnly}
+                  onChange={(e) => setIsReverseSideOnly(e.target.checked)}
+                  className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                />
+              </label>
+            </div>
+            {isReverseSideOnly && (
+              <div className="mt-2.5 pt-2 border-t border-amber-200/80">
+                <label className="block text-[11px] font-semibold text-amber-900 mb-1">
+                  สาเหตุ / สภาพม้วน (ไม่บังคับ)
+                </label>
+                <input
+                  type="text"
+                  value={reverseSideReason}
+                  onChange={(e) => setReverseSideReason(e.target.value)}
+                  placeholder="เช่น หน้าขาวด่าง/มีรอยตำหนิ ใช้ได้เฉพาะด้านเงิน"
+                  className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+            )}
           </div>
 
           {/* Footer Action Buttons */}

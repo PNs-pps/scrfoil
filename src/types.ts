@@ -38,6 +38,8 @@ export interface FoilRoll {
   status: 'active' | 'depleted'; // สถานะ (depleted เมื่อเหลือ <= 0)
   isUnused?: boolean;        // ม้วนเต็มที่เพิ่มเข้าระบบแต่ยังไม่มีการใช้งาน (ลดค่า Firestore read)
   notes?: string;
+  isReverseSideOnly?: boolean;     // ฟอยล์เก่า/มีปัญหา หน้าหลักใช้ไม่ได้แล้ว (ใช้ได้เฉพาะอีกด้านเท่านั้น)
+  reverseSideReason?: string;      // รายละเอียด/สภาพฟอยล์ เช่น หน้าขาวด่าง ใช้ได้เฉพาะด้านเงิน
   isZeroedOut?: boolean;     // ติ๊กตัดสต๊อกเป็น 0 (กรณีเหลือสีแดง <= 50 เมตร)
   manualZeroedOriginalMeters?: number; // เก็บค่าเมตรก่อนติ๊กเป็น 0 เพื่อนำกลับมาใช้ใหม่ได้
   depletedAt?: string;       // วันที่ม้วนหมดสต๊อก (YYYY-MM-DD หรือ ISO string)

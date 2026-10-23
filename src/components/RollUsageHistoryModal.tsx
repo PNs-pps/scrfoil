@@ -409,6 +409,11 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                   <span className="px-2 py-0.5 bg-white text-slate-700 border border-slate-200 text-xs rounded-md font-mono">
                     กว้าง {roll.width} มม.
                   </span>
+                  {roll.isReverseSideOnly && (
+                    <span className="px-2.5 py-1 bg-amber-500 text-slate-950 border border-amber-600 text-xs rounded-lg font-bold inline-flex items-center gap-1 shadow-2xs">
+                      <span>ใช้ได้เฉพาะอีกด้าน (หน้าหลักเสีย)</span>
+                    </span>
+                  )}
                   {isDepleted ? (
                     <span className="px-2.5 py-1 bg-slate-800 text-amber-300 border border-slate-700 text-xs rounded-lg font-bold inline-flex items-center gap-1.5 shadow-2xs">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -442,6 +447,19 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                   )}
                   {roll.notes && <span className="text-slate-600 block sm:inline sm:ml-2">หมายเหตุ: {roll.notes}</span>}
                 </p>
+                {roll.isReverseSideOnly && (
+                  <div className="mt-2 p-2.5 bg-amber-100/90 border border-amber-300 rounded-lg text-amber-950 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-bold">ฟอยล์เก่า / มีปัญหา:</strong> หน้าหลักใช้ไม่ได้แล้ว ใช้ได้เฉพาะอีกด้านเท่านั้น (เช่น ด้านเงิน)
+                      {roll.reverseSideReason && (
+                        <div className="text-amber-800 font-medium mt-0.5">
+                          สภาพ: {roll.reverseSideReason}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}
