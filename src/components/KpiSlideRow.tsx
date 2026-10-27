@@ -56,38 +56,41 @@ export const KpiSlideRow: React.FC<KpiSlideRowProps> = ({
         ref={scrollerRef}
         className="flex gap-2.5 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {cards.map((card) => (
-          <div
-            key={card.id}
-            className={`snap-center shrink-0 ${cardWidthClass} bg-white rounded-2xl border border-slate-200/80 shadow-sm p-3.5 flex flex-col min-h-[108px]`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide leading-tight">
-                {card.label}
-              </span>
-              {card.icon && (
-                <div
-                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                    card.iconClass || 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {card.icon}
-                </div>
-              )}
-            </div>
+        {cards.map((card, idx) => {
+          const delayClass = idx === 0 ? 'delay-1' : idx === 1 ? 'delay-2' : idx === 2 ? 'delay-3' : 'delay-4';
+          return (
             <div
-              className={`mt-2 text-xl sm:text-2xl font-bold font-mono tracking-tight ${
-                card.valueClass || 'text-slate-900'
-              }`}
+              key={card.id}
+              className={`card-luxury animate-fade-slide-up ${delayClass} snap-center shrink-0 ${cardWidthClass} p-3.5 flex flex-col min-h-[108px] transition-all`}
             >
-              {card.value}
-              {card.unit ? (
-                <span className="text-xs font-normal text-slate-400 ml-1">{card.unit}</span>
-              ) : null}
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide leading-tight">
+                  {card.label}
+                </span>
+                {card.icon && (
+                  <div
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                      card.iconClass || 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {card.icon}
+                  </div>
+                )}
+              </div>
+              <div
+                className={`mt-2 text-xl sm:text-2xl font-black font-mono tabular-nums tracking-tight ${
+                  card.valueClass || 'text-slate-900'
+                }`}
+              >
+                {card.value}
+                {card.unit ? (
+                  <span className="text-xs font-normal text-slate-400 ml-1 font-sans">{card.unit}</span>
+                ) : null}
+              </div>
+              {card.footer && <div className="mt-auto pt-2 text-[11px] text-slate-500">{card.footer}</div>}
             </div>
-            {card.footer && <div className="mt-auto pt-2 text-[11px] text-slate-500">{card.footer}</div>}
-          </div>
-        ))}
+          );
+        })}
       </div>
       {cards.length > 1 && (
         <div className="flex items-center justify-center gap-1.5">

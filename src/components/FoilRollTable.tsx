@@ -292,51 +292,20 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
         {/* Row 1: Lot + No. (Left) & ยอดคงเหลือ (Right) - Key Primary Elements */}
         <div className="flex items-center justify-between gap-2">
           {/* Left: Lot & No. with solid black background and increased font size */}
-          <div className="flex items-center gap-1.5 min-w-0">
-            <div className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs shrink-0">
-              <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">LOT.</span>
-              <span className="lot-number-display text-base font-black text-white leading-none tracking-wide">
-                {highlightMatch(roll.lotNumber, searchQuery)}
-              </span>
-              <span className="text-slate-600 font-bold text-xs">|</span>
-              <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">NO.</span>
-              <span className="lot-number-display text-base font-black text-amber-300 leading-none">
-                #{highlightMatch(roll.rollNumber, searchQuery)}
-              </span>
-            </div>
-            {isRollUnused(roll) && rollReservations.length === 0 && (
-              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 shrink-0">
-                เต็ม
-              </span>
-            )}
-            {rollReservations.length > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.2 rounded shrink-0 shadow-2xs" title={`จอง SO: ${soNumberList} (${formatMeters(totalReservedMeters)} ม.)`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                <span>จอง SO {soNumberList ? `(${soNumberList})` : ''}</span>
-              </span>
-            )}
-            {roll.isReverseSideOnly && (
-              <span
-                className="inline-flex items-center gap-1 text-[11px] font-black text-amber-950 bg-amber-400 border border-amber-500 px-1.5 py-0.2 rounded shadow-2xs shrink-0"
-                title={`ฟอยล์เก่า/มีปัญหา ใช้ได้เฉพาะอีกด้าน${roll.reverseSideReason ? `: ${roll.reverseSideReason}` : ''}`}
-              >
-                <span>ใช้เฉพาะอีกด้าน</span>
-              </span>
-            )}
-            {highlightLevel === 'red' && (
-              <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 shrink-0">
-                ≤50ม.
-              </span>
-            )}
-            {highlightLevel === 'yellow' && (
-              <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 shrink-0">
-                ≤200ม.
-              </span>
-            )}
+          <div className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs shrink-0">
+            <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">LOT.</span>
+            <span className="lot-number-display text-base font-black text-white leading-none tracking-wide">
+              {highlightMatch(roll.lotNumber, searchQuery)}
+            </span>
+            <span className="text-slate-600 font-bold text-xs">|</span>
+            <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">NO.</span>
+            <span className="lot-number-display text-base font-black text-amber-300 leading-none">
+              #{highlightMatch(roll.rollNumber, searchQuery)}
+            </span>
           </div>
 
           {/* Right: ยอดคงเหลือ (Bold & Clear) */}
-          <div className="flex items-baseline gap-1 shrink-0">
+          <div className="flex items-baseline gap-1 shrink-0 ml-auto">
             <span
               className={`font-mono font-extrabold text-base tracking-tight ${
                 isZeroed
@@ -352,7 +321,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             >
               {formatMeters(rem)}
             </span>
-            <span className="text-[10px] text-slate-400">ม.</span>
+            <span className="text-[10px] text-slate-400 font-sans">ม.</span>
             {isZeroed && (
               <span className="text-[11px] text-rose-600 font-bold ml-0.5 shrink-0">
                 (ตัด 0)
@@ -360,6 +329,41 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             )}
           </div>
         </div>
+
+        {/* Status badges row (wraps gracefully without compressing remaining meters) */}
+        {((isRollUnused(roll) && rollReservations.length === 0) || rollReservations.length > 0 || roll.isReverseSideOnly || highlightLevel === 'red' || highlightLevel === 'yellow') && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+            {isRollUnused(roll) && rollReservations.length === 0 && (
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 shrink-0">
+                ม้วนเต็ม
+              </span>
+            )}
+            {rollReservations.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shrink-0 shadow-2xs" title={`จอง SO: ${soNumberList} (${formatMeters(totalReservedMeters)} ม.)`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span>จอง SO {soNumberList ? `(${soNumberList})` : ''}</span>
+              </span>
+            )}
+            {roll.isReverseSideOnly && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-black text-amber-950 bg-amber-400 border border-amber-500 px-1.5 py-0.5 rounded shadow-2xs shrink-0"
+                title={`ฟอยล์เก่า/มีปัญหา ใช้ได้เฉพาะอีกด้าน${roll.reverseSideReason ? `: ${roll.reverseSideReason}` : ''}`}
+              >
+                <span>ใช้เฉพาะอีกด้าน</span>
+              </span>
+            )}
+            {highlightLevel === 'red' && (
+              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 shrink-0">
+                ≤50ม.
+              </span>
+            )}
+            {highlightLevel === 'yellow' && (
+              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 shrink-0">
+                ≤200ม.
+              </span>
+            )}
+          </div>
+        )}
 
         {/* หลอดไทม์ไลน์สถานะ 3 สี: เขียว (เหลือ), เหลือง (จอง), เทา (ใช้ไปแล้ว) */}
         <div className="w-full my-1.5">
@@ -1158,8 +1162,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   return (
     <div className="space-y-4">
 
-      {/* ปุ่มย้อนกลับเมื่อเข้า Archive / กรองหลายชั้น */}
-      {(statusFilter === 'depleted' || searchQuery.trim() || activeAdvCount > 0) && (
+      {/* ปุ่มย้อนกลับเมื่อเข้าคลังม้วนที่หมดแล้ว (Archive) */}
+      {statusFilter === 'depleted' && (
         <button
           type="button"
           onClick={() => {
@@ -1170,15 +1174,15 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             setAdvPattern('');
             setAdvWidth('');
           }}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-amber-300 text-xs font-bold shadow-sm cursor-pointer hover:bg-slate-800"
+          className="btn-tactile inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 text-amber-300 text-xs font-bold shadow-soft-xs cursor-pointer hover:bg-slate-800"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          กลับหน้ารายการม้วนทั้งหมด
+          <span>กลับหน้ารายการม้วนทั้งหมด</span>
         </button>
       )}
 
       {/* Top Controls: Search Bar & Filters */}
-      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
+      <div className="card-luxury p-4 sm:p-5 space-y-3.5">
         {/* Row 1: Search Bar (ความยาวเต็มพื้นที่) & ปุ่มค้นหาขั้นสูง Dropdown (ช่องกรอก: lot., no., ท้อง, หน้ากว้าง) */}
         <div className="flex items-center gap-2 sm:gap-3 w-full">
           {/* Main Search Input: เพิ่มความยาวเต็มพื้นที่ flex-1 ตามกรอบสีแดง */}
@@ -1207,7 +1211,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     <X className="w-4 h-4" />
                   </button>
                 ) : null}
-                <span className="text-[11px] font-mono text-slate-500 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200 hidden sm:inline">
+                <span className="text-[11px] font-mono tabular-nums text-slate-500 bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200 hidden sm:inline">
                   {filteredRolls.length}/{rolls.length} ม้วน
                 </span>
               </div>
@@ -1220,7 +1224,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             <button
               type="button"
               onClick={() => setIsAdvancedDropdownOpen((prev) => !prev)}
-              className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-xs cursor-pointer border ${
+              className={`btn-tactile inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-soft-xs cursor-pointer border ${
                 activeAdvCount > 0
                   ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 border-amber-500 ring-2 ring-amber-400/40'
                   : 'bg-amber-300 hover:bg-amber-400 text-amber-950 border-amber-400 hover:border-amber-500'

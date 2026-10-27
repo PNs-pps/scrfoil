@@ -119,14 +119,15 @@ interface SettingsBackupViewProps {
 }
 
 export type SettingsSubTab = 
-  | 'backup'       // สำรอง & กู้คืน (Auto Backup, Snapshots, Export/Import JSON, Reset)
-  | 'fullstack'    // เซิร์ฟเวอร์ Full-Stack (REST API, Persistent JSON Store, Seed Factory Data)
-  | 'excel'        // รายงาน Excel สำเร็จรูป (ฝ่ายบัญชี / ฝ่ายจัดซื้อ / สรุปภาพรวม)
-  | 'cycle_count'  // ตรวจนับสต๊อกจริง (Physical Cycle Count & History comparison)
-  | 'audit'        // ตรวจสอบ & บัค (Integrity Check & SO Audit Inspector)
-  | 'cloud'        // คลาวด์ & D1 (Firebase Sync, Cloudflare D1, Force Full Fetch, Rules)
-  | 'folders'      // โฟลเดอร์วันที่ (Date-grouped folders)
-  | 'mobile';      // ใช้งานบนมือถือ (PWA Mobile)
+  | 'backup'       // ข้อมูล & การสำรอง (Auto Backup, Snapshots, Export/Import JSON, โฟลเดอร์วันที่, Reset)
+  | 'cloud'        // คลาวด์ & ความปลอดภัย (Firebase Sync, สิทธิ์ผู้ใช้งาน, Sandbox, Cloudflare D1, Rules)
+  | 'audit'        // ตรวจนับสต๊อก & ตรวจสอบ (Cycle Count & Audit, Data Integrity, SO Inspector)
+  | 'display'      // การแสดงผล & อุปกรณ์ (รายงาน Excel, แอปมือถือ PWA, เซิร์ฟเวอร์ Full-Stack)
+  | 'excel'        // (เข้ากันได้ย้อนหลัง)
+  | 'cycle_count'  // (เข้ากันได้ย้อนหลัง)
+  | 'folders'      // (เข้ากันได้ย้อนหลัง)
+  | 'mobile'       // (เข้ากันได้ย้อนหลัง)
+  | 'fullstack';   // (เข้ากันได้ย้อนหลัง)
 
 export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
   rolls,
@@ -445,27 +446,16 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
               </h2>
             </div>
             <p className="text-xs sm:text-sm text-slate-600 mt-1">
-              จัดหมวดหมู่เครื่องมือการสำรองข้อมูล, ตรวจนับสต๊อกจริง, วินิจฉัยความถูกต้อง, ฐานข้อมูลคลาวด์ และโฟลเดอร์แยกตามวันที่
+              ศูนย์รวมการสำรองข้อมูล, ตรวจนับสต๊อกจริง, คลาวด์ & ความปลอดภัย และรายงานระบบ
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {onOpenExcelExport && (
-              <button
-                type="button"
-                onClick={onOpenExcelExport}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
-                title="ส่งออกรายงาน Excel สำเร็จรูป สำหรับฝ่ายบัญชีและฝ่ายจัดซื้อ"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-100" />
-                <span>รายงาน Excel</span>
-              </button>
-            )}
-
+          {/* Action buttons with tactile micro-interactions */}
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
             <button
               onClick={handleCreateManualSnapshot}
               disabled={isBackingUpNow}
-              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="btn-tactile px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-soft-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
               {isBackingUpNow ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -480,7 +470,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
                 type="button"
                 onClick={onDoubleBackup}
                 disabled={isDoubleBackingUp}
-                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="btn-tactile px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold shadow-soft-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 title="สำรอง 2 ชั้น (Firebase + จุดสำรองในเครื่อง)"
               >
                 {isDoubleBackingUp ? (
@@ -494,105 +484,84 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
           </div>
         </div>
 
-        {/* Sub Navigation Categorized Tabs */}
-        <div className="flex items-center gap-1.5 mt-5 border-t border-slate-100 pt-3.5 overflow-x-auto text-xs">
+        {/* Sub Navigation Categorized Tabs (4 Main Luxury Categories) */}
+        <div className="flex items-center gap-2 mt-5 border-t border-slate-100 pt-3.5 overflow-x-auto text-xs pb-1">
           <button
+            type="button"
             onClick={() => setActiveSubTab('backup')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'backup'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            className={`btn-tactile inline-flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeSubTab === 'backup' || activeSubTab === 'folders'
+                ? 'bg-slate-900 text-amber-400 shadow-soft-xs'
+                : 'bg-slate-100/90 text-slate-700 hover:bg-slate-200/80 hover:text-slate-950'
             }`}
           >
-            <Clock className="w-4 h-4" />
-            <span>สำรอง & กู้คืน</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('excel')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'excel'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-            <span>รายงาน Excel</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-900 font-bold">
-              3 รายงาน
+            <Clock className="w-4 h-4 text-amber-500" />
+            <span>ข้อมูล & การสำรอง</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md font-bold ${
+              activeSubTab === 'backup' || activeSubTab === 'folders'
+                ? 'bg-amber-400/20 text-amber-300'
+                : 'bg-slate-200 text-slate-700'
+            }`}>
+              {snapshots.length} จุด
             </span>
           </button>
 
           <button
-            onClick={() => setActiveSubTab('cycle_count')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'cycle_count'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            type="button"
+            onClick={() => setActiveSubTab('cloud')}
+            className={`btn-tactile inline-flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeSubTab === 'cloud'
+                ? 'bg-slate-900 text-amber-400 shadow-soft-xs'
+                : 'bg-slate-100/90 text-slate-700 hover:bg-slate-200/80 hover:text-slate-950'
             }`}
           >
-            <ClipboardList className="w-4 h-4 text-violet-500" />
-            <span>ตรวจนับสต๊อกจริง</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-violet-100 text-violet-900 font-bold">
+            <Database className="w-4 h-4 text-emerald-500" />
+            <span>คลาวด์ & ความปลอดภัย</span>
+            {syncStatus === 'permission-denied' ? (
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            ) : syncStatus === 'connected' ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            ) : null}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('audit')}
+            className={`btn-tactile inline-flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeSubTab === 'audit' || activeSubTab === 'cycle_count'
+                ? 'bg-slate-900 text-amber-400 shadow-soft-xs'
+                : 'bg-slate-100/90 text-slate-700 hover:bg-slate-200/80 hover:text-slate-950'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-blue-500" />
+            <span>ตรวจนับสต๊อก & ตรวจสอบ</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md font-bold ${
+              activeSubTab === 'audit' || activeSubTab === 'cycle_count'
+                ? 'bg-blue-400/20 text-blue-300'
+                : 'bg-slate-200 text-slate-700'
+            }`}>
               Cycle Count
             </span>
           </button>
 
           <button
-            onClick={() => setActiveSubTab('audit')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'audit'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            type="button"
+            onClick={() => setActiveSubTab('display')}
+            className={`btn-tactile inline-flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+              activeSubTab === 'display' || activeSubTab === 'excel' || activeSubTab === 'mobile' || activeSubTab === 'fullstack'
+                ? 'bg-slate-900 text-amber-400 shadow-soft-xs'
+                : 'bg-slate-100/90 text-slate-700 hover:bg-slate-200/80 hover:text-slate-950'
             }`}
           >
-            <ShieldCheck className="w-4 h-4 text-blue-500" />
-            <span>ตรวจสอบ & ตรวจบัค</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-900 font-bold">
-              2 ทูล
+            <Sparkles className="w-4 h-4 text-amber-500" />
+            <span>การแสดงผล & อุปกรณ์</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md font-bold ${
+              activeSubTab === 'display' || activeSubTab === 'excel' || activeSubTab === 'mobile' || activeSubTab === 'fullstack'
+                ? 'bg-amber-400/20 text-amber-300'
+                : 'bg-slate-200 text-slate-700'
+            }`}>
+              Excel · PWA
             </span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('cloud')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'cloud'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Database className="w-4 h-4 text-emerald-500" />
-            <span>คลาวด์</span>
-            {syncStatus === 'permission-denied' && (
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('folders')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'folders'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <FolderArchive className="w-4 h-4 text-amber-500" />
-            <span>โฟลเดอร์วันที่</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-amber-200 text-amber-950 font-bold">
-              {incomingDateFolders.length + cutsDateFolders.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('mobile')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeSubTab === 'mobile'
-                ? 'bg-slate-900 text-amber-400 shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Smartphone className="w-4 h-4 text-slate-500" />
-            <span>แอปมือถือ</span>
           </button>
         </div>
       </div>
@@ -600,7 +569,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {/* TAB 1: AUTO BACKUP, LOCAL SNAPSHOTS & EXPORT/IMPORT JSON                   */}
       {/* ========================================================================= */}
-      {activeSubTab === 'backup' && (
+      {(activeSubTab === 'backup' || activeSubTab === 'folders') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Settings Control Column */}
           <div className="lg:col-span-1 space-y-6">
@@ -842,7 +811,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {/* TAB: FULL-STACK SERVER & DATA HUB                                         */}
       {/* ========================================================================= */}
-      {activeSubTab === 'fullstack' && (
+      {(activeSubTab === 'display' || activeSubTab === 'fullstack') && (
         <div className="space-y-6">
           {/* Main Action Banner */}
           <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-5 sm:p-7 text-white shadow-md relative overflow-hidden border border-indigo-900/50">
@@ -989,7 +958,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {/* TAB: EXCEL REPORTS (ระบบส่งออกรายงาน Excel ฝ่ายบัญชี / จัดซื้อ / ผลิต)      */}
       {/* ========================================================================= */}
-      {activeSubTab === 'excel' && (
+      {(activeSubTab === 'display' || activeSubTab === 'excel') && (
         <div className="space-y-6">
           {/* Main Action Banner */}
           <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-2xl p-5 sm:p-7 text-white shadow-md relative overflow-hidden">
@@ -1170,7 +1139,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {/* TAB 2: CYCLE COUNT (ตรวจนับสต๊อกจริง & เปรียบเทียบงวด)                       */}
       {/* ========================================================================= */}
-      {activeSubTab === 'cycle_count' && (
+      {(activeSubTab === 'audit' || activeSubTab === 'cycle_count') && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1285,7 +1254,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {/* TAB 3: AUDIT & DIAGNOSTIC TOOLS (ตรวจสอบ & ตรวจบัค)                         */}
       {/* ========================================================================= */}
-      {activeSubTab === 'audit' && (
+      {(activeSubTab === 'audit' || activeSubTab === 'cycle_count') && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1854,7 +1823,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {/* TAB 5: DATE-SEPARATED FOLDERS (รับเข้า & ตัด SO)                           */}
       {/* ========================================================================= */}
-      {activeSubTab === 'folders' && (
+      {(activeSubTab === 'backup' || activeSubTab === 'folders') && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs">
             <div className="flex items-center justify-between">
@@ -2014,7 +1983,7 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
       {/* ========================================================================= */}
       {/* TAB 6: MOBILE ANDROID & IOS EXPERIENCE                                    */}
       {/* ========================================================================= */}
-      {activeSubTab === 'mobile' && (
+      {(activeSubTab === 'display' || activeSubTab === 'mobile') && (
         <div className="bg-white rounded-2xl p-5 sm:p-7 border border-slate-200 shadow-xs space-y-6">
           <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
             <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold">

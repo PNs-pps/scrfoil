@@ -1264,6 +1264,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                             onChange={(e) => handleSoLengthChange(row.id, e.target.value)}
                             onFocus={() => activateRow(row.id, 'soLengthMeters')}
                             onClick={() => activateRow(row.id, 'soLengthMeters')}
+                            onKeyDown={(e) => handleRowKeyDown(e, row, 'soLengthMeters')}
                             placeholder="เช่น 120.00 หรือ 250"
                             className={`w-full px-3 py-2 bg-white border rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
                               showTabletNumpad && activeNumpadTargetId === 'soLengthMeters' && activeRowId === row.id

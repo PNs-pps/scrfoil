@@ -327,18 +327,33 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   };
 
+  // Helper to reliably focus and select text without throwing on numeric inputs
+  const focusAndSelect = (el: HTMLInputElement | null) => {
+    if (!el) return;
+    el.focus();
+    try {
+      if (el.type === 'text') {
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      } else {
+        el.select();
+      }
+    } catch {
+      // Safe fallback if browser restricts selection
+    }
+  };
+
   // Order management
   const handleAddOrder = () => {
     const newOrder = createEmptyOrder(orders.length + 1, 'so');
     setOrders(prev => [...prev, newOrder]);
+    setActiveNumpadTargetId(`used-${newOrder.id}`);
     setTimeout(() => {
       const el = soInputRefs.current[newOrder.id];
       if (el) {
-        el.focus();
-        const len = el.value.length;
-        el.setSelectionRange(len, len);
+        focusAndSelect(el);
       }
-    }, 100);
+    }, 80);
   };
 
   const handleRemoveOrder = (orderId: string) => {
@@ -967,16 +982,20 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           id={`input-so-${order.id}`}
                           ref={(el) => { soInputRefs.current[order.id] = el; }}
                           type="text"
-                          tabIndex={1}
                           value={order.soNumber}
                           onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value })}
+                          onFocus={() => {
+                            setActiveNumpadTargetId(`used-${order.id}`);
+                          }}
+                          onClick={() => {
+                            setActiveNumpadTargetId(`used-${order.id}`);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
                               e.preventDefault();
                               const target = usedMetersInputRefs.current[order.id];
                               if (target) {
-                                target.focus();
-                                target.select();
+                                focusAndSelect(target);
                               }
                             }
                           }}
@@ -1168,7 +1187,6 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           type="number"
                           step="0.01"
                           min="0"
-                          tabIndex={2}
                           value={order.usedMeters}
                           onChange={(e) => handleUpdateOrder(order.id, { usedMeters: e.target.value })}
                           onFocus={() => {
@@ -1183,8 +1201,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                               // ต่อใบ: เมตร -> NG ของใบเดียวกัน
                               const target = ngMetersInputRefs.current[order.id];
                               if (target) {
-                                target.focus();
-                                target.select();
+                                focusAndSelect(target);
                               }
                             }
                           }}
@@ -1214,7 +1231,6 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           type="number"
                           step="0.01"
                           min="0"
-                          tabIndex={3}
                           value={order.ngMeters}
                           onChange={(e) => handleUpdateOrder(order.id, { ngMeters: e.target.value })}
                           onFocus={() => {
@@ -1229,14 +1245,13 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                               // ต่อใบ: NG -> SO ของใบถัดไป; ใบสุดท้ายแล้วจึงสร้างใบใหม่
                               // (ใบถัดไปเป็นแบบไม่มี SO ให้ไปที่ช่องเมตรที่ใช้แทน)
                               const nextOrder = orders[index + 1];
-                              const target = nextOrder
-                                ? (soInputRefs.current[nextOrder.id]
-                                  || usedMetersInputRefs.current[nextOrder.id]
-                                  || null)
-                                : null;
-                              if (target) {
-                                target.focus();
-                                target.select();
+                              if (nextOrder) {
+                                const target = nextOrder.cutType === 'so'
+                                  ? soInputRefs.current[nextOrder.id]
+                                  : usedMetersInputRefs.current[nextOrder.id];
+                                if (target) {
+                                  focusAndSelect(target);
+                                }
                               } else {
                                 handleAddOrder();
                               }

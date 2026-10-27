@@ -462,12 +462,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           ref={scrollerRef}
           className="flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-2 px-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {kpiCards.map((card) => {
+          {kpiCards.map((card, idx) => {
             const Icon = card.icon;
+            const delayClass = idx === 0 ? 'delay-1' : idx === 1 ? 'delay-2' : idx === 2 ? 'delay-3' : 'delay-4';
             return (
               <div
                 key={card.id}
-                className="snap-center shrink-0 w-[78vw] max-w-[280px] sm:w-[260px] bg-white rounded-2xl border border-slate-200/90 shadow-sm p-4 flex flex-col transition-all hover:border-slate-300"
+                className={`card-luxury animate-fade-slide-up ${delayClass} snap-center shrink-0 w-[78vw] max-w-[280px] sm:w-[260px] p-4 flex flex-col transition-all`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -481,16 +482,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     )}
                   </div>
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                    card.accent === 'amber' ? 'bg-amber-50 text-amber-600' :
-                    card.accent === 'emerald' ? 'bg-emerald-50 text-emerald-600' :
-                    card.accent === 'rose' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-700'
+                    card.accent === 'amber' ? 'bg-amber-50 text-amber-600 ring-1 ring-amber-500/20' :
+                    card.accent === 'emerald' ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20' :
+                    card.accent === 'rose' ? 'bg-rose-50 text-rose-600 ring-1 ring-rose-500/20' : 'bg-slate-100 text-slate-700'
                   }`}>
                     <Icon className="w-5 h-5 stroke-[2.2]" />
                   </div>
                 </div>
-                <div className="mt-3 text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-900">
+                <div className="mt-3 text-2xl sm:text-3xl font-black font-mono tabular-nums tracking-tight text-slate-900">
                   {card.value}{' '}
-                  <span className="text-sm font-normal text-slate-400">{card.unit}</span>
+                  <span className="text-xs font-normal text-slate-400 font-sans">{card.unit}</span>
                 </div>
                 <div className="mt-auto pt-3 border-t border-slate-100">{card.footer}</div>
               </div>

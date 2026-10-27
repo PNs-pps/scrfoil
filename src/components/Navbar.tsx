@@ -192,9 +192,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Right Controls: Excel Button (no .xlsx), Mode Switcher, Bug Inspector, Profile Avatar (Circle Only) */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            
-
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             {/* Excel Report Button — NO .xlsx suffix */}
             {onOpenExcelExport && (
               <button
@@ -202,9 +200,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={onOpenExcelExport}
                 title="ส่งออกรายงาน Excel สำเร็จรูป สำหรับฝ่ายบัญชีและฝ่ายจัดซื้อ"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group active:scale-95"
+                className="btn-tactile inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-soft-xs group"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700 group-hover:scale-110 transition-transform" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700 group-hover:scale-105 transition-transform" />
                 <span className="hidden xs:inline">รายงาน Excel</span>
               </button>
             )}
@@ -214,12 +212,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onUnlockEditor}
-                className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group active:scale-95"
+                className="btn-tactile inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold transition-all cursor-pointer shadow-soft-xs group"
                 title="คลิกเพื่อใส่รหัสผ่านและปลดล็อคโหมดคีย์ข้อมูล"
               >
-                <Lock className="w-3.5 h-3.5 text-amber-700 group-hover:scale-110 transition-transform" />
+                <Lock className="w-3.5 h-3.5 text-amber-700 group-hover:scale-105 transition-transform" />
                 <span className="hidden sm:inline">ผู้เข้าชม</span>
-                <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 text-[10px] font-bold">
+                <span className="px-1.5 py-0.2 rounded-md bg-amber-200 text-amber-950 text-[10px] font-bold">
                   ปลดล็อค
                 </span>
               </button>
@@ -227,12 +225,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onLockVisitor}
-                className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-2xs group active:scale-95"
+                className="btn-tactile inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold transition-all cursor-pointer shadow-soft-xs group"
                 title="คลิกเพื่อล็อคกลับสู่โหมดผู้เข้าชม"
               >
-                <Unlock className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                <Unlock className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-105 transition-transform" />
                 <span className="hidden sm:inline">คีย์ข้อมูล</span>
-                <span className="px-1.5 py-0.2 rounded bg-emerald-200 text-emerald-950 text-[10px] font-bold">
+                <span className="px-1.5 py-0.2 rounded-md bg-emerald-200 text-emerald-950 text-[10px] font-bold">
                   ล็อค
                 </span>
               </button>
@@ -243,7 +241,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onOpenSOAudit}
-                className="relative p-1.5 sm:p-2 rounded-lg text-slate-600 hover:text-amber-800 hover:bg-amber-50 border border-slate-200 hover:border-amber-200 transition-all cursor-pointer"
+                className="btn-tactile relative p-2 rounded-xl text-slate-600 hover:text-amber-800 hover:bg-amber-50 border border-slate-200 hover:border-amber-200 transition-all cursor-pointer shadow-soft-xs"
                 title={
                   soBugCount && soBugCount > 0
                     ? `ตรวจหาบัค SO (${soBugCount} ม้วน)`
@@ -349,7 +347,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 id="btn-add-foil"
                 onClick={onOpenAddModal}
-                className="h-9 px-2 sm:px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all duration-200 shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
+                className="btn-tactile h-9 px-2 sm:px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-soft-xs cursor-pointer flex items-center justify-center gap-1.5"
               >
                 {userMode === 'visitor' ? (
                   <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -364,7 +362,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 id="btn-cut-foil"
                 onClick={() => onOpenCutModal('so')}
                 title="ตัดสต๊อกฟอยล์ (บันทึก SO หรือตัดไม่ใช้ SO)"
-                className="h-9 px-2 sm:px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all duration-200 shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-amber-600/30"
+                className="btn-tactile h-9 px-2 sm:px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shadow-soft-xs cursor-pointer flex items-center justify-center gap-1.5 border border-amber-600/30"
               >
                 {userMode === 'visitor' ? (
                   <Lock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
@@ -379,7 +377,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 id="btn-cut-pu-sandwich"
                 onClick={onOpenPuSandwichModal}
                 title="ตัดสต๊อกแซนวิช (บันทึก SO ผลิต PU Sandwich ไม่ใช้ฟอยล์)"
-                className="h-9 px-2 sm:px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all duration-200 shadow-xs active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-700/30"
+                className="btn-tactile h-9 px-2 sm:px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-soft-xs cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-700/30"
               >
                 {userMode === 'visitor' ? (
                   <Lock className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
@@ -396,7 +394,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               onClick={activeTab === 'history' ? onExportHistory : onExportRolls}
               title="ส่งออกข้อมูลสำรอง CSV"
-              className="hidden sm:flex h-9 w-9 items-center justify-center rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200 shrink-0"
+              className="btn-tactile hidden sm:flex h-9 w-9 items-center justify-center rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer border border-slate-200 shrink-0 shadow-soft-xs"
             >
               <Download className="w-4 h-4" />
             </button>
