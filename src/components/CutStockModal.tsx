@@ -24,7 +24,9 @@ import {
   ShieldAlert,
   Lock,
   Calculator,
-  Clock
+  Clock,
+  SlidersHorizontal,
+  ChevronDown
 } from 'lucide-react';
 import { TouchNumpad, TouchNumpadTarget } from './TouchNumpad';
 import { FoilStatusTube } from './FoilStatusTube';
@@ -327,9 +329,12 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   };
 
-  // Helper to reliably focus and select text without throwing on numeric inputs
+  const pendingFocusOrderIdRef = useRef<string | null>(null);
+
+  // Helper to reliably focus, scroll into view, and select text without throwing on numeric inputs
   const focusAndSelect = (el: HTMLInputElement | null) => {
     if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     el.focus();
     try {
       if (el.type === 'text') {
@@ -343,17 +348,35 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   };
 
-  // Order management
+  // Focus newly added order's SO input as soon as it mounts in the DOM
+  useEffect(() => {
+    if (pendingFocusOrderIdRef.current) {
+      const targetId = pendingFocusOrderIdRef.current;
+      const el = soInputRefs.current[targetId];
+      if (el) {
+        focusAndSelect(el);
+        pendingFocusOrderIdRef.current = null;
+      }
+    }
+  }, [orders]);
+
+  // Order management: สร้างใบงาน SO ใหม่ และโฟกัสไปที่ช่องกรอก SO ทันที
   const handleAddOrder = () => {
     const newOrder = createEmptyOrder(orders.length + 1, 'so');
+    pendingFocusOrderIdRef.current = newOrder.id;
     setOrders(prev => [...prev, newOrder]);
     setActiveNumpadTargetId(`used-${newOrder.id}`);
-    setTimeout(() => {
+
+    // Robust multi-tier focus trigger with requestAnimationFrame polling
+    const tryFocus = (attempt = 0) => {
       const el = soInputRefs.current[newOrder.id];
       if (el) {
         focusAndSelect(el);
+      } else if (attempt < 12) {
+        requestAnimationFrame(() => tryFocus(attempt + 1));
       }
-    }, 80);
+    };
+    requestAnimationFrame(() => tryFocus(0));
   };
 
   const handleRemoveOrder = (orderId: string) => {
@@ -575,8 +598,19 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       return;
     }
 
+    // ตัดแถวว่างที่เกิดจากการกด Enter บนช่อง NG รายการสุดท้ายออกอัตโนมัติ (หากไม่ได้กรอกเมตร)
+    let candidateOrders = [...orders];
+    if (candidateOrders.length > 1) {
+      const lastIdx = candidateOrders.length - 1;
+      const last = candidateOrders[lastIdx];
+      const lastCalc = orderCalculations[lastIdx];
+      if (lastCalc && lastCalc.numUsed <= 0 && lastCalc.numNg <= 0 && (!last.notes || !last.notes.trim())) {
+        candidateOrders = candidateOrders.slice(0, -1);
+      }
+    }
+
     // Validate each order line
-    for (let i = 0; i < orders.length; i++) {
+    for (let i = 0; i < candidateOrders.length; i++) {
       const ord = orders[i];
       const calc = orderCalculations[i];
 
@@ -904,7 +938,66 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             )}
           </div>
 
-          {/* 2. ฟอร์มกรอก SO ตรงกลาง */}
+          {/* ข้อมูลช่างผู้บันทึก & วันที่ตัดฟอยล์ (กำหนดครั้งเดียวสำหรับชุดใบงานนี้) */}
+          <div className="p-3.5 bg-gradient-to-r from-slate-50 via-slate-50 to-amber-50/50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs">
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="input-operator" className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-amber-600" />
+                  <span>ช่างผู้บันทึก / ผู้ตัดฟอยล์</span>
+                  <span className="text-rose-500">*</span>
+                </label>
+                {recentOperators.length > 0 && (
+                  <span className="text-[10px] text-slate-400">เลือกเร็ว:</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id="input-operator"
+                  type="text"
+                  required
+                  value={recordedBy}
+                  onChange={(e) => setRecordedBy(e.target.value)}
+                  placeholder="เช่น สมชาย, ช่างคุมเครื่อง"
+                  className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:border-amber-500 text-slate-900 font-medium"
+                />
+                {recentOperators.length > 0 && (
+                  <div className="hidden sm:flex items-center gap-1">
+                    {recentOperators.slice(0, 3).map((op) => (
+                      <button
+                        key={op}
+                        type="button"
+                        onClick={() => setRecordedBy(op)}
+                        className={`text-[10px] px-2 py-1 rounded-md border font-medium transition-colors cursor-pointer ${
+                          recordedBy === op
+                            ? 'bg-amber-500 text-slate-950 border-amber-600 font-bold'
+                            : 'bg-white hover:bg-amber-100 hover:text-amber-900 text-slate-600 border-slate-200'
+                        }`}
+                      >
+                        {op}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="w-full sm:w-44">
+              <label htmlFor="input-usage-date" className="block text-xs font-bold text-slate-800 mb-1 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                <span>วันที่ตัดใช้งาน</span>
+              </label>
+              <input
+                id="input-usage-date"
+                type="date"
+                value={usageDate}
+                onChange={(e) => setUsageDate(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:border-amber-500 text-slate-900 font-mono font-medium"
+              />
+            </div>
+          </div>
+
+          {/* 2. ฟอร์มกรอก SO: ลูปความเร็วสูง SO > เมตร > NG > สร้าง SO ใหม่ */}
           <div className="space-y-3">
             {orders.map((order, index) => {
               const orderCalc = orderCalculations[index];
@@ -968,16 +1061,21 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Single Consolidated SO Input Field with Default Prefix */}
+                  {/* ลูปกรอกข้อมูลตัดฟอยล์แบบตรงจุด: SO > เมตร > NG */}
                   {order.cutType === 'so' ? (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
+                      {/* ช่อง 1: เลขที่ใบสั่งซื้อ / SO */}
                       <div>
-                        <label 
-                          htmlFor={`input-so-${order.id}`}
-                          className="block text-xs font-semibold text-slate-700 mb-1"
-                        >
-                          เลขที่ใบสั่งซื้อ / SO <span className="text-rose-500">*</span>
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label 
+                            htmlFor={`input-so-${order.id}`}
+                            className="text-xs font-bold text-slate-800 flex items-center gap-1.5"
+                          >
+                            <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] flex items-center justify-center">1</span>
+                            <span>เลขที่ใบสั่งซื้อ / SO</span>
+                            <span className="text-rose-500">*</span>
+                          </label>
+                        </div>
                         <input
                           id={`input-so-${order.id}`}
                           ref={(el) => { soInputRefs.current[order.id] = el; }}
@@ -991,8 +1089,14 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                             setActiveNumpadTargetId(`used-${order.id}`);
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                               e.preventDefault();
+                              e.currentTarget.form?.requestSubmit();
+                              return;
+                            }
+                            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                              e.preventDefault();
+                              e.stopPropagation();
                               const target = usedMetersInputRefs.current[order.id];
                               if (target) {
                                 focusAndSelect(target);
@@ -1000,279 +1104,400 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                             }
                           }}
                           placeholder={`เช่น ${defaultSoPrefix}500`}
-                          className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal"
+                          className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 placeholder:text-slate-400 placeholder:font-normal"
                         />
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] font-semibold text-slate-500 mr-0.5">รอบผลิต:</span>
-                          {['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4'].map((r) => (
-                            <button
-                              key={r}
-                              type="button"
-                              onClick={() =>
-                                handleUpdateOrder(order.id, {
-                                  productionRound: order.productionRound === r ? '' : r,
-                                })
-                              }
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
-                                order.productionRound === r
-                                  ? 'bg-amber-500 text-slate-950 border-amber-600'
-                                  : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
-                              }`}
+                      </div>
+
+                      {/* ช่อง 2 & 3: จำนวนเมตรที่ใช้ & NG หัวท้าย (อยู่เรียงติดกันทันที ไม่ถูกคั่นด้วยรอบหรือหมายเหตุ) */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label 
+                              htmlFor={`input-used-${order.id}`}
+                              className="text-xs font-bold text-slate-800 flex items-center gap-1.5"
                             >
-                              {r}
-                            </button>
-                          ))}
-                          <input
-                            type="text"
-                            value={
-                              ['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4'].includes(order.productionRound || '')
-                                ? ''
-                                : order.productionRound || ''
-                            }
-                            onChange={(e) =>
-                              handleUpdateOrder(order.id, { productionRound: e.target.value })
-                            }
-                            placeholder="อื่นๆ"
-                            className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded-md font-mono"
-                          />
+                              <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] flex items-center justify-center">2</span>
+                              <span>จำนวนเมตรที่ใช้ (ม.)</span>
+                              <span className="text-rose-500">*</span>
+                            </label>
+                          </div>
+                          <div className="relative">
+                            <input
+                              id={`input-used-${order.id}`}
+                              ref={(el) => { usedMetersInputRefs.current[order.id] = el; }}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={order.usedMeters}
+                              onChange={(e) => handleUpdateOrder(order.id, { usedMeters: e.target.value })}
+                              onFocus={() => {
+                                setActiveNumpadTargetId(`used-${order.id}`);
+                              }}
+                              onClick={() => {
+                                setActiveNumpadTargetId(`used-${order.id}`);
+                              }}
+                              onKeyDown={(e) => {
+                                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                  e.preventDefault();
+                                  e.currentTarget.form?.requestSubmit();
+                                  return;
+                                }
+                                if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  // ต่อใบ: เมตร -> NG ของใบเดียวกัน
+                                  const target = ngMetersInputRefs.current[order.id];
+                                  if (target) {
+                                    focusAndSelect(target);
+                                  }
+                                }
+                              }}
+                              placeholder="เช่น 150.00"
+                              required
+                              className={`w-full px-3 py-2 text-base font-bold font-mono text-slate-900 bg-white border rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 placeholder:text-slate-400 placeholder:font-normal transition-all ${
+                                showTabletNumpad && (activeNumpadTargetId === `used-${order.id}` || (!activeNumpadTargetId && index === 0))
+                                  ? 'border-amber-500 ring-2 ring-amber-400/80 bg-amber-50/20'
+                                  : 'border-slate-300'
+                              }`}
+                            />
+                            <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">ม.</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label 
+                              htmlFor={`input-ng-${order.id}`}
+                              className="text-xs font-bold text-slate-800 flex items-center gap-1.5"
+                            >
+                              <span className="w-4 h-4 rounded-full bg-rose-500 text-white font-black text-[10px] flex items-center justify-center">3</span>
+                              <span>NG หัวท้าย (ม.)</span>
+                            </label>
+                          </div>
+                          <div className="relative">
+                            <input
+                              id={`input-ng-${order.id}`}
+                              ref={(el) => { ngMetersInputRefs.current[order.id] = el; }}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={order.ngMeters}
+                              onChange={(e) => handleUpdateOrder(order.id, { ngMeters: e.target.value })}
+                              onFocus={() => {
+                                setActiveNumpadTargetId(`ng-${order.id}`);
+                              }}
+                              onClick={() => {
+                                setActiveNumpadTargetId(`ng-${order.id}`);
+                              }}
+                              onKeyDown={(e) => {
+                                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                  e.preventDefault();
+                                  e.currentTarget.form?.requestSubmit();
+                                  return;
+                                }
+                                if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  // ลูปอัตโนมัติ: SO > เมตร > NG > สร้าง SO ใหม่ > เมตร > NG
+                                  const nextOrder = orders[index + 1];
+                                  if (nextOrder) {
+                                    const target = nextOrder.cutType === 'so'
+                                      ? soInputRefs.current[nextOrder.id]
+                                      : usedMetersInputRefs.current[nextOrder.id];
+                                    if (target) {
+                                      focusAndSelect(target);
+                                    }
+                                  } else {
+                                    handleAddOrder();
+                                  }
+                                }
+                              }}
+                              placeholder="0.00"
+                              className={`w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border rounded-lg focus:border-rose-400 focus:ring-2 focus:ring-rose-300/50 placeholder:text-slate-400 placeholder:font-normal transition-all ${
+                                showTabletNumpad && activeNumpadTargetId === `ng-${order.id}`
+                                  ? 'border-rose-500 ring-2 ring-rose-400/80 bg-rose-50/20'
+                                  : 'border-slate-300'
+                              }`}
+                            />
+                            <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">ม.</span>
+                          </div>
                         </div>
                       </div>
 
-                      {/* ตัวเลือกท้อง — ชิปเลือกสีเงิน/ขาว ชัดเจน พร้อมจุดสีคอนทราสต์สูงและไอคอน Check */}
-                      <div className="pt-1.5 space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-700">ตัวเลือกท้องพิเศษ (ถ้ามี):</span>
-                          {(order.isSilverSide || order.isWhiteSide) && (
-                            <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300">
-                              เลือก: {order.isSilverSide ? 'ท้องเงิน' : 'ท้องขาว'}
-                            </span>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-2.5">
-                          {/* ปุ่มเลือก ท้องเงิน */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleUpdateOrder(order.id, {
-                                isSilverSide: !order.isSilverSide,
-                                isWhiteSide: false,
-                              })
-                            }
-                            className={`flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer shadow-xs ${
-                              order.isSilverSide
-                                ? 'bg-slate-900 text-white border-slate-950 ring-2 ring-slate-400/40 shadow-sm'
-                                : 'bg-slate-50/80 text-slate-800 border-slate-300 hover:border-slate-500 hover:bg-slate-100'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              {/* จุดสีเงินเมทัลลิก ชัดเจน คอนทราสต์สูง */}
-                              <span
-                                className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center shadow-xs ${
+                      {/* ตัวเลือกเสริม (รอบผลิต / ท้องพิเศษ / หมายเหตุ): พับเก็บได้ ไม่บังทางลูปตัดเร็ว */}
+                      <details 
+                        className="pt-2 border-t border-slate-100 text-xs group"
+                        open={Boolean(order.productionRound || order.isSilverSide || order.isWhiteSide || order.notes)}
+                      >
+                        <summary className="cursor-pointer list-none flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors select-none">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+                            <span>ตัวเลือกเสริม (รอบผลิต / ท้องพิเศษ / หมายเหตุ)</span>
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {order.productionRound && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold text-[10px]">
+                                {order.productionRound}
+                              </span>
+                            )}
+                            {order.isSilverSide && (
+                              <span className="px-1.5 py-0.5 rounded bg-slate-900 text-amber-300 font-bold text-[10px]">
+                                ท้องเงิน
+                              </span>
+                            )}
+                            {order.isWhiteSide && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-200 text-amber-950 font-bold text-[10px]">
+                                ท้องขาว
+                              </span>
+                            )}
+                            {order.notes && (
+                              <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-medium text-[10px]">
+                                มีหมายเหตุ
+                              </span>
+                            )}
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 transition-transform group-open:rotate-180" />
+                          </div>
+                        </summary>
+
+                        <div className="pt-2.5 space-y-2.5 pl-1 pr-1">
+                          {/* รอบผลิต */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] font-semibold text-slate-500 mr-0.5">รอบผลิต:</span>
+                            {['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4'].map((r) => (
+                              <button
+                                key={r}
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateOrder(order.id, {
+                                    productionRound: order.productionRound === r ? '' : r,
+                                  })
+                                }
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  order.productionRound === r
+                                    ? 'bg-amber-500 text-slate-950 border-amber-600'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
+                                }`}
+                              >
+                                {r}
+                              </button>
+                            ))}
+                            <input
+                              type="text"
+                              value={
+                                ['รอบ 1', 'รอบ 2', 'รอบ 3', 'รอบ 4'].includes(order.productionRound || '')
+                                  ? ''
+                                  : order.productionRound || ''
+                              }
+                              onChange={(e) =>
+                                handleUpdateOrder(order.id, { productionRound: e.target.value })
+                              }
+                              placeholder="อื่นๆ"
+                              className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded-md font-mono"
+                            />
+                          </div>
+
+                          {/* ตัวเลือกท้องพิเศษ (ถ้ามี) */}
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-bold text-slate-600">ตัวเลือกท้องพิเศษ:</span>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateOrder(order.id, {
+                                    isSilverSide: !order.isSilverSide,
+                                    isWhiteSide: false,
+                                  })
+                                }
+                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                                   order.isSilverSide
-                                    ? 'bg-gradient-to-br from-slate-200 via-white to-slate-400 border border-white ring-2 ring-amber-400'
-                                    : 'bg-gradient-to-br from-slate-300 via-zinc-100 to-slate-500 border border-slate-400'
+                                    ? 'bg-slate-900 text-white border-slate-950 ring-1 ring-slate-400'
+                                    : 'bg-slate-50/80 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
-                                aria-hidden="true"
                               >
-                                {order.isSilverSide && <Check className="w-2.5 h-2.5 text-slate-900 stroke-[3]" />}
-                              </span>
-                              <span className="font-extrabold">ท้องเงิน</span>
-                            </div>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                              order.isSilverSide ? 'bg-slate-800 text-amber-300' : 'bg-slate-200 text-slate-600'
-                            }`}>
-                              {order.isSilverSide ? 'เปิดใช้งาน' : 'กดเพื่อเลือก'}
-                            </span>
-                          </button>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${
+                                    order.isSilverSide ? 'bg-gradient-to-br from-slate-200 via-white to-slate-400' : 'bg-slate-300'
+                                  }`}>
+                                    {order.isSilverSide && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
+                                  </span>
+                                  <span>ท้องเงิน</span>
+                                </div>
+                                <span className="text-[10px]">{order.isSilverSide ? 'ใช้งาน' : 'เลือก'}</span>
+                              </button>
 
-                          {/* ปุ่มเลือก ท้องขาว */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleUpdateOrder(order.id, {
-                                isWhiteSide: !order.isWhiteSide,
-                                isSilverSide: false,
-                              })
-                            }
-                            className={`flex items-center justify-between px-3 py-2.5 rounded-xl border-2 text-xs font-bold transition-all cursor-pointer shadow-xs ${
-                              order.isWhiteSide
-                                ? 'bg-amber-50 text-slate-950 border-amber-500 ring-2 ring-amber-400/40 shadow-sm'
-                                : 'bg-slate-50/80 text-slate-800 border-slate-300 hover:border-slate-500 hover:bg-slate-100'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              {/* จุดสีขาวบริสุทธิ์ ขอบเข้มชัดเจน คอนทราสต์สูง */}
-                              <span
-                                className={`w-4 h-4 rounded-full shrink-0 flex items-center justify-center shadow-xs ${
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateOrder(order.id, {
+                                    isWhiteSide: !order.isWhiteSide,
+                                    isSilverSide: false,
+                                  })
+                                }
+                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                                   order.isWhiteSide
-                                    ? 'bg-white border-2 border-slate-950 ring-2 ring-amber-400'
-                                    : 'bg-white border-2 border-slate-500'
+                                    ? 'bg-amber-100 text-amber-950 border-amber-500 ring-1 ring-amber-400'
+                                    : 'bg-slate-50/80 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
-                                aria-hidden="true"
                               >
-                                {order.isWhiteSide && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
-                              </span>
-                              <span className="font-extrabold">ท้องขาว</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border ${
+                                    order.isWhiteSide ? 'bg-white border-amber-600' : 'bg-white border-slate-400'
+                                  }`}>
+                                    {order.isWhiteSide && <Check className="w-2.5 h-2.5 text-amber-950 stroke-[3]" />}
+                                  </span>
+                                  <span>ท้องขาว</span>
+                                </div>
+                                <span className="text-[10px]">{order.isWhiteSide ? 'ใช้งาน' : 'เลือก'}</span>
+                              </button>
                             </div>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                              order.isWhiteSide ? 'bg-amber-200 text-amber-950 font-bold' : 'bg-slate-200 text-slate-600'
-                            }`}>
-                              {order.isWhiteSide ? 'เปิดใช้งาน' : 'กดเพื่อเลือก'}
-                            </span>
-                          </button>
+                          </div>
+
+                          {/* หมายเหตุเพิ่มเติม */}
+                          <div>
+                            <input
+                              type="text"
+                              value={order.notes}
+                              onChange={(e) => handleUpdateOrder(order.id, { notes: e.target.value })}
+                              placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
+                              className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-amber-500"
+                            />
+                          </div>
                         </div>
-                      </div>
+                      </details>
                     </div>
                   ) : (
                     /* Non-SO Reason selector */
-                    <div className="p-2.5 bg-purple-50/60 border border-purple-200 rounded-lg space-y-2">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                        {['สาขายืม', 'ซ่อมฟอยล์พ่นกาว', 'ทดสอบไลน์ผลิต / ตัวอย่าง', 'อื่นๆ'].map((type) => (
-                          <button
-                            key={type}
-                            type="button"
-                            onClick={() => handleUpdateOrder(order.id, { nonSoReasonType: type })}
-                            className={`px-2 py-1 rounded-md border text-xs font-medium text-center transition-all cursor-pointer ${
-                              order.nonSoReasonType === type
-                                ? 'bg-purple-700 text-white border-purple-800 font-semibold shadow-2xs'
-                                : 'bg-white text-slate-700 border-slate-200 hover:bg-purple-50'
-                            }`}
-                          >
-                            {type}
-                          </button>
-                        ))}
+                    <div className="space-y-3">
+                      <div className="p-2.5 bg-purple-50/60 border border-purple-200 rounded-lg space-y-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                          {['สาขายืม', 'ซ่อมฟอยล์พ่นกาว', 'ทดสอบไลน์ผลิต / ตัวอย่าง', 'อื่นๆ'].map((type) => (
+                            <button
+                              key={type}
+                              type="button"
+                              onClick={() => handleUpdateOrder(order.id, { nonSoReasonType: type })}
+                              className={`px-2 py-1 rounded-md border text-xs font-medium text-center transition-all cursor-pointer ${
+                                order.nonSoReasonType === type
+                                  ? 'bg-purple-700 text-white border-purple-800 font-semibold shadow-2xs'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-purple-50'
+                              }`}
+                            >
+                              {type}
+                            </button>
+                          ))}
+                        </div>
+
+                        {order.nonSoReasonType === 'สาขายืม' && (
+                          <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4 text-purple-600 shrink-0" />
+                            <input
+                              type="text"
+                              value={order.branchName}
+                              onChange={(e) => handleUpdateOrder(order.id, { branchName: e.target.value })}
+                              placeholder="ระบุชื่อสาขาที่ยืม เช่น สาขาพัทยา, สาขานิคมฯ"
+                              className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600"
+                            />
+                          </div>
+                        )}
+
+                        {order.nonSoReasonType === 'อื่นๆ' && (
+                          <div className="flex items-center gap-2">
+                            <Wrench className="w-4 h-4 text-purple-600 shrink-0" />
+                            <input
+                              type="text"
+                              value={order.customNonSoReason}
+                              onChange={(e) => handleUpdateOrder(order.id, { customNonSoReason: e.target.value })}
+                              placeholder="ระบุเหตุผลการตัด เช่น เคลมเปลี่ยนม้วน, ตัวอย่าง"
+                              className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600"
+                            />
+                          </div>
+                        )}
                       </div>
 
-                      {order.nonSoReasonType === 'สาขายืม' && (
-                        <div className="flex items-center gap-2">
-                          <Building2 className="w-4 h-4 text-purple-600 shrink-0" />
-                          <input
-                            type="text"
-                            value={order.branchName}
-                            onChange={(e) => handleUpdateOrder(order.id, { branchName: e.target.value })}
-                            placeholder="ระบุชื่อสาขาที่ยืม เช่น สาขาพัทยา, สาขานิคมฯ"
-                            className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600"
-                          />
+                      {/* จำนวนเมตร & NG สำหรับ Non-SO */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label 
+                            htmlFor={`input-used-${order.id}`}
+                            className="block text-xs font-semibold text-slate-700 mb-1"
+                          >
+                            จำนวนเมตรที่ใช้ (ม.) <span className="text-rose-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              id={`input-used-${order.id}`}
+                              ref={(el) => { usedMetersInputRefs.current[order.id] = el; }}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={order.usedMeters}
+                              onChange={(e) => handleUpdateOrder(order.id, { usedMeters: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const target = ngMetersInputRefs.current[order.id];
+                                  if (target) focusAndSelect(target);
+                                }
+                              }}
+                              placeholder="เช่น 150.00"
+                              required
+                              className="w-full px-3 py-2 text-base font-bold font-mono text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500"
+                            />
+                            <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
+                          </div>
                         </div>
-                      )}
 
-                      {order.nonSoReasonType === 'อื่นๆ' && (
-                        <div className="flex items-center gap-2">
-                          <Wrench className="w-4 h-4 text-purple-600 shrink-0" />
-                          <input
-                            type="text"
-                            value={order.customNonSoReason}
-                            onChange={(e) => handleUpdateOrder(order.id, { customNonSoReason: e.target.value })}
-                            placeholder="ระบุเหตุผลการตัด เช่น เคลมเปลี่ยนม้วน, ตัวอย่าง"
-                            className="flex-1 px-3 py-1.5 text-xs bg-white border border-purple-300 rounded-lg focus:border-purple-600"
-                          />
+                        <div>
+                          <label 
+                            htmlFor={`input-ng-${order.id}`}
+                            className="block text-xs font-semibold text-slate-700 mb-1"
+                          >
+                            NG หัวท้าย (ยอดรวม) (ม.)
+                          </label>
+                          <div className="relative">
+                            <input
+                              id={`input-ng-${order.id}`}
+                              ref={(el) => { ngMetersInputRefs.current[order.id] = el; }}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={order.ngMeters}
+                              onChange={(e) => handleUpdateOrder(order.id, { ngMeters: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const nextOrder = orders[index + 1];
+                                  if (nextOrder) {
+                                    const target = nextOrder.cutType === 'so'
+                                      ? soInputRefs.current[nextOrder.id]
+                                      : usedMetersInputRefs.current[nextOrder.id];
+                                    if (target) focusAndSelect(target);
+                                  } else {
+                                    handleAddOrder();
+                                  }
+                                }
+                              }}
+                              placeholder="0.00"
+                              className="w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border border-slate-300 rounded-lg focus:border-rose-400"
+                            />
+                            <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
+                          </div>
                         </div>
-                      )}
+                      </div>
+
+                      {/* หมายเหตุ */}
+                      <input
+                        type="text"
+                        value={order.notes}
+                        onChange={(e) => handleUpdateOrder(order.id, { notes: e.target.value })}
+                        placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
+                        className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-amber-500"
+                      />
                     </div>
                   )}
 
-                  {/* Grid 2 Columns: จำนวนเมตรที่ใช้ & เศษเสีย NG */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label 
-                        htmlFor={`input-used-${order.id}`}
-                        className="block text-xs font-semibold text-slate-700 mb-1"
-                      >
-                        จำนวนเมตรที่ใช้ (ม.) <span className="text-rose-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <input
-                          id={`input-used-${order.id}`}
-                          ref={(el) => { usedMetersInputRefs.current[order.id] = el; }}
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={order.usedMeters}
-                          onChange={(e) => handleUpdateOrder(order.id, { usedMeters: e.target.value })}
-                          onFocus={() => {
-                            setActiveNumpadTargetId(`used-${order.id}`);
-                          }}
-                          onClick={() => {
-                            setActiveNumpadTargetId(`used-${order.id}`);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
-                              e.preventDefault();
-                              // ต่อใบ: เมตร -> NG ของใบเดียวกัน
-                              const target = ngMetersInputRefs.current[order.id];
-                              if (target) {
-                                focusAndSelect(target);
-                              }
-                            }
-                          }}
-                          placeholder="เช่น 150.00"
-                          required
-                          className={`w-full px-3 py-2 text-base font-bold font-mono text-slate-900 bg-white border rounded-lg focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400 placeholder:font-normal transition-all ${
-                            showTabletNumpad && (activeNumpadTargetId === `used-${order.id}` || (!activeNumpadTargetId && index === 0))
-                              ? 'border-amber-500 ring-2 ring-amber-400/80 bg-amber-50/20'
-                              : 'border-slate-300'
-                          }`}
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label 
-                        htmlFor={`input-ng-${order.id}`}
-                        className="block text-xs font-semibold text-slate-700 mb-1"
-                      >
-                        NG หัวท้าย (ยอดรวม) (ม.)
-                      </label>
-                      <div className="relative">
-                        <input
-                          id={`input-ng-${order.id}`}
-                          ref={(el) => { ngMetersInputRefs.current[order.id] = el; }}
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={order.ngMeters}
-                          onChange={(e) => handleUpdateOrder(order.id, { ngMeters: e.target.value })}
-                          onFocus={() => {
-                            setActiveNumpadTargetId(`ng-${order.id}`);
-                          }}
-                          onClick={() => {
-                            setActiveNumpadTargetId(`ng-${order.id}`);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
-                              e.preventDefault();
-                              // ต่อใบ: NG -> SO ของใบถัดไป; ใบสุดท้ายแล้วจึงสร้างใบใหม่
-                              // (ใบถัดไปเป็นแบบไม่มี SO ให้ไปที่ช่องเมตรที่ใช้แทน)
-                              const nextOrder = orders[index + 1];
-                              if (nextOrder) {
-                                const target = nextOrder.cutType === 'so'
-                                  ? soInputRefs.current[nextOrder.id]
-                                  : usedMetersInputRefs.current[nextOrder.id];
-                                if (target) {
-                                  focusAndSelect(target);
-                                }
-                              } else {
-                                handleAddOrder();
-                              }
-                            }
-                          }}
-                          placeholder="0.00"
-                          className={`w-full px-3 py-2 text-base font-bold font-mono text-rose-600 bg-white border rounded-lg focus:border-rose-400 focus:ring-1 focus:ring-rose-400 placeholder:text-slate-400 placeholder:font-normal transition-all ${
-                            showTabletNumpad && activeNumpadTargetId === `ng-${order.id}`
-                              ? 'border-rose-500 ring-2 ring-rose-400/80 bg-rose-50/20'
-                              : 'border-slate-300'
-                          }`}
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs text-slate-400">ม.</span>
-                      </div>
-                      <span className="text-[10px] text-slate-400 block mt-0.5 font-medium">
-                        ยอดรวม NG หัวท้าย
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Exact Duplicate SO Warning Alert */}
+                  {/* Duplicate Alert */}
                   {(() => {
                     const dupAlert = exactDuplicates.find((d) => d.orderIndex === index);
                     if (!dupAlert) return null;
@@ -1298,18 +1523,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                     );
                   })()}
 
-                  {/* Note & Single Item Total */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="text"
-                      value={order.notes}
-                      onChange={(e) => handleUpdateOrder(order.id, { notes: e.target.value })}
-                      placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
-                      className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-amber-500"
-                    />
-                    <div className="text-right text-xs font-mono shrink-0 px-2 py-1 bg-slate-100 rounded-md text-slate-600">
-                      ตัดใบนี้: <strong className="text-slate-900">{formatMeters(orderCalc.total)}</strong> ม.
-                    </div>
+                  {/* Single Item Total */}
+                  <div className="text-right text-xs font-mono pt-1 text-slate-500">
+                    ตัดใบนี้: <strong className="text-slate-900">{formatMeters(orderCalc.total)}</strong> ม.
                   </div>
                 </div>
               );
@@ -1319,63 +1535,11 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
             <button
               type="button"
               onClick={handleAddOrder}
-              className="w-full py-2 px-3 border border-dashed border-slate-300 hover:border-amber-500 bg-slate-50 hover:bg-amber-50/50 text-slate-700 hover:text-amber-900 rounded-xl font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              className="w-full py-2.5 px-3 border border-dashed border-slate-300 hover:border-amber-500 bg-slate-50 hover:bg-amber-50/50 text-slate-700 hover:text-amber-900 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs"
             >
-              <PlusCircle className="w-3.5 h-3.5 text-amber-600" />
+              <PlusCircle className="w-4 h-4 text-amber-600" />
               <span>+ เพิ่มใบสั่งซื้อ / SO ถัดไป</span>
             </button>
-          </div>
-
-          {/* Operator and Usage Date */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <div>
-              <label htmlFor="input-operator" className="block text-xs font-semibold text-slate-700 mb-1">
-                <span className="flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-slate-500" />
-                  ชื่อผู้บันทึก <span className="text-rose-500">*</span>
-                </span>
-              </label>
-              <input
-                id="input-operator"
-                type="text"
-                required
-                value={recordedBy}
-                onChange={(e) => setRecordedBy(e.target.value)}
-                placeholder="เช่น สมชาย, ช่างคุมเครื่อง"
-                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:border-amber-500 text-slate-900 font-medium"
-              />
-              {recentOperators.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5 items-center">
-                  <span className="text-[10px] text-slate-400">เลือกเร็ว:</span>
-                  {recentOperators.slice(0, 3).map((op) => (
-                    <button
-                      key={op}
-                      type="button"
-                      onClick={() => setRecordedBy(op)}
-                      className="text-[10px] px-2 py-0.5 rounded bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-600 transition-colors cursor-pointer"
-                    >
-                      {op}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label htmlFor="input-usage-date" className="block text-xs font-semibold text-slate-700 mb-1">
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                  วันที่ใช้งาน
-                </span>
-              </label>
-              <input
-                id="input-usage-date"
-                type="date"
-                value={usageDate}
-                onChange={(e) => setUsageDate(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:border-amber-500 text-slate-900 font-mono"
-              />
-            </div>
           </div>
 
           {/* 3. กล่องสรุปยอดคงเหลือสุทธิ + ปุ่มบันทึกด้านล่าง */}

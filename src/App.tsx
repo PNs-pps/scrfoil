@@ -1325,7 +1325,7 @@ const updated = [newRoll, ...rolls];
     // authoritative remainingAfter is computed server-side inside the
     // transaction (see firebase.ts) against the roll's fresh remainingMeters,
     // never against this locally-cached number.
-    const now = new Date().toISOString();
+    const baseNow = Date.now();
     const createdRecords: StockCutRecord[] = batchData.map((item, idx) => {
       const safeUsed = round2(Math.abs(Number(item.usedMeters || 0)));
       const safeNg = round2(Math.abs(Number(item.ngMeters || 0)));
@@ -1340,8 +1340,8 @@ const updated = [newRoll, ...rolls];
         totalDeducted: safeTotal,
         remainingBefore: safeRemBefore,
         remainingAfter: safeRemAfter,
-        id: `cut-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-        createdAt: now,
+        id: `cut-${baseNow}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        createdAt: new Date(baseNow + idx * 100).toISOString(),
       };
     });
 

@@ -622,7 +622,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-amber-600" />
-                            <span>ไทม์ไลน์การตัดเรียงตามวันใบงาน ({res.timeline.length} รายการ)</span>
+                            <span>ไทม์ไลน์การตัดตามลำดับตัดจริง ({res.timeline.length} รายการ)</span>
                           </h4>
                           {isDep && (
                             <span className="px-2 py-0.5 rounded-full bg-slate-900 text-amber-300 text-[10px] font-bold border border-slate-700 inline-flex items-center gap-1">
@@ -637,7 +637,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                           )}
                         </div>
                         <span className="text-[11px] text-slate-500">
-                          ยอดก่อนตัด → หลังตัด ควรต่อเนื่องตามลำดับวัน
+                          ลำดับตัดจริง: เริ่มต้น {formatMeters(res.totalMeters)} ม. &rarr; คงเหลือ {formatMeters(res.currentRemaining)} ม. (ก่อนตัด &rarr; หลังตัด ต่อเนื่องตามลำดับ)
                         </span>
                       </div>
 
@@ -648,10 +648,10 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                             <div>
                               <div className="font-bold text-amber-900">
-                                ยอดก่อนตัด/หลังตัดไม่ต่อเนื่อง — เรียงตามวันใบงานแล้วคำนวณใหม่
+                                ยอดก่อนตัด/หลังตัดไม่ต่อเนื่อง — ปรับตามลำดับการตัดจริงของม้วน
                               </div>
                               <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                                เริ่มจาก {formatMeters(res.totalMeters)} ม. แล้วไล่หักตามลำดับวันใช้งานของแต่ละใบ
+                                เริ่มต้นจากม้วนเต็ม {formatMeters(res.totalMeters)} ม. แล้วไล่หักตามลำดับการตัดจริงของแต่ละใบ
                                 ให้ยอดหลังตัดของใบก่อน = ยอดก่อนตัดของใบถัดไป
                               </p>
                             </div>

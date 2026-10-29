@@ -3,6 +3,8 @@ import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, StockCutRecord } from '../types';
 import { X, ArrowLeft, Layers, Scissors, Calendar, User, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
+import { reservedMetersOfRoll } from '../utils/rollAggregates';
+import { FoilStatusTube } from './FoilStatusTube';
 
 interface RollDetailModalProps {
   roll: FoilRoll | null;
@@ -22,6 +24,7 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
   if (!roll) return null;
 
   const rollRecords = records.filter(r => r.foilId === roll.id);
+  const reservedMeters = reservedMetersOfRoll(records, roll.id);
   const percentLeft = roll.totalMeters > 0 ? Math.round((roll.remainingMeters / roll.totalMeters) * 100) : 0;
   const isDepleted = isRollDepleted(roll);
   const depletionDate = getRollDepletionDate(roll, records);
@@ -104,6 +107,11 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
                 <span className="font-mono font-bold text-blue-700 text-base">
                   {formatMeters(roll.usedMeters)} ม.
                 </span>
+                {reservedMeters > 0 && (
+                  <span className="text-[10px] text-amber-700 font-semibold block">
+                    (จอง {formatMeters(reservedMeters)} ม.)
+                  </span>
+                )}
               </div>
               <div>
                 <span className="text-[11px] text-slate-500 block">NG เสียสะสม</span>
@@ -116,23 +124,17 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
                 <span className="font-mono font-bold text-emerald-700 text-base">
                   {formatMeters(roll.remainingMeters)} ม.
                 </span>
+                {reservedMeters > 0 && (
+                  <span className="text-[10px] text-emerald-800 font-semibold block">
+                    คงเหลือหลังจอง {formatMeters(Math.max(0, roll.remainingMeters - reservedMeters))} ม.
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Progress bar */}
-            <div>
-              <div className="flex justify-between text-xs text-slate-500 mb-1">
-                <span>สัดส่วนคงเหลือในม้วน</span>
-                <span className="font-bold text-slate-800 font-mono">{percentLeft}%</span>
-              </div>
-              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                <div 
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    roll.remainingMeters <= 0 ? 'bg-slate-400' : 'bg-emerald-500'
-                  }`}
-                  style={{ width: `${percentLeft}%` }}
-                />
-              </div>
+            {/* Visual Progress Tube 3 สี */}
+            <div className="pt-2 border-t border-slate-200">
+              <FoilStatusTube roll={roll} records={records} size="md" showStats={false} showLabels={true} />
             </div>
 
             {isDepleted && (

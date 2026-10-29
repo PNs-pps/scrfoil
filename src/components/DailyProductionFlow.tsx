@@ -314,9 +314,9 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
         lines.push(
           `${idx + 1}. [PU แซนวิช] SO: ${p.soNumber} | สี ${p.coilColor} #${p.coilNumber} (${p.thickness}มม.)` +
           `\n   - ชนิด: ${p.steelOrigin}` +
-          `\n   - ใช้จริง: ${p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก.` +
-          (p.soLengthMeters ? ` | งาน SO: ${Number(p.soLengthMeters).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.` : '') +
-          ((p.ngKg || 0) > 0 ? ` (NG: ${Number(p.ngKg).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก. / ${Number(p.ngMeters || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.)` : '') +
+          (p.soLengthMeters ? `\n   - ผลิตได้: ${Number(p.soLengthMeters).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.` : '') +
+          ` | เหล็กใช้: ${p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก.` +
+          ((p.ngMeters || 0) > 0 || (p.ngKg || 0) > 0 ? ` (NG: ${Number(p.ngMeters || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม. / ${Number(p.ngKg || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก.)` : '') +
           ` | โดย: ${p.recordedBy || '-'}`
         );
       }
@@ -503,7 +503,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
             ผลิตวันนี้
             <div className="text-[11px] font-mono text-slate-300 font-normal mt-0.5">
               {distinctDailySo.length} SO · ฟอยล์ {stats.totalUsed.toLocaleString()} ม. · แซนวิช{' '}
-              {puStats.totalKg.toLocaleString()} กก.
+              {puStats.totalSoLength.toLocaleString()} ม. ({puStats.totalKg.toLocaleString()} กก.)
             </div>
           </div>
 
@@ -550,7 +550,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               <h4 className="font-bold text-slate-900 text-xs sm:text-sm">เดินเครื่อง</h4>
               <p className="text-[10px] text-slate-600 leading-snug">ฉีดโฟม / ประกบฟอยล์หรือเหล็ก</p>
               <p className="text-[11px] font-mono font-bold text-amber-900">
-                {stats.totalUsed.toLocaleString()} ม. · {puStats.totalKg.toLocaleString()} กก.
+                ฟอยล์ {stats.totalUsed.toLocaleString()} ม. · แซนวิช {puStats.totalSoLength.toLocaleString()} ม. ({puStats.totalKg.toLocaleString()} กก.)
               </p>
             </div>
 
@@ -564,7 +564,7 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               <h4 className="font-bold text-slate-900 text-xs sm:text-sm">ตรวจรับ & บันทึก</h4>
               <p className="text-[10px] text-slate-600 leading-snug">คัด NG ตัดสต๊อก Realtime</p>
               <p className="text-[11px] font-mono font-bold text-emerald-800">
-                NG {stats.totalNg.toLocaleString()} ม. · {puStats.totalNgKg.toLocaleString()} กก.
+                NG ฟอยล์ {stats.totalNg.toLocaleString()} ม. · แซนวิช {puStats.totalNgMeters.toLocaleString()} ม. ({puStats.totalNgKg.toLocaleString()} กก.)
               </p>
             </div>
           </div>
@@ -623,6 +623,16 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
           title={`สายแซนวิช · ${puStats.soCount} SO · ${dayPuRecords.length} รายการ`}
           cards={[
             {
+              id: 'pu-len',
+              label: 'ความยาวตามงาน SO',
+              value: puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 }),
+              unit: 'ม.',
+              icon: <Layers className="w-4 h-4" />,
+              iconClass: 'bg-emerald-50 text-emerald-700',
+              valueClass: 'text-emerald-800',
+              footer: `${puStats.soCount} คำสั่งซื้อ SO`,
+            },
+            {
               id: 'pu-kg',
               label: 'น้ำหนักเหล็กใช้จริง',
               value: puStats.totalKg.toLocaleString('th-TH', {
@@ -631,32 +641,22 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
               }),
               unit: 'กก.',
               icon: <CheckCircle2 className="w-4 h-4" />,
-              iconClass: 'bg-emerald-50 text-emerald-600',
-              valueClass: 'text-emerald-700',
+              iconClass: 'bg-slate-100 text-slate-700',
+              valueClass: 'text-slate-800',
               footer: `≈ ${puStats.totalTons} ตัน`,
-            },
-            {
-              id: 'pu-len',
-              label: 'ความยาวตามงาน SO',
-              value: puStats.totalSoLength.toLocaleString('th-TH', { minimumFractionDigits: 1 }),
-              unit: 'ม.',
-              icon: <Layers className="w-4 h-4" />,
-              iconClass: 'bg-teal-50 text-teal-600',
-              valueClass: 'text-teal-700',
-              footer: `${puStats.soCount} คำสั่งซื้อ SO`,
             },
             {
               id: 'pu-ng',
               label: 'NG แซนวิช',
-              value: puStats.totalNgKg.toLocaleString('th-TH', {
-                minimumFractionDigits: 2,
+              value: puStats.totalNgMeters.toLocaleString('th-TH', {
+                minimumFractionDigits: 1,
                 maximumFractionDigits: 2,
               }),
-              unit: 'กก.',
+              unit: 'ม.',
               icon: <AlertTriangle className="w-4 h-4" />,
               iconClass: 'bg-rose-50 text-rose-600',
-              valueClass: puStats.totalNgKg > 0 ? 'text-rose-600' : 'text-slate-400',
-              footer: `${puStats.ngPercent.toFixed(1)}% · ${puStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ม.`,
+              valueClass: puStats.totalNgMeters > 0 ? 'text-rose-600' : 'text-slate-400',
+              footer: `${puStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} กก. (${puStats.ngPercent.toFixed(1)}%)`,
             },
           ]}
         />
@@ -855,20 +855,22 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
                           {p.thickness} มม.
                         </td>
                         <td className="px-4 py-3 text-right font-mono font-bold text-emerald-800 text-sm">
-                          <div>{p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.</div>
                           {p.soLengthMeters ? (
-                            <div className="text-[10px] text-teal-700 font-normal">
-                              (งาน {p.soLengthMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })}ม.)
-                            </div>
-                          ) : null}
+                            <div>{Number(p.soLengthMeters).toLocaleString('th-TH', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} ม.</div>
+                          ) : (
+                            <div>{p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.</div>
+                          )}
+                          <div className="text-[10px] text-slate-500 font-normal">
+                            (เหล็ก: {p.weightUsed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.)
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-rose-600">
-                          {p.ngKg > 0 ? (
+                          {p.ngMeters > 0 || p.ngKg > 0 ? (
                             <div>
-                              <div>{p.ngKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.</div>
-                              {p.ngMeters > 0 ? (
+                              <div>{p.ngMeters > 0 ? `${Number(p.ngMeters).toLocaleString('th-TH', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} ม.` : `${p.ngKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.`}</div>
+                              {p.ngKg > 0 && p.ngMeters > 0 ? (
                                 <div className="text-[10px] text-rose-500 font-normal">
-                                  ({p.ngMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })}ม.)
+                                  ({p.ngKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก.)
                                 </div>
                               ) : null}
                             </div>

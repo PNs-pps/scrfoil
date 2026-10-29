@@ -1179,10 +1179,6 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                   )}
                 </div>
 
-                <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
-                  Enter: รหัส SO → ยาว SO → แถวถัดไป/เพิ่มแถวใหม่ · Ctrl+Enter: ตรวจสอบและบันทึกทั้ง batch
-                </p>
-
                 {rowCalcs.map(({ row, calc }, idx) => {
                   const isPrimary = row.id === primaryRowId;
                   const sv = computeRowSaveValues(row);

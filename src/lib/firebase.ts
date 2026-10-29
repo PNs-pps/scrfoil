@@ -46,6 +46,7 @@ import { FoilRoll, StockCutRecord, CutHistoryItem, PuSandwichCutRecord, CycleCou
 import { normalizePattern } from '../utils/soFormatter';
 import { isCycleCountRecord, signedTotalDeducted } from '../utils/cutDeduction';
 import { summarizeRollDeduction } from '../utils/integrityCheck';
+import { sortRollRecordsInCutOrder } from '../utils/soHistoryAudit';
 
 // User's custom configuration as requested
 export const USER_FIREBASE_CONFIG = {
@@ -1258,13 +1259,11 @@ export async function realignRollCutChainInFirestore(
       (r) => r.cutStatus !== 'reserved' && r.cutStatus !== 'cancelled'
     );
 
-    // เรียงตามวันใบงาน (usageDate) เป็นหลัก → recordedDate → createdAt
-    const sortedRecords = [...chainRecords].sort((a, b) => {
-      const tA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
-      const tB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
-      if (tA !== tB) return tA - tB;
-      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
-    });
+    // เรียงตามลำดับตัดจริงบนม้วน (Physical Cut Order) ให้สอดคล้องกับความต่อเนื่องของสต๊อก
+    const sortedRecords = sortRollRecordsInCutOrder(
+      chainRecords,
+      Number(serverRoll.totalMeters || 1000)
+    );
 
     let runningBalance = Number(serverRoll.totalMeters || 1000);
     let totalUsed = 0;

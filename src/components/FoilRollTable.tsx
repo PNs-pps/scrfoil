@@ -109,6 +109,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
     () => reservedMetersOfRoll(records || [], roll.id),
     [records, roll.id]
   );
+  const remainingAfterReserved = Math.max(0, Number(rem) - totalReservedMeters);
   const soNumberList = useMemo(
     () => rollReservations.map((r) => r.soNumber).filter(Boolean).join(', '),
     [rollReservations]
@@ -304,28 +305,52 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             </span>
           </div>
 
-          {/* Right: ยอดคงเหลือ (Bold & Clear) */}
-          <div className="flex items-baseline gap-1 shrink-0 ml-auto">
-            <span
-              className={`font-mono font-extrabold text-base tracking-tight ${
-                isZeroed
-                  ? 'text-rose-700 line-through'
-                  : highlightLevel === 'red'
-                  ? 'text-rose-700'
-                  : highlightLevel === 'yellow'
-                  ? 'text-amber-700'
-                  : isDepleted
-                  ? 'text-slate-400'
-                  : 'text-emerald-700'
-              }`}
-            >
-              {formatMeters(rem)}
-            </span>
-            <span className="text-[10px] text-slate-400 font-sans">ม.</span>
-            {isZeroed && (
-              <span className="text-[11px] text-rose-600 font-bold ml-0.5 shrink-0">
-                (ตัด 0)
+          {/* Right: ยอดคงเหลือ (Bold & Clear) & แสดงคงเหลือหลังจองอีกบรรทัดนึง */}
+          <div className="flex flex-col items-end shrink-0 ml-auto text-right">
+            <div className="flex items-baseline gap-1">
+              <span
+                className={`font-mono font-extrabold text-base tracking-tight ${
+                  isZeroed
+                    ? 'text-rose-700 line-through'
+                    : highlightLevel === 'red'
+                    ? 'text-rose-700'
+                    : highlightLevel === 'yellow'
+                    ? 'text-amber-700'
+                    : isDepleted
+                    ? 'text-slate-400'
+                    : 'text-emerald-700'
+                }`}
+              >
+                {formatMeters(rem)}
               </span>
+              <span className="text-[10px] text-slate-400 font-sans">ม.</span>
+              {isZeroed && (
+                <span className="text-[11px] text-rose-600 font-bold ml-0.5 shrink-0">
+                  (ตัด 0)
+                </span>
+              )}
+            </div>
+
+            {/* แสดงคงเหลือหลังจองอีกบรรทัดนึงเมื่อมีการจอง */}
+            {totalReservedMeters > 0 && !isZeroed && !isDepleted && (
+              <div
+                className="text-[10px] sm:text-[11px] font-semibold text-emerald-800 flex items-center justify-end gap-1 mt-0.5"
+                title={`มียอดจองรอตัด ${formatMeters(totalReservedMeters)} ม. (ผลิตแล้วจะเหลือ ${formatMeters(remainingAfterReserved)} ม.)`}
+              >
+                <span className="text-[10px] text-slate-500 font-normal">คงเหลือหลังจอง</span>
+                <span
+                  className={`font-mono font-bold ${
+                    remainingAfterReserved <= 50
+                      ? 'text-rose-600'
+                      : remainingAfterReserved <= 200
+                      ? 'text-amber-700'
+                      : 'text-emerald-700'
+                  }`}
+                >
+                  {formatMeters(remainingAfterReserved)}
+                </span>
+                <span className="text-[9px] font-sans text-slate-400">ม.</span>
+              </div>
             )}
           </div>
         </div>
@@ -341,7 +366,7 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
             {rollReservations.length > 0 && (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shrink-0 shadow-2xs" title={`จอง SO: ${soNumberList} (${formatMeters(totalReservedMeters)} ม.)`}>
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                <span>จอง SO {soNumberList ? `(${soNumberList})` : ''}</span>
+                <span>จอง {formatMeters(totalReservedMeters)} ม.{soNumberList ? ` (${soNumberList})` : ''}</span>
               </span>
             )}
             {roll.isReverseSideOnly && (
@@ -1061,6 +1086,28 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             <span className="text-[11px] text-slate-500">ม.</span>
           </div>
 
+          {/* แสดงคงเหลือหลังจองอีกบรรทัดนึงเมื่อมีการจอง */}
+          {totalReservedMeters > 0 && !isZeroed && !isDepleted && (
+            <div
+              className="text-[11px] font-semibold flex items-center justify-end gap-1 mt-0.5"
+              title={`มียอดจองรอตัด ${formatMeters(totalReservedMeters)} ม.`}
+            >
+              <span className="text-[10px] text-slate-500 font-medium">คงเหลือหลังจอง</span>
+              <span
+                className={`font-mono font-bold ${
+                  Math.max(0, Number(rem) - totalReservedMeters) <= 50
+                    ? 'text-rose-600'
+                    : Math.max(0, Number(rem) - totalReservedMeters) <= 200
+                    ? 'text-amber-700'
+                    : 'text-emerald-700'
+                }`}
+              >
+                {formatMeters(Math.max(0, Number(rem) - totalReservedMeters))}
+              </span>
+              <span className="text-[9px] font-sans text-slate-400">ม.</span>
+            </div>
+          )}
+
           {isZeroed && roll.manualZeroedOriginalMeters !== undefined && (
             <div className="text-[10px] text-rose-700 font-bold font-mono">
               ตัดเป็น 0 แล้ว (เดิม {formatMeters(roll.manualZeroedOriginalMeters)} ม.)
@@ -1147,6 +1194,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         key={roll.id}
         roll={roll}
         searchQuery={searchQuery}
+        records={records}
         onOpenCut={onOpenCutModal}
         onViewHistory={onViewRollHistory}
         onEdit={onEditRoll}
@@ -2163,6 +2211,11 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   หน้ากว้าง {actionMenuRoll.width} มม. · {actionMenuRoll.pattern} · คงเหลือ {formatMeters(actionMenuRoll.remainingMeters)} ม.
+                  {reservedMetersOfRoll(records, actionMenuRoll.id) > 0 && (
+                    <span className="text-emerald-800 font-semibold block mt-0.5">
+                      (จองไว้ {formatMeters(reservedMetersOfRoll(records, actionMenuRoll.id))} ม. · คงเหลือหลังจอง {formatMeters(Math.max(0, actionMenuRoll.remainingMeters - reservedMetersOfRoll(records, actionMenuRoll.id)))} ม.)
+                    </span>
+                  )}
                 </p>
               </div>
               <button

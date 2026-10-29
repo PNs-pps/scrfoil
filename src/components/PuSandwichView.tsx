@@ -433,14 +433,14 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
             {
               id: 'ng',
               label: 'NG เสียหายสะสม',
-              value: filteredStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 }),
-              unit: 'กก.',
+              value: filteredStats.totalNgMeters.toLocaleString('th-TH', { maximumFractionDigits: 1 }),
+              unit: 'ม.',
               icon: <AlertTriangle className="w-4 h-4" />,
               iconClass: 'bg-rose-50 text-rose-700',
               valueClass: 'text-rose-700',
               footer: (
                 <span>
-                  {filteredStats.totalNgMeters.toLocaleString('th-TH', { minimumFractionDigits: 1 })} ม. ·{' '}
+                  {filteredStats.totalNgKg.toLocaleString('th-TH', { minimumFractionDigits: 2 })} กก. ·{' '}
                   <strong>{filteredStats.ngPercent.toFixed(2)}%</strong>
                 </span>
               ),
@@ -850,33 +850,33 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
 
             {/* Modal Scrollable Content */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* KPI Cards Grid */}
+              {/* KPI Cards Grid: เมตรเป็นหลัก กก. เป็นรอง */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Total Steel Used */}
+                {/* 1. Total Length Produced (Primary) */}
                 <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-1">
                   <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
-                    น้ำหนักเหล็กใช้จริงรวม
+                    ความยาวตามงาน SO รวม
                   </span>
                   <div className="text-2xl font-black text-emerald-950 font-mono">
-                    {modalStats.totalKg.toLocaleString('th-TH')}{' '}
-                    <span className="text-xs font-normal text-emerald-700">กก.</span>
+                    {modalStats.totalSoLength.toLocaleString('th-TH')}{' '}
+                    <span className="text-xs font-normal text-emerald-700">เมตร</span>
                   </div>
                   <div className="text-xs text-emerald-700 font-medium">
-                    ประมาณ {modalStats.totalTons.toLocaleString('th-TH')} ตัน
+                    จากทั้งหมด {modalStats.count} ใบงาน
                   </div>
                 </div>
 
-                {/* Total Length Produced */}
-                <div className="bg-teal-50/70 border border-teal-200 rounded-2xl p-4 space-y-1">
-                  <span className="text-[11px] font-bold text-teal-800 uppercase tracking-wider block">
-                    ความยาวตามงาน SO รวม
+                {/* 2. Total Steel Used (Secondary) */}
+                <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 space-y-1">
+                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+                    น้ำหนักเหล็กใช้จริงรวม
                   </span>
-                  <div className="text-2xl font-black text-teal-950 font-mono">
-                    {modalStats.totalSoLength.toLocaleString('th-TH')}{' '}
-                    <span className="text-xs font-normal text-teal-700">เมตร</span>
+                  <div className="text-2xl font-black text-slate-900 font-mono">
+                    {modalStats.totalKg.toLocaleString('th-TH')}{' '}
+                    <span className="text-xs font-normal text-slate-500">กก.</span>
                   </div>
-                  <div className="text-xs text-teal-700 font-medium">
-                    จากทั้งหมด {modalStats.count} ใบงาน
+                  <div className="text-xs text-emerald-700 font-medium">
+                    ประมาณ {modalStats.totalTons.toLocaleString('th-TH')} ตัน
                   </div>
                 </div>
 

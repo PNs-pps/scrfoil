@@ -276,18 +276,18 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       {
         id: 'sandwich',
         label: 'การผลิต PU แซนวิช',
-        value: String(sandwichStats.count),
-        unit: 'ใบงาน',
+        value: formatMeters(sandwichStats.totalSoMeters),
+        unit: 'เมตร',
         accent: 'emerald',
         icon: Factory,
-        badge: `${sandwichStats.totalTons} ตันเหล็ก`,
+        badge: `${sandwichStats.count} ใบงาน · ${sandwichStats.totalTons} ตัน`,
         footer: (
           <div className="space-y-1">
-            <p className="text-[11px] text-slate-600">
-              น้ำหนักเหล็ก: <strong className="text-slate-900 font-mono">{sandwichStats.totalKg.toLocaleString()}</strong> กก.
+            <p className="text-[11px] text-slate-700">
+              ความยาวผลิต SO: <strong className="text-slate-900 font-mono">{sandwichStats.totalSoMeters.toLocaleString()}</strong> ม.
             </p>
             <p className="text-[11px] text-slate-500">
-              ความยาวผลิต: <span className="font-mono font-semibold text-slate-700">{sandwichStats.totalSoMeters.toLocaleString()}</span> ม.
+              น้ำหนักเหล็ก: <span className="font-mono text-slate-600">{sandwichStats.totalKg.toLocaleString()}</span> กก. ({sandwichStats.totalTons} ตัน)
             </p>
           </div>
         ),
@@ -543,35 +543,38 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
 
-          {/* Sandwich Summary Grid */}
+          {/* Sandwich Summary Grid: แสดงเมตรเป็นหลัก kg เป็นรอง */}
           <div className="p-4 sm:p-5 grid grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50/60">
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] text-slate-500 font-medium block">น้ำหนักเหล็กที่ใช้รวม</span>
-              <div className="text-lg sm:text-xl font-bold font-mono text-slate-900 mt-1">
-                {sandwichStats.totalKg.toLocaleString()} <span className="text-xs text-slate-500 font-normal">กก.</span>
-              </div>
-              <span className="text-[11px] text-emerald-700 font-bold mt-0.5 block font-mono">
-                {sandwichStats.totalTons} ตัน
-              </span>
-            </div>
-
+            {/* 1. ความยาวผลิต SO รวม (เมตรเป็นหลัก) */}
             <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
               <span className="text-[11px] text-slate-500 font-medium block">ความยาวผลิต SO รวม</span>
-              <div className="text-lg sm:text-xl font-bold font-mono text-slate-900 mt-1">
+              <div className="text-lg sm:text-xl font-bold font-mono text-emerald-800 mt-1">
                 {sandwichStats.totalSoMeters.toLocaleString()} <span className="text-xs text-slate-500 font-normal">เมตร</span>
               </div>
-              <span className="text-[11px] text-slate-500 mt-0.5 block">
+              <span className="text-[11px] text-slate-500 mt-0.5 block font-mono">
                 จากทั้งหมด {sandwichStats.count} ใบงาน
               </span>
             </div>
 
+            {/* 2. น้ำหนักเหล็กที่ใช้จริง (กก. เป็นรอง) */}
             <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] text-slate-500 font-medium block">NG เสียหาย (กก./ม.)</span>
+              <span className="text-[11px] text-slate-500 font-medium block">น้ำหนักเหล็กที่ใช้จริง</span>
+              <div className="text-lg sm:text-xl font-bold font-mono text-slate-900 mt-1">
+                {sandwichStats.totalKg.toLocaleString()} <span className="text-xs text-slate-500 font-normal">กก.</span>
+              </div>
+              <span className="text-[11px] text-emerald-700 font-bold mt-0.5 block font-mono">
+                {sandwichStats.totalTons} ตันเหล็ก
+              </span>
+            </div>
+
+            {/* 3. NG เสียหาย (เมตรเป็นหลัก กก. เป็นรอง) */}
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] text-slate-500 font-medium block">NG เสียหาย (ม. / กก.)</span>
               <div className="text-lg sm:text-xl font-bold font-mono text-rose-600 mt-1">
-                {sandwichStats.totalNgKg.toLocaleString()} <span className="text-xs text-slate-500 font-normal">กก.</span>
+                {sandwichStats.totalNgMeters.toLocaleString()} <span className="text-xs text-slate-500 font-normal">เมตร</span>
               </div>
               <span className="text-[11px] text-rose-700 font-mono mt-0.5 block">
-                {sandwichStats.totalNgMeters} ม. ({sandwichStats.ngPercent}%)
+                {sandwichStats.totalNgKg.toLocaleString()} กก. ({sandwichStats.ngPercent}%)
               </span>
             </div>
 

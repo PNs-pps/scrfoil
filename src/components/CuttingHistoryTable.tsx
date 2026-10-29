@@ -253,10 +253,10 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         usedValue: Number(s.soLengthMeters || s.weightUsed) || 0,
         ngDisplay: (s.ngMeters || 0) > 0 ? `${formatMeters(s.ngMeters)} ม.` : ((s.ngKg || 0) > 0 ? `${formatMeters(s.ngKg)} กก.` : '—'),
         ngValue: Number(s.ngMeters || s.ngKg) || 0,
-        remainingDisplay: '—',
-        remainingValue: 0,
-        remainingBeforeDisplay: undefined,
-        remainingBeforeValue: 0,
+        remainingDisplay: s.weightAfter != null ? `${formatMeters(s.weightAfter)} กก.` : '—',
+        remainingValue: Number(s.weightAfter) || 0,
+        remainingBeforeDisplay: s.weightBefore != null ? `${formatMeters(s.weightBefore)} กก.` : undefined,
+        remainingBeforeValue: Number(s.weightBefore) || 0,
         recordedBy: s.recordedBy || '-',
         notes: s.notes,
         createdAt: s.createdAt || '',
@@ -355,8 +355,10 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     const totalFoilUsed = countableFoilItems.reduce((acc, i) => acc + i.usedValue, 0);
     const totalFoilNg = countableFoilItems.reduce((acc, i) => acc + i.ngValue, 0);
 
-    const totalSandwichKg = sandwichItems.reduce((acc, i) => acc + i.usedValue, 0);
-    const totalSandwichNgKg = sandwichItems.reduce((acc, i) => acc + i.ngValue, 0);
+    const totalSandwichMeters = sandwichItems.reduce((acc, i) => acc + Number(i.rawSandwich?.soLengthMeters || 0), 0);
+    const totalSandwichKg = sandwichItems.reduce((acc, i) => acc + Number(i.rawSandwich?.weightUsed || (i.rawSandwich ? i.usedValue : 0)), 0);
+    const totalSandwichNgMeters = sandwichItems.reduce((acc, i) => acc + Number(i.rawSandwich?.ngMeters || 0), 0);
+    const totalSandwichNgKg = sandwichItems.reduce((acc, i) => acc + Number(i.rawSandwich?.ngKg || 0), 0);
 
     return {
       totalCount: sortedItems.length,
@@ -364,7 +366,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
       sandwichCount: sandwichItems.length,
       totalFoilUsed,
       totalFoilNg,
+      totalSandwichMeters,
       totalSandwichKg,
+      totalSandwichNgMeters,
       totalSandwichNgKg,
     };
   }, [sortedItems]);
@@ -715,7 +719,12 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
             )}
             {stats.sandwichCount > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-950 border border-emerald-200 font-bold text-[11px]">
-                เหล็กใช้ {formatMeters(stats.totalSandwichKg)} กก. {stats.totalSandwichNgKg > 0 ? `(NG ${formatMeters(stats.totalSandwichNgKg)} กก.)` : ''}
+                {stats.totalSandwichMeters > 0
+                  ? `แซนวิชผลิต ${formatMeters(stats.totalSandwichMeters)} ม. (เหล็กใช้ ${formatMeters(stats.totalSandwichKg)} กก.)`
+                  : `เหล็กใช้ ${formatMeters(stats.totalSandwichKg)} กก.`}
+                {stats.totalSandwichNgMeters > 0
+                  ? ` · NG ${formatMeters(stats.totalSandwichNgMeters)} ม. (${formatMeters(stats.totalSandwichNgKg)} กก.)`
+                  : stats.totalSandwichNgKg > 0 ? ` (NG ${formatMeters(stats.totalSandwichNgKg)} กก.)` : ''}
               </span>
             )}
           </div>
@@ -828,17 +837,12 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         </button>
                       </td>
 
-                      {/* 1.1 วันที่ตัด / วันที่ใช้งาน (Date Column แสดงเด่นชัด) */}
+                      {/* 1.1 วันที่ตัด / วันที่ใช้งาน (dd/mm/yyyy เป็น พ.ศ. บรรทัดเดียว) */}
                       <td className="px-2.5 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 font-mono text-slate-900 font-bold text-xs">
                           <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                           <span>{formatThaiDate(item.date) || item.date || '-'}</span>
                         </div>
-                        {item.date && (
-                          <div className="text-[10px] text-slate-400 font-mono pl-5">
-                            {item.date}
-                          </div>
-                        )}
                       </td>
 
                       {/* 1.5 สถานะ (Status Badge: ตัดจริง 🟢 / รอตัด 🟡 / ยกเลิก ⚪) */}
@@ -997,13 +1001,32 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                         {item.ngDisplay}
                       </td>
 
-                      {/* 7. คงเหลือ / หลังตัด */}
+                      {/* 7. คงเหลือ / หลังตัด (ฟอยล์) & น้ำหนักก่อนขึ้น / หลังลง (แซนวิช) */}
                       <td className="px-2.5 py-2 text-right font-mono text-slate-800 font-bold whitespace-nowrap">
-                        <div>{item.remainingDisplay}</div>
-                        {item.remainingBeforeDisplay && (
-                          <div className="text-[11px] text-slate-400 font-normal">
-                            (ก่อน: {item.remainingBeforeDisplay})
-                          </div>
+                        {isFoil ? (
+                          <>
+                            <div>{item.remainingDisplay}</div>
+                            {item.remainingBeforeDisplay && (
+                              <div className="text-[11px] text-slate-400 font-normal">
+                                (ก่อน: {item.remainingBeforeDisplay})
+                              </div>
+                            )}
+                          </>
+                        ) : item.rawSandwich ? (
+                          <>
+                            <div title="น้ำหนักหลังลง (กก.)">
+                              <span className="text-[10px] text-slate-400 font-sans font-normal mr-1">ลง:</span>
+                              <span>{formatMeters(item.rawSandwich.weightAfter)}</span>
+                              <span className="text-[10px] text-slate-400 font-sans font-normal ml-0.5">กก.</span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-normal" title="น้ำหนักก่อนขึ้น (กก.)">
+                              <span className="text-[10px] text-slate-400 font-sans mr-0.5">(ก่อนขึ้น:</span>
+                              <span>{formatMeters(item.rawSandwich.weightBefore)}</span>
+                              <span className="text-[10px] text-slate-400 font-sans ml-0.5">กก.)</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div>{item.remainingDisplay}</div>
                         )}
                       </td>
 

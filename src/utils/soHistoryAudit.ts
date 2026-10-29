@@ -88,6 +88,81 @@ export interface SOAuditOverallSummary {
 const TOLERANCE = 0.05;
 
 /**
+ * จัดเรียงรายการตัดในม้วนตาม "ลำดับการตัดใช้งานจริงบนม้วน" (Physical Cut Order)
+ * เริ่มต้นจากสภาพม้วนเต็ม (เช่น 1,000 ม.) ไล่ลงมาหายอดคงเหลือปัจจุบัน
+ *
+ * ลำดับความสำคัญในการจัดเรียง:
+ * 1. ความต่อเนื่องของยอดสต๊อก (remainingBefore / remainingAfter):
+ *    - ใบที่เริ่มต้นจากยอดก่อนตัดสูงกว่า (เช่น 1,000 ม.) ย่อมถูกตัดก่อนใบที่ตัดจากยอด 905 ม. หรือ 894 ม.
+ *    - ร้อยเรียงแบบโซ่ต่อเนื่อง: remainingAfter ของใบก่อนหน้า = remainingBefore ของใบถัดไป
+ * 2. เวลาบันทึกระบบจริง (createdAt ISO timestamp)
+ * 3. ดัชนีชุดตัดในใบเดียวกัน (index ใน cut ID หรือ batchData)
+ * 4. วันที่ใช้งาน (usageDate) ใช้เป็นตัวสำรองลำดับสุดท้ายเท่านั้น (ห้ามใช้นำหน้า เพราะวันใบงานเก่าอาจนำมาตัดบนม้วนใหม่วันนี้)
+ */
+export function sortRollRecordsInCutOrder(
+  records: StockCutRecord[],
+  rollTotalMeters = 1000
+): StockCutRecord[] {
+  if (records.length <= 1) return [...records];
+
+  return [...records].sort((a, b) => {
+    const remA = Number(a.remainingBefore);
+    const remB = Number(b.remainingBefore);
+    const validRemA = Number.isFinite(remA) && remA > 0;
+    const validRemB = Number.isFinite(remB) && remB > 0;
+
+    // 1. ถ้าใบใดเริ่มตัดจากยอดม้วนเต็ม (หรือใกล้ยอดม้วนเต็ม) ใบนั้นต้องอยู่อันดับ 1
+    if (validRemA && validRemB) {
+      const isStartA = Math.abs(remA - rollTotalMeters) < 0.05;
+      const isStartB = Math.abs(remB - rollTotalMeters) < 0.05;
+      if (isStartA && !isStartB) return -1;
+      if (!isStartA && isStartB) return 1;
+
+      // ถ้า remainingAfter ของ A ต่อเข้ากับ remainingBefore ของ B พอดี -> A ต้องมาก่อน B
+      const afterA = Number(a.remainingAfter);
+      const afterB = Number(b.remainingAfter);
+      if (Number.isFinite(afterA) && Math.abs(afterA - remB) < 0.05) return -1;
+      if (Number.isFinite(afterB) && Math.abs(afterB - remA) < 0.05) return 1;
+
+      // บนม้วนเดียวกันที่ไม่มีการนับสต๊อกเพิ่ม ยอดคงเหลือก่อนตัดที่มากกว่าย่อมเกิดขึ้นก่อน
+      if (Math.abs(remA - remB) > 0.05) {
+        return remB - remA; // 1000m มาก่อน 905m มาก่อน 894m
+      }
+    }
+
+    // 2. ดูเวลาบันทึกจริง (createdAt)
+    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (createdA > 0 && createdB > 0 && Math.abs(createdA - createdB) > 2000) {
+      return createdA - createdB;
+    }
+
+    // 3. ตรวจสอบ index จาก ID (เช่น cut-1730000000000-0-xxx เกิดก่อน cut-1730000000000-1-xxx)
+    const idxMatchA = (a.id || '').match(/cut-\d+-(\d+)/);
+    const idxMatchB = (b.id || '').match(/cut-\d+-(\d+)/);
+    if (idxMatchA && idxMatchB) {
+      const idxA = parseInt(idxMatchA[1], 10);
+      const idxB = parseInt(idxMatchB[1], 10);
+      if (idxA !== idxB) return idxA - idxB;
+    }
+
+    // 4. createdAt แบบละเอียด
+    if (createdA !== createdB) {
+      return createdA - createdB;
+    }
+
+    // 5. ตัวสำรองสุดท้าย: วันที่ใช้งาน / วันที่บันทึก
+    const dateA = new Date(a.usageDate || a.recordedDate || 0).getTime();
+    const dateB = new Date(b.usageDate || b.recordedDate || 0).getTime();
+    if (dateA !== dateB) {
+      return dateA - dateB;
+    }
+
+    return (a.id || '').localeCompare(b.id || '');
+  });
+}
+
+/**
  * Audit SO cut history for a single foil roll
  */
 export function auditRollSOHistory(
@@ -97,13 +172,8 @@ export function auditRollSOHistory(
   // Filter all records belonging to this roll
   const rollRecords = allRecords.filter((r) => r.foilId === roll.id);
 
-  // เรียงตามวันใบงาน (usageDate) เป็นหลัก — ให้ตรงกับ realignRollCutChainInFirestore
-  const sortedRecords = [...rollRecords].sort((a, b) => {
-    const timeA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
-    const timeB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
-    if (timeA !== timeB) return timeA - timeB;
-    return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
-  });
+  // เรียงตามลำดับตัดจริงบนม้วน (Physical Cut Order) ให้สอดคล้องกับความต่อเนื่องของสต๊อกม้วน
+  const sortedRecords = sortRollRecordsInCutOrder(rollRecords, Number(roll.totalMeters || 1000));
 
   const issues: SOBugIssue[] = [];
 
