@@ -430,17 +430,6 @@ export const SettingsBackupView: React.FC<SettingsBackupViewProps> = ({
               <span className="text-xs text-slate-500 font-mono">Siam Cool Roof Stock</span>
             </div>
             <div className="flex items-center gap-2.5 mt-1">
-              {onBack && (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-750 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 border border-slate-200/90 shadow-2xs shrink-0"
-                  title="ย้อนกลับไปหน้าหลัก"
-                >
-                  <ArrowLeft className="w-4 h-4 text-slate-700" />
-                  <span>ย้อนกลับ</span>
-                </button>
-              )}
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
                 ตั้งค่า & เครื่องมือระบบ
               </h2>

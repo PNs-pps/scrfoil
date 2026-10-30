@@ -15,6 +15,7 @@ export interface TouchNumpadTarget {
   value: string;
   unit?: string;
   isAccent?: boolean;
+  isText?: boolean;
 }
 
 interface TouchNumpadProps {
@@ -60,6 +61,14 @@ export const TouchNumpad: React.FC<TouchNumpadProps> = ({
       return;
     }
 
+    // Special handling for SO text targets (e.g. SO number)
+    if (activeTarget.isText) {
+      if (key === '.') return; // No decimals in SO number
+      let nextVal = `${currentValue}${key}`;
+      onValueChange(activeTarget.id, nextVal);
+      return;
+    }
+
     if (key === '.') {
       if (currentValue.includes('.')) return; // Don't allow multiple decimals
       const nextVal = currentValue === '' ? '0.' : `${currentValue}.`;
@@ -67,7 +76,7 @@ export const TouchNumpad: React.FC<TouchNumpadProps> = ({
       return;
     }
 
-    // Number keys
+    // Number keys for numeric targets
     // If value is just '0' and key is not '.', replace with key
     let nextVal = currentValue;
     if (currentValue === '0' && key !== '.') {
@@ -95,6 +104,14 @@ export const TouchNumpad: React.FC<TouchNumpadProps> = ({
     // Format to 2 decimals or integer
     const formatted = Number.isInteger(nextNum) ? String(nextNum) : nextNum.toFixed(2);
     onValueChange(activeTarget.id, formatted);
+  };
+
+  const handleQuickPrefix = (prefix: string) => {
+    triggerHaptic();
+    if (!activeTarget) return;
+    if (!currentValue.toUpperCase().startsWith(prefix.toUpperCase())) {
+      onValueChange(activeTarget.id, `${prefix}${currentValue}`);
+    }
   };
 
   return (
@@ -166,37 +183,70 @@ export const TouchNumpad: React.FC<TouchNumpadProps> = ({
         </div>
       </div>
 
-      {/* Quick Add Pills */}
-      <div className="grid grid-cols-4 gap-1.5 mb-2">
-        <button
-          type="button"
-          onClick={() => handleAddQuick(10)}
-          className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center gap-0.5 border border-slate-700 cursor-pointer transition-all shadow-2xs"
-        >
-          <Plus className="w-3 h-3" /> 10
-        </button>
-        <button
-          type="button"
-          onClick={() => handleAddQuick(50)}
-          className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center gap-0.5 border border-slate-700 cursor-pointer transition-all shadow-2xs"
-        >
-          <Plus className="w-3 h-3" /> 50
-        </button>
-        <button
-          type="button"
-          onClick={() => handleAddQuick(100)}
-          className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center gap-0.5 border border-slate-700 cursor-pointer transition-all shadow-2xs"
-        >
-          <Plus className="w-3 h-3" /> 100
-        </button>
-        <button
-          type="button"
-          onClick={() => handleKeyPress('clear')}
-          className="h-10 rounded-xl bg-rose-950/80 hover:bg-rose-900 active:scale-95 text-rose-300 font-bold text-xs flex items-center justify-center gap-1 border border-rose-800/80 cursor-pointer transition-all shadow-2xs"
-        >
-          <RotateCcw className="w-3.5 h-3.5" /> ล้าง (C)
-        </button>
-      </div>
+      {/* Quick Add Pills or SO Shortcut Pills */}
+      {activeTarget?.isText ? (
+        <div className="grid grid-cols-4 gap-1.5 mb-2">
+          <button
+            type="button"
+            onClick={() => handleQuickPrefix('SO')}
+            className="h-10 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-xs flex items-center justify-center border border-amber-400 cursor-pointer transition-all shadow-2xs"
+          >
+            + "SO"
+          </button>
+          <button
+            type="button"
+            onClick={() => handleKeyPress('0')}
+            className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center border border-slate-700 cursor-pointer transition-all shadow-2xs"
+          >
+            0
+          </button>
+          <button
+            type="button"
+            onClick={() => handleKeyPress('backspace')}
+            className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center gap-1 border border-slate-700 cursor-pointer transition-all shadow-2xs"
+          >
+            <Delete className="w-3.5 h-3.5" /> ลบตัวท้าย
+          </button>
+          <button
+            type="button"
+            onClick={() => handleKeyPress('clear')}
+            className="h-10 rounded-xl bg-rose-950/80 hover:bg-rose-900 active:scale-95 text-rose-300 font-bold text-xs flex items-center justify-center gap-1 border border-rose-800/80 cursor-pointer transition-all shadow-2xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> ล้าง (C)
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 gap-1.5 mb-2">
+          <button
+            type="button"
+            onClick={() => handleAddQuick(10)}
+            className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center gap-0.5 border border-slate-700 cursor-pointer transition-all shadow-2xs"
+          >
+            <Plus className="w-3 h-3" /> 10
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAddQuick(50)}
+            className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center gap-0.5 border border-slate-700 cursor-pointer transition-all shadow-2xs"
+          >
+            <Plus className="w-3 h-3" /> 50
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAddQuick(100)}
+            className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center gap-0.5 border border-slate-700 cursor-pointer transition-all shadow-2xs"
+          >
+            <Plus className="w-3 h-3" /> 100
+          </button>
+          <button
+            type="button"
+            onClick={() => handleKeyPress('clear')}
+            className="h-10 rounded-xl bg-rose-950/80 hover:bg-rose-900 active:scale-95 text-rose-300 font-bold text-xs flex items-center justify-center gap-1 border border-rose-800/80 cursor-pointer transition-all shadow-2xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> ล้าง (C)
+          </button>
+        </div>
+      )}
 
       {/* Keypad Grid (4 columns: 7 8 9 ⌫ / 4 5 6 + / 1 2 3 Next / 0 00 . Next) */}
       <div className="grid grid-cols-4 gap-1.5 sm:gap-2">

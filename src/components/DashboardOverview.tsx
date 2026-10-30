@@ -15,7 +15,8 @@ import {
   Factory,
   Scale,
   TrendingUp,
-  Workflow
+  Workflow,
+  FileSpreadsheet
 } from 'lucide-react';
 import { MonthlyFoilUsageBarChart } from './MonthlyFoilUsageBarChart';
 
@@ -41,6 +42,7 @@ interface DashboardOverviewProps {
   isDoubleBackingUp?: boolean;
   lastDoubleBackupTime?: string | null;
   showToast?: (text: string, type?: 'success' | 'info') => void;
+  onOpenExcelExport?: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -62,6 +64,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   isDoubleBackingUp = false,
   lastDoubleBackupTime,
   showToast,
+  onOpenExcelExport,
 }) => {
   const [dashboardTab, setDashboardTab] = useState<'all' | 'foil' | 'sandwich'>('all');
 
@@ -592,6 +595,38 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* SECTION: EXCEL REPORT EXPORT ACTION CARD */}
+      {onOpenExcelExport && (
+        <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-white rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <FileSpreadsheet className="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                  ส่งออกรายงาน Excel สำเร็จรูป
+                </h4>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                  พร้อมใช้งาน
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                ส่งออกไฟล์ Excel สรุปยอดสต๊อกคงเหลือ ยอดตัดจริง SO และงาน PU แซนวิช สำหรับฝ่ายบัญชีและจัดซื้อใน 1 คลิก
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenExcelExport}
+            className="btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-xs transition-all cursor-pointer whitespace-nowrap self-stretch sm:self-auto justify-center active:scale-95"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>เปิดระบบส่งออก Excel</span>
+          </button>
         </div>
       )}
 

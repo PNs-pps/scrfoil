@@ -146,7 +146,7 @@ function clearSnapshotFailure(): void {
 export const DEFAULT_BACKUP_CONFIG: AutoBackupConfig = {
   enabled: true,
   intervalMinutes: 10,
-  autoSyncCloud: true,
+  autoSyncCloud: false, // Default false to prevent new devices/visitors from overwriting cloud data
   saveLocalSnapshots: true,
   autoSyncD1: false,
   lastBackupTime: null,

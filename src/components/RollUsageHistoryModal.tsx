@@ -562,8 +562,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             </div>
           </div>
 
-          {/* SO History Audit & Diagnostics Banner */}
-          {audit && (
+          {/* SO History Audit & Diagnostics Banner (Visible only to editors/staff, hidden from visitors) */}
+          {canEdit && audit && (
             <div className={`rounded-xl border p-3.5 space-y-2.5 ${
               audit.issues.some((i) => i.severity === 'error')
                 ? 'bg-rose-50/70 border-rose-300 text-rose-950'

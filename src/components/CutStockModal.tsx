@@ -147,15 +147,26 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
   const numpadTargets: TouchNumpadTarget[] = useMemo(() => {
     const list: TouchNumpadTarget[] = [];
-    // เรียงตามลำดับ Enter ต่อใบ: เมตรที่ใช้ -> NG ของใบเดียวกัน
+    // เรียงตามลำดับกรอกต่อใบ: รหัส SO (ถ้าเป็น SO) -> เมตรที่ใช้ -> NG ของใบเดียวกัน
     orders.forEach((o, idx) => {
-      const labelPrefix = orders.length > 1 ? `SO#${idx + 1}` : 'ม้วนนี้';
+      const labelPrefix = orders.length > 1 ? `ใบที่ ${idx + 1}` : 'ม้วนนี้';
+      if (o.cutType === 'so') {
+        list.push({
+          id: `so-${o.id}`,
+          label: `${labelPrefix} รหัส SO`,
+          value: o.soNumber,
+          unit: '',
+          isAccent: false,
+          isText: true,
+        });
+      }
       list.push({
         id: `used-${o.id}`,
         label: `${labelPrefix} เมตรที่ใช้`,
         value: o.usedMeters,
         unit: 'ม.',
         isAccent: false,
+        isText: false,
       });
       list.push({
         id: `ng-${o.id}`,
@@ -163,13 +174,17 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         value: o.ngMeters,
         unit: 'ม.',
         isAccent: true,
+        isText: false,
       });
     });
     return list;
   }, [orders]);
 
   const handleNumpadValueChange = (targetId: string, val: string) => {
-    if (targetId.startsWith('used-')) {
+    if (targetId.startsWith('so-')) {
+      const orderId = targetId.replace('so-', '');
+      handleUpdateOrder(orderId, { soNumber: val });
+    } else if (targetId.startsWith('used-')) {
       const orderId = targetId.replace('used-', '');
       handleUpdateOrder(orderId, { usedMeters: val });
     } else if (targetId.startsWith('ng-')) {

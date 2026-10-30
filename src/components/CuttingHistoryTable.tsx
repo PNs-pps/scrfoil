@@ -495,7 +495,9 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         return soMatch || opMatch || summaryMatch || lotMatch || rollMatch || colorMatch || diffMatch;
       });
     }
-    return list;
+    return [...list].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
   }, [auditLogs, auditTypeFilter, auditTimeFilter, auditSearchQuery]);
 
   return (

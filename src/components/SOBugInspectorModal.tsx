@@ -20,7 +20,8 @@ import {
   RefreshCw, 
   AlertCircle,
   Trash2,
-  ArrowLeft
+  ArrowLeft,
+  ArrowUpDown
 } from 'lucide-react';
 import { 
   auditAllRollsSOHistory, 
@@ -84,6 +85,8 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
     rollNumber: string;
   } | null>(null);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
+
+  const [timelineSortOrder, setTimelineSortOrder] = useState<'desc' | 'asc'>('desc');
 
   // Run audit engine on all rolls
   const auditResults = useMemo(() => {
@@ -622,7 +625,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-amber-600" />
-                            <span>ไทม์ไลน์การตัดตามลำดับตัดจริง ({res.timeline.length} รายการ)</span>
+                            <span>ไทม์ไลน์การตัด ({res.timeline.length} รายการ)</span>
                           </h4>
                           {isDep && (
                             <span className="px-2 py-0.5 rounded-full bg-slate-900 text-amber-300 text-[10px] font-bold border border-slate-700 inline-flex items-center gap-1">
@@ -636,9 +639,24 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-slate-500">
-                          ลำดับตัดจริง: เริ่มต้น {formatMeters(res.totalMeters)} ม. &rarr; คงเหลือ {formatMeters(res.currentRemaining)} ม. (ก่อนตัด &rarr; หลังตัด ต่อเนื่องตามลำดับ)
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setTimelineSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-2xs transition-colors"
+                            title="สลับการเรียงลำดับ"
+                          >
+                            <ArrowUpDown className="w-3 h-3 text-amber-600" />
+                            <span>
+                              {timelineSortOrder === 'desc'
+                                ? 'เรียง: ใหม่ล่าสุดขึ้นก่อน (หัวตาราง)'
+                                : 'เรียง: เก่าสุดขึ้นก่อน (1 -> N)'}
+                            </span>
+                          </button>
+                          <span className="text-[11px] text-slate-500 hidden sm:inline">
+                            เริ่มต้น {formatMeters(res.totalMeters)} ม. &rarr; คงเหลือ {formatMeters(res.currentRemaining)} ม.
+                          </span>
+                        </div>
                       </div>
 
                       {/* กล่องเดียว: คำเตือน + ปุ่มปรับความต่อเนื่อง (ไม่ซ้ำซ้อน) */}
@@ -698,7 +716,10 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                              {res.timeline.map((step) => {
+                              {(timelineSortOrder === 'desc'
+                                ? [...res.timeline].reverse()
+                                : res.timeline
+                              ).map((step) => {
                                 const rec = step.record;
                                 return (
                                   <tr 

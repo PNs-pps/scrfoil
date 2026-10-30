@@ -353,6 +353,11 @@ export default function App() {
     syncStatusRef.current = syncStatus;
   }, [syncStatus]);
 
+  const userModeRef = useRef(userMode);
+  useEffect(() => {
+    userModeRef.current = userMode;
+  }, [userMode]);
+
   // Realtime load & Firestore subscription (Optimized with Persistent Cache & Read limits)
   useEffect(() => {
     // 1. Initial fast local load from cache
@@ -622,8 +627,13 @@ export default function App() {
         warnIfSnapshotFailed(result);
       }
 
-      // Also sync to cloud if enabled and online
-      if (config.autoSyncCloud && syncStatusRef.current === 'connected') {
+      // Also sync to cloud if enabled, online, authenticated as editor, and already confirmed server data
+      if (
+        config.autoSyncCloud &&
+        userModeRef.current === 'editor' &&
+        hasLoadedFromServerRef.current &&
+        syncStatusRef.current === 'connected'
+      ) {
         uploadAllToFirestore(rollsRef.current, recordsRef.current, { createOnly: true }).catch((err) => {
           console.warn('Background auto cloud backup notice:', err);
         });
@@ -3084,6 +3094,7 @@ const updated = [newRoll, ...rolls];
             isDoubleBackingUp={isDoubleBackingUp}
             lastDoubleBackupTime={lastDoubleBackupTime}
             showToast={showToast}
+            onOpenExcelExport={() => setIsExcelExportOpen(true)}
           />
         )}
 
@@ -3271,7 +3282,6 @@ const updated = [newRoll, ...rolls];
                 saveStoredPuSandwichRecords(data.puSandwichCuts);
               }
             }}
-            onBack={() => setActiveTab('rolls')}
           />
         )}
       </main>

@@ -236,8 +236,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* SO Bug Inspector (if bug count exists or callback present) */}
-            {onOpenSOAudit && (
+            {/* SO Bug Inspector (Visible only to authenticated staff/editor, hidden from visitors) */}
+            {onOpenSOAudit && userMode !== 'visitor' && (
               <button
                 type="button"
                 onClick={onOpenSOAudit}
