@@ -26,10 +26,13 @@ import {
   Calculator,
   Clock,
   SlidersHorizontal,
-  ChevronDown
+  ChevronDown,
+  WifiOff,
+  Database,
 } from 'lucide-react';
 import { TouchNumpad, TouchNumpadTarget } from './TouchNumpad';
 import { FoilStatusTube } from './FoilStatusTube';
+import { loadPendingCuts } from '../utils/pendingCutQueue';
 
 interface CutOrderItem {
   id: string;
@@ -59,6 +62,8 @@ interface CutStockModalProps {
   onConfirmCutBatch: (records: Omit<StockCutRecord, 'id' | 'createdAt'>[]) => Promise<void> | void;
   /** อัปเดตม้วนใน state หลักหลังดึงยอดจาก server ก่อนยืนยันตัด */
   onRollRefreshed?: (roll: FoilRoll) => void;
+  /** เปิดดูคิวตัดสต๊อกออฟไลน์ที่ค้างส่ง */
+  onOpenOfflineQueue?: () => void;
 }
 
 export interface DuplicateAlertInfo {
@@ -80,6 +85,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   onConfirmCut,
   onConfirmCutBatch,
   onRollRefreshed,
+  onOpenOfflineQueue,
 }) => {
   const isStaff = isStaffEmail(currentUserEmail);
   const today = todayLocalISO();
@@ -476,6 +482,31 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     return dups;
   }, [currentRoll, existingRecords, orders]);
 
+  // ตรวจสอบคิวตัดสต๊อกค้างส่งของม้วนนี้และในเครื่องทั้งหมด
+  const pendingEntries = useMemo(() => {
+    if (!isOpen) return [];
+    return loadPendingCuts();
+  }, [isOpen, showConfirmSummary]);
+
+  const pendingForCurrentRoll = useMemo(() => {
+    if (!currentRoll) return [];
+    return pendingEntries.flatMap((entry) =>
+      (entry.records || [])
+        .filter((r) => r && r.foilId === currentRoll.id)
+        .map((r) => ({
+          ...r,
+          enqueuedAt: entry.enqueuedAt,
+          queueId: entry.queueId,
+          attempts: entry.attempts,
+          lastError: entry.lastError,
+        }))
+    );
+  }, [pendingEntries, currentRoll]);
+
+  const totalPendingDeductedCurrentRoll = useMemo(() => {
+    return round2(pendingForCurrentRoll.reduce((sum, r) => sum + (Number(r.totalDeducted) || 0), 0));
+  }, [pendingForCurrentRoll]);
+
   const executeCutSubmission = async () => {
     if (!currentRoll) return;
 
@@ -537,20 +568,31 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     setIsSubmitting(true);
     setShowConfirmSummary(false);
     try {
-      // เช็คยอด server อีกครั้งก่อน commit (race ระหว่างเปิดยืนยันกับกดยืนยัน)
-      if (currentRoll) {
-        const fresh = await fetchFoilRollFromServer(currentRoll.id);
-        if (fresh) {
-          const serverRem = round2(Number(fresh.remainingMeters || 0));
-          const need = round2(
-            batchRecords.reduce((s, r) => s + Math.abs(Number(r.totalDeducted) || 0), 0)
-          );
-          if (need > serverRem + 0.05) {
-            throw new Error(
-              `สต๊อกไม่พอ! ยอดล่าสุดบนเซิร์ฟเวอร์เหลือ ${formatMeters(serverRem)} ม. แต่ต้องใช้ ${formatMeters(need)} ม. (อาจมีเครื่องอื่นตัดไปแล้ว)`
+      // เช็คยอด server อีกครั้งก่อน commit เฉพาะเมื่อต่อเน็ตอยู่ (พร้อม timeout 1.2 วินาที กันค้าง)
+      const isOnline = typeof navigator === 'undefined' || navigator.onLine;
+      if (currentRoll && isOnline) {
+        try {
+          const fresh = await Promise.race([
+            fetchFoilRollFromServer(currentRoll.id),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+          ]);
+          if (fresh) {
+            const serverRem = round2(Number(fresh.remainingMeters || 0));
+            const need = round2(
+              batchRecords.reduce((s, r) => s + Math.abs(Number(r.totalDeducted) || 0), 0)
             );
+            if (need > serverRem + 0.05) {
+              throw new Error(
+                `สต๊อกไม่พอ! ยอดล่าสุดบนเซิร์ฟเวอร์เหลือ ${formatMeters(serverRem)} ม. แต่ต้องใช้ ${formatMeters(need)} ม. (อาจมีเครื่องอื่นตัดไปแล้ว)`
+              );
+            }
+            if (onRollRefreshed) onRollRefreshed(fresh);
           }
-          if (onRollRefreshed) onRollRefreshed(fresh);
+        } catch (fetchErr: any) {
+          if (fetchErr?.message?.includes('สต๊อกไม่พอ')) {
+            throw fetchErr;
+          }
+          // ถ้าเป็น network error หรือ timeout ให้ข้ามไปตัดแบบ offline ได้ทันที
         }
       }
 
@@ -563,19 +605,26 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       }
       playSuccessFeedback();
       const isRes = productionMode === 'reservation';
+      const isOfflineNow = typeof navigator !== 'undefined' && !navigator.onLine;
       setCutResult({
         ok: true,
-        title: isRes ? 'จองม้วนฟอยล์สำเร็จ' : 'ตัดสต๊อกสำเร็จ',
+        title: isOfflineNow
+          ? 'ตัดสต๊อกสำเร็จ (โหมดออฟไลน์)'
+          : isRes
+            ? 'จองม้วนฟอยล์สำเร็จ'
+            : 'ตัดสต๊อกสำเร็จ',
         message:
           batchRecords.length === 1
             ? `บันทึก SO ${batchRecords[0].soNumber} เรียบร้อย (${isRes ? 'คิวจองรอตัด' : 'ตัดจริง'} ${formatMeters(batchRecords[0].usedMeters)} ม.` +
               (batchRecords[0].ngMeters > 0
                 ? ` + NG ${formatMeters(batchRecords[0].ngMeters)} ม.`
                 : '') +
-              `)`
+              `)` +
+              (isOfflineNow ? ' • บันทึกลงเครื่องแล้ว ระบบจะส่งขึ้นคลาวด์อัตโนมัติเมื่อมีเน็ต' : '')
             : `บันทึก ${batchRecords.length} รายการใบงาน (${isRes ? 'จองรอตัด' : 'ตัดจริง'}) ยอดรวม ${formatMeters(
                 batchRecords.reduce((s, r) => s + r.totalDeducted, 0)
-              )} ม.`,
+              )} ม.` +
+              (isOfflineNow ? ' • บันทึกลงเครื่องแล้ว ระบบจะส่งขึ้นคลาวด์อัตโนมัติเมื่อมีเน็ต' : ''),
         remainingAfter: batchRecords[batchRecords.length - 1]?.remainingAfter,
         totalDeducted: batchRecords.reduce((s, r) => s + r.totalDeducted, 0),
       });
@@ -657,27 +706,33 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       return;
     }
 
-    // ดึงยอดคงเหลือจาก server ก่อนเปิดหน้าต่างยืนยัน (กันเครื่องอื่นตัดม้วนนี้ไปแล้ว)
+    // ดึงยอดคงเหลือจาก server ก่อนเปิดหน้าต่างยืนยัน (เฉพาะเมื่อออนไลน์ พร้อม timeout 1.2 วินาที)
     setIsRefreshingStock(true);
     setStockSyncNote(null);
     try {
-      const fresh = await fetchFoilRollFromServer(currentRoll.id);
-      if (fresh) {
-        const localRem = round2(Number(currentRoll.remainingMeters || 0));
-        const serverRem = round2(Number(fresh.remainingMeters || 0));
-        if (Math.abs(localRem - serverRem) > 0.05) {
-          setStockSyncNote(
-            `ยอดคงเหลือบนเซิร์ฟเวอร์อัปเดตเป็น ${formatMeters(serverRem)} ม. (หน้าจอเคยแสดง ${formatMeters(localRem)} ม. — อาจมีเครื่องอื่นตัดม้วนนี้ไปแล้ว)`
-          );
-        }
-        if (onRollRefreshed) onRollRefreshed(fresh);
-        // ถ้าตัดเกินยอด server แล้ว ห้ามเปิดยืนยัน
-        if (totalDeductedAll > serverRem + 0.05) {
-          setError(
-            `สต๊อกไม่พอตามยอดล่าสุดบนเซิร์ฟเวอร์ (เหลือ ${formatMeters(serverRem)} ม. แต่ระบุตัด ${formatMeters(totalDeductedAll)} ม.) กรุณาลดจำนวนแล้วลองใหม่`
-          );
-          setIsRefreshingStock(false);
-          return;
+      const isOnline = typeof navigator === 'undefined' || navigator.onLine;
+      if (isOnline) {
+        const fresh = await Promise.race([
+          fetchFoilRollFromServer(currentRoll.id),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+        ]);
+        if (fresh) {
+          const localRem = round2(Number(currentRoll.remainingMeters || 0));
+          const serverRem = round2(Number(fresh.remainingMeters || 0));
+          if (Math.abs(localRem - serverRem) > 0.05) {
+            setStockSyncNote(
+              `ยอดคงเหลือบนเซิร์ฟเวอร์อัปเดตเป็น ${formatMeters(serverRem)} ม. (หน้าจอเคยแสดง ${formatMeters(localRem)} ม. — อาจมีเครื่องอื่นตัดม้วนนี้ไปแล้ว)`
+            );
+          }
+          if (onRollRefreshed) onRollRefreshed(fresh);
+          // ถ้าตัดเกินยอด server แล้ว ห้ามเปิดยืนยัน
+          if (totalDeductedAll > serverRem + 0.05) {
+            setError(
+              `สต๊อกไม่พอตามยอดล่าสุดบนเซิร์ฟเวอร์ (เหลือ ${formatMeters(serverRem)} ม. แต่ระบุตัด ${formatMeters(totalDeductedAll)} ม.) กรุณาลดจำนวนแล้วลองใหม่`
+            );
+            setIsRefreshingStock(false);
+            return;
+          }
         }
       }
     } catch {
@@ -1608,53 +1663,69 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
           )}
 
           {/* Footer Action Buttons */}
-          <div className="pt-2 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSubmitting}
-              aria-label="ปิดหน้าต่าง"
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              ยกเลิก
-            </button>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff}
-              className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
-                isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff
-                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
-                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
-              }`}
-            >
-              {!isStaff ? (
-                <>
-                  <Lock className="w-4 h-4 stroke-[2.5]" />
-                  <span>ไม่มีสิทธิ์ตัดใบงาน (เฉพาะเจ้าหน้าที่)</span>
-                </>
-              ) : isSubmitting || isRefreshingStock ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
-                  <span>
-                    {isRefreshingStock ? 'กำลังดึงยอดล่าสุดจากเซิร์ฟเวอร์...' : 'กำลังบันทึกลง Firebase...'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  {productionMode === 'reservation' ? (
-                    <Clock className="w-4 h-4 stroke-[2.5]" />
-                  ) : (
-                    <Scissors className="w-4 h-4 stroke-[2.5]" />
-                  )}
-                  <span>
-                    {productionMode === 'reservation'
-                      ? `บันทึกคิวจองรอตัด (${formatMeters(totalDeductedAll)} ม.)`
-                      : `ตรวจสอบก่อนตัดสต๊อก (${formatMeters(totalDeductedAll)} ม.)`}
-                  </span>
-                </>
+          <div className="pt-2 flex items-center justify-between gap-3">
+            <div>
+              {onOpenOfflineQueue && (pendingEntries.length > 0 || (typeof navigator !== 'undefined' && !navigator.onLine)) && (
+                <button
+                  type="button"
+                  onClick={onOpenOfflineQueue}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition-colors cursor-pointer"
+                  title="เปิดดูรายการตัดสต๊อกค้างส่งในเครื่อง"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-700" />
+                  <span>คิวค้างส่ง ({pendingEntries.length})</span>
+                </button>
               )}
-            </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                aria-label="ปิดหน้าต่าง"
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ยกเลิก
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff}
+                className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
+                  isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                }`}
+              >
+                {!isStaff ? (
+                  <>
+                    <Lock className="w-4 h-4 stroke-[2.5]" />
+                    <span>ไม่มีสิทธิ์ตัดใบงาน (เฉพาะเจ้าหน้าที่)</span>
+                  </>
+                ) : isSubmitting || isRefreshingStock ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                    <span>
+                      {isRefreshingStock ? 'กำลังดึงยอดล่าสุดจากเซิร์ฟเวอร์...' : 'กำลังบันทึกลง Firebase...'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {productionMode === 'reservation' ? (
+                      <Clock className="w-4 h-4 stroke-[2.5]" />
+                    ) : (
+                      <Scissors className="w-4 h-4 stroke-[2.5]" />
+                    )}
+                    <span>
+                      {productionMode === 'reservation'
+                        ? `บันทึกคิวจองรอตัด (${formatMeters(totalDeductedAll)} ม.)`
+                        : `ตรวจสอบก่อนตัดสต๊อก (${formatMeters(totalDeductedAll)} ม.)`}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -1672,6 +1743,77 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 <p className="text-xs text-slate-500 mt-0.5">ตรวจสอบสรุปด้านล่างก่อนบันทึกลงคลาวด์กลาง</p>
               </div>
             </div>
+
+            {/* แจ้งเตือนเมื่ออยู่ในโหมดออฟไลน์ */}
+            {typeof navigator !== 'undefined' && !navigator.onLine && (
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-slate-900 text-white text-xs border border-slate-700 shadow-xs">
+                <WifiOff className="w-4 h-4 text-rose-400 shrink-0" />
+                <div className="flex-1">
+                  <div className="font-bold text-rose-300">โหมดออฟไลน์ (ไม่มีเน็ต)</div>
+                  <div className="text-[11px] text-slate-300">ระบบจะตัดสต๊อกในเครื่องทันที และเข้าคิวส่งขึ้น Cloud อัตโนมัติเมื่อมีสัญญาณ</div>
+                </div>
+              </div>
+            )}
+
+            {/* ตรวจสอบรายการค้างส่งของม้วนนี้ก่อนกดยืนยันตัด */}
+            {pendingForCurrentRoll.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>ม้วนนี้มีรายการค้างส่งในเครื่อง ({pendingForCurrentRoll.length} รายการ)</span>
+                  </div>
+                  <span className="font-mono font-bold text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded-md text-[11px]">
+                    รอส่ง {formatMeters(totalPendingDeductedCurrentRoll)} ม.
+                  </span>
+                </div>
+                <div className="text-[11px] text-amber-800 leading-snug">
+                  มีรายการตัดที่บันทึกไว้ตอนออฟไลน์กำลังรอส่งขึ้น Cloud ตรวจสอบเพื่อป้องกันตัดซ้ำ:
+                </div>
+                <div className="max-h-24 overflow-y-auto space-y-1 rounded-lg border border-amber-200 bg-white/90 p-2">
+                  {pendingForCurrentRoll.map((p, idx) => (
+                    <div
+                      key={`${p.queueId}-${idx}`}
+                      className="flex items-center justify-between text-[11px] text-slate-700 font-mono py-0.5 border-b border-slate-100 last:border-0"
+                    >
+                      <span className="font-semibold text-slate-900 truncate mr-2">
+                        {p.soNumber || p.nonSoReason || 'ไม่ระบุ SO'}
+                      </span>
+                      <span className="text-slate-600 shrink-0">
+                        ตัด {formatMeters(p.totalDeducted)} ม.{' '}
+                        <span className="text-slate-400 font-sans">({p.recordedBy || 'ช่าง'})</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {onOpenOfflineQueue && (
+                  <button
+                    type="button"
+                    onClick={onOpenOfflineQueue}
+                    className="w-full text-center py-1 text-[11px] font-bold text-amber-900 hover:text-amber-950 underline cursor-pointer"
+                  >
+                    คลิกเพื่อตรวจสอบหรือจัดการคิวค้างส่งทั้งหมด
+                  </button>
+                )}
+              </div>
+            )}
+
+            {pendingEntries.length > 0 && pendingForCurrentRoll.length === 0 && (
+              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-700">
+                <span className="text-[11px] text-slate-600">
+                  มีคิวตัดค้างส่งม้วนอื่น {pendingEntries.length} รายการในเครื่อง
+                </span>
+                {onOpenOfflineQueue && (
+                  <button
+                    type="button"
+                    onClick={onOpenOfflineQueue}
+                    className="font-bold text-amber-800 hover:underline text-[11px] cursor-pointer"
+                  >
+                    ตรวจดูคิว
+                  </button>
+                )}
+              </div>
+            )}
 
             {stockSyncNote && (
               <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950">

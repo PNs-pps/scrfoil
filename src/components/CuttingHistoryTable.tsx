@@ -345,6 +345,55 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
     });
   }, [filteredItems, sortField, sortDirection]);
 
+  // Pagination (50 รายการต่อหน้าเพื่อประหยัดค่า read และความลื่นไหลในการแสดงผล)
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // รีเซ็ตหน้ากลับไปหน้า 1 เมื่อมีการค้นหาหรือเปลี่ยนตัวกรอง
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, startDate, endDate, categoryFilter, sortField, sortDirection]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const paginatedItems = useMemo(() => {
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    return sortedItems.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [sortedItems, currentPage]);
+
+  const startRecordIndex = sortedItems.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const endRecordIndex = Math.min(currentPage * PAGE_SIZE, sortedItems.length);
+
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 4) {
+        pages.push('dots-1');
+      }
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+      for (let i = start; i <= end; i++) {
+        if (!pages.includes(i)) pages.push(i);
+      }
+      if (currentPage < totalPages - 3) {
+        pages.push('dots-2');
+      }
+      if (!pages.includes(totalPages)) {
+        pages.push(totalPages);
+      }
+    }
+    return pages;
+  };
+
   // Statistics of Current Filtered Set
   // นับเฉพาะรายการที่ตัดจริง — ตัดใบจอง (reserved) และใบยกเลิก (cancelled) ออก
   const stats = useMemo(() => {
@@ -706,7 +755,11 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
         {/* Live Metrics Summary & View Mode Switcher */}
         <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2.5 text-xs font-mono pt-2 border-t border-slate-100">
           <div className="text-slate-500 flex items-center gap-1.5 flex-wrap">
-            <span>แสดง <strong className="text-slate-900">{sortedItems.length}</strong> รายการ</span>
+            <span>
+              แสดง <strong className="text-slate-900">{startRecordIndex} - {endRecordIndex}</strong> จาก{' '}
+              <strong className="text-slate-900">{sortedItems.length}</strong> รายการ{' '}
+              <span className="text-amber-700 font-bold">(หน้า {currentPage}/{totalPages})</span>
+            </span>
             <span className="text-slate-300">•</span>
             <span className="text-[11px] text-amber-700 font-semibold">ฟอยล์: {stats.foilCount}</span>
             <span className="text-slate-300">•</span>
@@ -755,6 +808,31 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-1.5">
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1 mr-2 px-2 py-0.5 rounded-lg bg-white/90 border border-slate-300 shadow-2xs text-xs font-mono">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    className="p-1 rounded hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    title="หน้าก่อนหน้า"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="font-bold text-slate-900 px-1">
+                    หน้า {currentPage}/{totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    className="p-1 rounded hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    title="หน้าถัดไป"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => scrollTable('left')}
@@ -811,7 +889,7 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
-                {sortedItems.map((item) => {
+                {paginatedItems.map((item) => {
                   const isFoil = item.type === 'foil';
                   const patternStyle = isFoil && item.pattern ? getPatternStyle(item.pattern) : null;
 
@@ -1195,6 +1273,72 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                   })}
               </tbody>
             </table>
+          </div>
+
+          {/* Bottom Pagination Controls (50 รายการต่อหน้า พร้อมเลขหน้าและปุ่มย้อนกลับ/ถัดไป) */}
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="text-slate-600 font-mono text-center sm:text-left">
+              แสดงรายการที่ <strong className="text-slate-900">{startRecordIndex} - {endRecordIndex}</strong> จากทั้งหมด{' '}
+              <strong className="text-slate-900">{sortedItems.length}</strong> รายการ{' '}
+              <span className="text-slate-400 font-sans">(หน้า {currentPage} / {totalPages})</span>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                {/* ปุ่มย้อนกลับ (ก่อนหน้า) */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs active:scale-95 transition-all"
+                  title="หน้าก่อนหน้า"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span>ก่อนหน้า</span>
+                </button>
+
+                {/* ปุ่มเลขหน้า (มีเลขหน้าชัดเจน) */}
+                <div className="flex items-center gap-1">
+                  {getPageNumbers().map((p, idx) => {
+                    if (typeof p === 'string') {
+                      return (
+                        <span key={`dots-${idx}`} className="px-1 text-slate-400 select-none font-bold">
+                          ...
+                        </span>
+                      );
+                    }
+                    const isActive = p === currentPage;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setCurrentPage(p)}
+                        className={`min-w-[34px] h-8 px-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-amber-500 text-slate-950 shadow-xs border border-amber-600 ring-2 ring-amber-400/40'
+                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                        }`}
+                        title={`ไปหน้าที่ ${p}`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* ปุ่มถัดไป */}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs active:scale-95 transition-all"
+                  title="หน้าถัดไป"
+                >
+                  <span>ถัดไป</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

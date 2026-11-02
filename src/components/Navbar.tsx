@@ -19,6 +19,8 @@ import {
   ShieldCheck,
   CalendarClock,
   Server,
+  WifiOff,
+  Clock,
 } from 'lucide-react';
 import { UserMode } from '../utils/auth';
 
@@ -44,6 +46,9 @@ interface NavbarProps {
   onSignOut?: () => void;
   onOpenExcelExport?: () => void;
   onOpenFullstackHub?: () => void;
+  isOnline?: boolean;
+  pendingCutCount?: number;
+  onOpenOfflineQueue?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -68,6 +73,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSignOut,
   onOpenExcelExport,
   onOpenFullstackHub,
+  isOnline = true,
+  pendingCutCount = 0,
+  onOpenOfflineQueue,
 }) => {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
@@ -191,8 +199,44 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </nav>
 
-          {/* Right Controls: Excel Button (no .xlsx), Mode Switcher, Bug Inspector, Profile Avatar (Circle Only) */}
+          {/* Right Controls: Offline/Queue Badge, Excel Button, Mode Switcher, Bug Inspector, Profile Avatar */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* Offline / Pending Queue Badge */}
+            {(!isOnline || pendingCutCount > 0) && (
+              <button
+                type="button"
+                onClick={onOpenOfflineQueue}
+                className={`btn-tactile inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-soft-xs ${
+                  !isOnline
+                    ? 'bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-800'
+                    : 'bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900'
+                }`}
+                title={
+                  !isOnline
+                    ? `ระบบทำงานในโหมดออฟไลน์${pendingCutCount > 0 ? ` (มีคิวค้างส่ง ${pendingCutCount} รายการ)` : ''} คลิกเพื่อเปิดดูคิว`
+                    : `มีรายการตัดสต๊อกค้างส่ง ${pendingCutCount} รายการ คลิกเพื่อเปิดดูและส่งขึ้นคลาวด์`
+                }
+              >
+                {!isOnline ? (
+                  <WifiOff className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+                ) : (
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                )}
+                <span className="hidden xs:inline">
+                  {!isOnline ? 'ออฟไลน์' : 'รอส่ง'}
+                </span>
+                {pendingCutCount > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
+                      !isOnline ? 'bg-rose-200 text-rose-950' : 'bg-amber-200 text-amber-950'
+                    }`}
+                  >
+                    {pendingCutCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Excel Report Button — NO .xlsx suffix */}
             {onOpenExcelExport && (
               <button

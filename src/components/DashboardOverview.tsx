@@ -19,6 +19,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { MonthlyFoilUsageBarChart } from './MonthlyFoilUsageBarChart';
+import { PuSandwichColorBreakdown } from './PuSandwichColorBreakdown';
 
 export type MonthlySummaryScope = 'all' | 'foil' | 'sandwich';
 
@@ -522,85 +523,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
       </div>
 
-      {/* SECTION: PU SANDWICH DASHBOARD (ย้ายมาจากเมนูแซนวิชเดิมตามคำขอ) */}
-      {(dashboardTab === 'all' || dashboardTab === 'sandwich') && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-          <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center justify-center shrink-0">
-                <Factory className="w-5 h-5 stroke-[2.2]" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-400 text-slate-950 uppercase">
-                    PU Sandwich
-                  </span>
-                  <span className="text-xs text-emerald-200/80 font-medium hidden sm:inline">
-                    ไม่ใช้ฟอยล์ · บันทึกน้ำหนักคอยล์เหล็ก
-                  </span>
-                </div>
-                <h3 className="text-base sm:text-lg font-bold text-white mt-0.5">
-                  แดชบอร์ดผลิต PU แซนวิช
-                </h3>
-              </div>
-            </div>
-          </div>
-
-          {/* Sandwich Summary Grid: แสดงเมตรเป็นหลัก kg เป็นรอง */}
-          <div className="p-4 sm:p-5 grid grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50/60">
-            {/* 1. ความยาวผลิต SO รวม (เมตรเป็นหลัก) */}
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] text-slate-500 font-medium block">ความยาวผลิต SO รวม</span>
-              <div className="text-lg sm:text-xl font-bold font-mono text-emerald-800 mt-1">
-                {sandwichStats.totalSoMeters.toLocaleString()} <span className="text-xs text-slate-500 font-normal">เมตร</span>
-              </div>
-              <span className="text-[11px] text-slate-500 mt-0.5 block font-mono">
-                จากทั้งหมด {sandwichStats.count} ใบงาน
-              </span>
-            </div>
-
-            {/* 2. น้ำหนักเหล็กที่ใช้จริง (กก. เป็นรอง) */}
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] text-slate-500 font-medium block">น้ำหนักเหล็กที่ใช้จริง</span>
-              <div className="text-lg sm:text-xl font-bold font-mono text-slate-900 mt-1">
-                {sandwichStats.totalKg.toLocaleString()} <span className="text-xs text-slate-500 font-normal">กก.</span>
-              </div>
-              <span className="text-[11px] text-emerald-700 font-bold mt-0.5 block font-mono">
-                {sandwichStats.totalTons} ตันเหล็ก
-              </span>
-            </div>
-
-            {/* 3. NG เสียหาย (เมตรเป็นหลัก กก. เป็นรอง) */}
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] text-slate-500 font-medium block">NG เสียหาย (ม. / กก.)</span>
-              <div className="text-lg sm:text-xl font-bold font-mono text-rose-600 mt-1">
-                {sandwichStats.totalNgMeters.toLocaleString()} <span className="text-xs text-slate-500 font-normal">เมตร</span>
-              </div>
-              <span className="text-[11px] text-rose-700 font-mono mt-0.5 block">
-                {sandwichStats.totalNgKg.toLocaleString()} กก. ({sandwichStats.ngPercent}%)
-              </span>
-            </div>
-
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] text-slate-500 font-medium block">สัดส่วนประเภทเหล็ก</span>
-              <div className="text-xs space-y-1 mt-1 font-mono">
-                <div className="flex justify-between">
-                  <span className="text-slate-600">เหล็กนอก:</span>
-                  <span className="font-bold text-slate-900">{sandwichStats.externalPct}%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Blue Scope:</span>
-                  <span className="font-bold text-slate-900">{sandwichStats.blueScopePct}%</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION: EXCEL REPORT EXPORT ACTION CARD */}
-      {onOpenExcelExport && (
-        <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-white rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5">
+      {/* SECTION: EXCEL REPORT EXPORT ACTION CARD (แสดงอยู่ด้านบนแดชบอร์ดแซนวิชตามคำขอ) */}
+      {onOpenExcelExport && (dashboardTab === 'all' || dashboardTab === 'sandwich') && (
+        <div className="bg-gradient-to-r from-emerald-50/95 via-teal-50/80 to-white rounded-2xl border-2 border-emerald-300 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
               <FileSpreadsheet className="w-5 h-5 stroke-[2.2]" />
@@ -612,6 +537,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 </h4>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
                   พร้อมใช้งาน
+                </span>
+                <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
+                  (PU แซนวิช {sandwichStats.count} SO · ฟอยล์ {deduction.used > 0 ? `${formatMeters(deduction.used)} ม.` : `${records.length} SO`})
                 </span>
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
@@ -627,6 +555,87 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <FileSpreadsheet className="w-4 h-4" />
             <span>เปิดระบบส่งออก Excel</span>
           </button>
+        </div>
+      )}
+
+      {/* SECTION: PU SANDWICH DASHBOARD (ย้ายมาจากเมนูแซนวิชเดิมตามคำขอ) */}
+      {(dashboardTab === 'all' || dashboardTab === 'sandwich') && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                  <Factory className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-400 text-slate-950 uppercase">
+                      PU Sandwich
+                    </span>
+                    <span className="text-xs text-emerald-200/80 font-medium hidden sm:inline">
+                      ไม่ใช้ฟอยล์ · บันทึกน้ำหนักคอยล์เหล็ก
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-white mt-0.5">
+                    แดชบอร์ดผลิต PU แซนวิช
+                  </h3>
+                </div>
+              </div>
+            </div>
+
+            {/* Sandwich Summary Grid: แสดงเมตรเป็นหลัก kg เป็นรอง */}
+            <div className="p-4 sm:p-5 grid grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50/60">
+              {/* 1. ความยาวผลิต SO รวม (เมตรเป็นหลัก) */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[11px] text-slate-500 font-medium block">ความยาวผลิต SO รวม</span>
+                <div className="text-lg sm:text-xl font-bold font-mono text-emerald-800 mt-1">
+                  {sandwichStats.totalSoMeters.toLocaleString()} <span className="text-xs text-slate-500 font-normal">เมตร</span>
+                </div>
+                <span className="text-[11px] text-slate-500 mt-0.5 block font-mono">
+                  จากทั้งหมด {sandwichStats.count} ใบงาน
+                </span>
+              </div>
+
+              {/* 2. น้ำหนักเหล็กที่ใช้จริง (กก. เป็นรอง) */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[11px] text-slate-500 font-medium block">น้ำหนักเหล็กที่ใช้จริง</span>
+                <div className="text-lg sm:text-xl font-bold font-mono text-slate-900 mt-1">
+                  {sandwichStats.totalKg.toLocaleString()} <span className="text-xs text-slate-500 font-normal">กก.</span>
+                </div>
+                <span className="text-[11px] text-emerald-700 font-bold mt-0.5 block font-mono">
+                  {sandwichStats.totalTons} ตันเหล็ก
+                </span>
+              </div>
+
+              {/* 3. NG เสียหาย (เมตรเป็นหลัก กก. เป็นรอง) */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[11px] text-slate-500 font-medium block">NG เสียหาย (ม. / กก.)</span>
+                <div className="text-lg sm:text-xl font-bold font-mono text-rose-600 mt-1">
+                  {sandwichStats.totalNgMeters.toLocaleString()} <span className="text-xs text-slate-500 font-normal">เมตร</span>
+                </div>
+                <span className="text-[11px] text-rose-700 font-mono mt-0.5 block">
+                  {sandwichStats.totalNgKg.toLocaleString()} กก. ({sandwichStats.ngPercent}%)
+                </span>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[11px] text-slate-500 font-medium block">สัดส่วนประเภทเหล็ก</span>
+                <div className="text-xs space-y-1 mt-1 font-mono">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">เหล็กนอก:</span>
+                    <span className="font-bold text-slate-900">{sandwichStats.externalPct}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Blue Scope:</span>
+                    <span className="font-bold text-slate-900">{sandwichStats.blueScopePct}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* สรุปคอยล์แยกตามสีหลัก สีย่อย และความหนา (เช่น ขาว AW, ขาว AW/Z.cool รวมเป็นสีขาว แล้วแยกย่อย) */}
+          <PuSandwichColorBreakdown records={safePuRecords} defaultExpanded={dashboardTab === 'sandwich'} />
         </div>
       )}
 

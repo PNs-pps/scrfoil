@@ -70,6 +70,7 @@ import { DailyProductionFlow } from './components/DailyProductionFlow';
 import { AddFoilModal } from './components/AddFoilModal';
 import { EditFoilModal } from './components/EditFoilModal';
 import { CutStockModal } from './components/CutStockModal';
+import { OfflineQueueModal } from './components/OfflineQueueModal';
 import { EditSOCutModal } from './components/EditSOCutModal';
 import { SODetailModal } from './components/SODetailModal';
 import { RollUsageHistoryModal } from './components/RollUsageHistoryModal';
@@ -816,6 +817,10 @@ export default function App() {
 
   // Cuts that could not reach Cloud yet (see utils/pendingCutQueue.ts).
   const [pendingCutCount, setPendingCutCount] = useState<number>(() => loadPendingCuts().length);
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+  const [isOfflineQueueModalOpen, setIsOfflineQueueModalOpen] = useState(false);
   const cutInFlightRef = useRef(false);
   const pendingFlushRef = useRef(false);
   const recordEditFlushRef = useRef(false);
@@ -1449,6 +1454,28 @@ const updated = [newRoll, ...rolls];
         };
       });
 
+    // Fast-path for offline mode: deduct locally & queue immediately without network delay
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (!enqueuePendingCut(createdRecords, new Error('Client is offline (navigator.onLine is false)'))) {
+        throw new Error(
+          'ออฟไลน์อยู่และบันทึกคิวในเครื่องไม่ได้ (พื้นที่เก็บข้อมูลเต็ม) — ยังไม่ได้ตัดสต๊อก กรุณาเชื่อมต่ออินเทอร์เน็ตแล้วลองใหม่'
+        );
+      }
+      setPendingCutCount(loadPendingCuts().length);
+      createBackupSnapshot(rollsRef.current, recordsRef.current, 'before_cut');
+      commitRolls(applyLocalDeduction);
+      commitRecords((prev) => {
+        const have = new Set(prev.map((r) => r.id));
+        return [...prev, ...createdRecords.filter((r) => !have.has(r.id))];
+      });
+      setSyncStatus('offline');
+      showToast(
+        `ตัดสต๊อกบันทึกในเครื่องทันที (ออฟไลน์) — ค้างส่ง ${loadPendingCuts().length} รายการ ระบบจะส่งขึ้น Cloud อัตโนมัติเมื่อมีเน็ต`,
+        'info'
+      );
+      return;
+    }
+
     try {
       const finalRollsById = new Map<string, FoilRoll>();
 
@@ -1707,19 +1734,114 @@ const updated = [newRoll, ...rolls];
   flushPendingRecordEditsRef.current = flushPendingRecordEdits;
 
   useEffect(() => {
-    const run = () => {
+    const handleOnline = () => {
+      setIsOnline(true);
       void flushPendingCutsRef.current();
       void flushPendingRecordEditsRef.current();
     };
-    const first = window.setTimeout(run, 3000);
-    const interval = window.setInterval(run, 30000);
-    window.addEventListener('online', run);
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncStatus('offline');
+    };
+
+    const first = window.setTimeout(handleOnline, 3000);
+    const interval = window.setInterval(() => {
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        void flushPendingCutsRef.current();
+        void flushPendingRecordEditsRef.current();
+      }
+    }, 30000);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     return () => {
       window.clearTimeout(first);
       window.clearInterval(interval);
-      window.removeEventListener('online', run);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  /** ยกเลิกรายการตัดสต๊อกที่ค้างส่งในคิวออฟไลน์ และคืนสต๊อกในเครื่อง */
+  const handleCancelPendingCut = async (queueId: string) => {
+    const entries = loadPendingCuts();
+    const entry = entries.find((e) => e.queueId === queueId);
+    if (!entry) return;
+
+    removePendingCut(queueId);
+    setPendingCutCount(loadPendingCuts().length);
+
+    // ลบประวัติการตัดสต๊อกในเครื่องที่สร้างจากชุดนี้
+    const recordIds = new Set(entry.records.map((r) => r.id));
+    commitRecords((prev) => prev.filter((r) => !recordIds.has(r.id)));
+
+    // คืนยอดสต๊อกในเครื่อง
+    const rollDeductions = new Map<string, { used: number; ng: number; total: number }>();
+    for (const r of entry.records) {
+      const cur = rollDeductions.get(r.foilId) || { used: 0, ng: 0, total: 0 };
+      cur.used += Number(r.usedMeters) || 0;
+      cur.ng += Number(r.ngMeters) || 0;
+      cur.total += Number(r.totalDeducted) || 0;
+      rollDeductions.set(r.foilId, cur);
+    }
+
+    commitRolls((prev) =>
+      prev.map((roll) => {
+        const ded = rollDeductions.get(roll.id);
+        if (!ded) return roll;
+        const restoredRemaining = round2(roll.remainingMeters + ded.total);
+        const restoredUsed = Math.max(0, round2((roll.usedMeters || 0) - ded.used));
+        const restoredNg = Math.max(0, round2((roll.ngMeters || 0) - ded.ng));
+        return {
+          ...roll,
+          remainingMeters: restoredRemaining,
+          usedMeters: restoredUsed,
+          ngMeters: restoredNg,
+          status: restoredRemaining > 0 ? ('active' as const) : roll.status,
+        };
+      })
+    );
+
+    // หากออนไลน์ พยายามดึงยอดล่าสุดจาก server ให้ตรงกัน
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      for (const rollId of Array.from(rollDeductions.keys())) {
+        try {
+          const fresh = await fetchFoilRollFromServer(rollId);
+          if (fresh) commitRolls((prev) => prev.map((r) => (r.id === fresh.id ? fresh : r)));
+        } catch {
+          // offline ignore
+        }
+      }
+    }
+
+    showToast('ยกเลิกรายการตัดค้างส่งและคืนสต๊อกในเครื่องเรียบร้อย', 'info');
+  };
+
+  /** ยกเลิกการแก้ไขใบ SO ที่ค้างส่งในคิวออฟไลน์ */
+  const handleCancelPendingRecordEdit = async (recordId: string) => {
+    const edits = loadPendingRecordEdits();
+    const found = edits.find((e) => e.recordId === recordId);
+    if (!found) return;
+
+    removePendingRecordEdit(recordId);
+    setPendingRecordEditCount(loadPendingRecordEdits().length);
+
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        const freshRecords = await fetchCutRecordsForRollFromServer(found.record.foilId);
+        const fresh = freshRecords.find((r) => r.id === recordId);
+        if (fresh) {
+          commitRecords((prev) => prev.map((r) => (r.id === recordId ? fresh : r)));
+        }
+        const freshRoll = await fetchFoilRollFromServer(found.record.foilId);
+        if (freshRoll) commitRolls((prev) => prev.map((r) => (r.id === freshRoll.id ? freshRoll : r)));
+      } catch (err) {
+        console.warn('Could not refresh record after cancelling edit:', err);
+      }
+    }
+
+    showToast('ยกเลิกการแก้ไขใบ SO ที่ค้างส่งเรียบร้อย', 'info');
+  };
 
   // Backward compatible single cut handler
   const handleConfirmCut = async (cutData: Omit<StockCutRecord, 'id' | 'createdAt'>) => {
@@ -3017,6 +3139,9 @@ const updated = [newRoll, ...rolls];
         onSignOut={handleSignOut}
         onOpenExcelExport={() => setIsExcelExportOpen(true)}
         onOpenFullstackHub={() => setIsFullstackModalOpen(true)}
+        isOnline={isOnline}
+        pendingCutCount={pendingCutCount}
+        onOpenOfflineQueue={() => setIsOfflineQueueModalOpen(true)}
       />
 
       {(pendingCutCount > 0 || pendingRecordEditCount > 0) && (
@@ -3024,23 +3149,32 @@ const updated = [newRoll, ...rolls];
           role="status"
           className="bg-amber-100 border-b border-amber-300 text-amber-900 text-sm px-4 py-2 flex flex-wrap items-center justify-between gap-2"
         >
-          <span>
+          <span className="flex-1 min-w-[240px]">
             {pendingCutCount > 0 &&
               `⚠️ มีรายการตัดสต๊อก ${pendingCutCount} รายการที่ยังไม่ขึ้น Cloud — ยอดบนเครื่องอื่นยังไม่เปลี่ยน ระบบจะส่งให้อัตโนมัติเมื่อมีสัญญาณ`}
             {pendingCutCount > 0 && pendingRecordEditCount > 0 && ' · '}
             {pendingRecordEditCount > 0 &&
               `มีใบแก้ไข SO ${pendingRecordEditCount} รายการที่ยังไม่ขึ้น Cloud — ระบบจะส่งให้อัตโนมัติเมื่อมีสัญญาณ`}
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              void flushPendingCuts();
-              void flushPendingRecordEdits();
-            }}
-            className="px-3 py-1 rounded bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
-          >
-            ส่งตอนนี้
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsOfflineQueueModalOpen(true)}
+              className="px-3 py-1 rounded-lg bg-white border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-50 cursor-pointer shadow-xs transition-colors"
+            >
+              ดูรายการค้างส่ง
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void flushPendingCuts();
+                void flushPendingRecordEdits();
+              }}
+              className="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 cursor-pointer shadow-xs transition-colors"
+            >
+              ส่งขึ้น Cloud ตอนนี้
+            </button>
+          </div>
         </div>
       )}
 
@@ -3342,6 +3476,18 @@ const updated = [newRoll, ...rolls];
             return next;
           });
         }}
+        onOpenOfflineQueue={() => setIsOfflineQueueModalOpen(true)}
+      />
+
+      {/* Offline Queue Inspector Modal */}
+      <OfflineQueueModal
+        isOpen={isOfflineQueueModalOpen}
+        onClose={() => setIsOfflineQueueModalOpen(false)}
+        isOnline={isOnline}
+        onFlushPendingCuts={flushPendingCuts}
+        onCancelPendingCut={handleCancelPendingCut}
+        onCancelPendingRecordEdit={handleCancelPendingRecordEdit}
+        rolls={[...rolls, ...archivedRolls]}
       />
 
       {/* Daily Production Flow Modal (กดจากแดชบอร์ดแล้วแสดงเป็นป๊อปอัพ) */}

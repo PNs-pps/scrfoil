@@ -23,11 +23,13 @@ import {
   BarChart3,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  FileSpreadsheet
 } from 'lucide-react';
 import { exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { UserMode } from '../utils/auth';
 import { KpiSlideRow } from './KpiSlideRow';
+import { PuSandwichColorBreakdown } from './PuSandwichColorBreakdown';
 
 interface PuSandwichViewProps {
   records?: PuSandwichCutRecord[];
@@ -36,6 +38,7 @@ interface PuSandwichViewProps {
   onDeleteRecord?: (id: string) => Promise<void> | void;
   userMode: UserMode;
   onUnlockEditor?: () => void;
+  onOpenExcelExport?: () => void;
 }
 
 type SandwichSortField =
@@ -116,6 +119,7 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
   onDeleteRecord,
   userMode,
   onUnlockEditor,
+  onOpenExcelExport,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchScope, setSearchScope] = useState<'all' | 'so'>('all');
@@ -367,6 +371,45 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
 
   return (
     <div className="space-y-3 animate-in fade-in duration-200">
+      {/* SECTION: EXCEL REPORT EXPORT ACTION CARD (แสดงอยู่ด้านบนแดชบอร์ดแซนวิชตามคำขอ) */}
+      <div className="bg-gradient-to-r from-emerald-50/95 via-teal-50/80 to-white rounded-2xl border-2 border-emerald-300 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+            <FileSpreadsheet className="w-5 h-5 stroke-[2.2]" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                ส่งออกรายงาน Excel สำเร็จรูป
+              </h4>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                พร้อมใช้งาน
+              </span>
+              <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
+                ({filteredStats.count} ใบงาน SO · {filteredStats.totalSoMeters.toLocaleString()} ม. · {filteredStats.totalKg.toLocaleString()} กก.)
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 mt-0.5">
+              ส่งออกไฟล์ Excel สรุปยอดตัดจริง SO, น้ำหนักคอยล์เหล็ก, และสถิติ NG สำหรับฝ่ายบัญชีและจัดซื้อใน 1 คลิก
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (onOpenExcelExport) {
+              onOpenExcelExport();
+            } else {
+              exportPuSandwichRecordsToCSV(safeRecords);
+            }
+          }}
+          className="btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-xs transition-all cursor-pointer whitespace-nowrap self-stretch sm:self-auto justify-center active:scale-95"
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          <span>{onOpenExcelExport ? 'เปิดระบบส่งออก Excel' : 'ดาวน์โหลด Excel (.csv)'}</span>
+        </button>
+      </div>
+
       {/* หัวข้อบาง + ปุ่ม */}
       <div className="bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 rounded-2xl px-3.5 py-3 text-white shadow-sm flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
@@ -492,6 +535,9 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
           ]}
         />
       </div>
+
+      {/* สรุปคอยล์แยกตามสีหลัก สีย่อย และความหนา */}
+      <PuSandwichColorBreakdown records={safeRecords} />
 
       {/* Search & Filter Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
