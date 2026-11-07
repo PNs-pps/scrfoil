@@ -9,6 +9,7 @@ export interface BaseColorMeta {
   badgeClass: string;
   dotColor: string;
   chipClass: string;
+  barColor: string;
 }
 
 export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
@@ -18,9 +19,10 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     bgClass: 'bg-slate-50',
     borderClass: 'border-slate-300',
     textClass: 'text-slate-900',
-    badgeClass: 'bg-slate-100 text-slate-800 border-slate-300',
-    dotColor: '#ffffff',
-    chipClass: 'bg-white text-slate-900 border-slate-300 shadow-2xs',
+    badgeClass: 'bg-slate-100 text-slate-800 border-2 border-slate-400',
+    dotColor: '#f8fafc',
+    chipClass: 'bg-white text-slate-950 border-2 border-slate-400 shadow-2xs font-bold',
+    barColor: '#64748b', // ขอบเทาคมชัด ไม่กลืนกับพื้นหลัง
   },
   {
     key: 'ดำ',
@@ -31,6 +33,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-slate-900 text-white border-slate-900',
     dotColor: '#0f172a',
     chipClass: 'bg-slate-900 text-white border-slate-900',
+    barColor: '#0f172a',
   },
   {
     key: 'เทา',
@@ -39,18 +42,20 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     borderClass: 'border-slate-400',
     textClass: 'text-slate-800',
     badgeClass: 'bg-slate-200 text-slate-800 border-slate-400',
-    dotColor: '#64748b',
+    dotColor: '#475569',
     chipClass: 'bg-slate-200 text-slate-800 border-slate-300',
+    barColor: '#475569',
   },
   {
     key: 'น้ำเงิน',
     label: 'สีน้ำเงิน',
     bgClass: 'bg-blue-50/70',
-    borderClass: 'border-blue-300',
+    borderClass: 'border-blue-400',
     textClass: 'text-blue-950',
-    badgeClass: 'bg-blue-100 text-blue-900 border-blue-300',
+    badgeClass: 'bg-blue-100 text-blue-900 border-blue-400',
     dotColor: '#1d4ed8',
     chipClass: 'bg-blue-600 text-white border-blue-700',
+    barColor: '#1d4ed8',
   },
   {
     key: 'ฟ้า',
@@ -61,6 +66,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-sky-100 text-sky-900 border-sky-300',
     dotColor: '#0284c7',
     chipClass: 'bg-sky-500 text-white border-sky-600',
+    barColor: '#0284c7',
   },
   {
     key: 'เขียว',
@@ -71,6 +77,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-300',
     dotColor: '#059669',
     chipClass: 'bg-emerald-600 text-white border-emerald-700',
+    barColor: '#059669',
   },
   {
     key: 'น้ำตาล',
@@ -81,6 +88,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-amber-100 text-amber-900 border-amber-300',
     dotColor: '#78350f',
     chipClass: 'bg-amber-800 text-white border-amber-900',
+    barColor: '#92400e',
   },
   {
     key: 'ช็อกโกแลต',
@@ -91,6 +99,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-stone-200 text-stone-900 border-stone-400',
     dotColor: '#451a03',
     chipClass: 'bg-stone-800 text-white border-stone-900',
+    barColor: '#573016',
   },
   {
     key: 'แดง',
@@ -101,6 +110,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-rose-100 text-rose-900 border-rose-300',
     dotColor: '#e11d48',
     chipClass: 'bg-rose-600 text-white border-rose-700',
+    barColor: '#e11d48',
   },
   {
     key: 'ส้ม',
@@ -111,6 +121,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-orange-100 text-orange-900 border-orange-300',
     dotColor: '#ea580c',
     chipClass: 'bg-orange-500 text-white border-orange-600',
+    barColor: '#ea580c',
   },
   {
     key: 'เหลือง',
@@ -121,6 +132,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-yellow-100 text-yellow-900 border-yellow-300',
     dotColor: '#ca8a04',
     chipClass: 'bg-yellow-400 text-slate-900 border-yellow-500',
+    barColor: '#eab308',
   },
   {
     key: 'ม่วง',
@@ -131,6 +143,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-purple-100 text-purple-900 border-purple-300',
     dotColor: '#9333ea',
     chipClass: 'bg-purple-600 text-white border-purple-700',
+    barColor: '#9333ea',
   },
   {
     key: 'ครีม',
@@ -141,6 +154,7 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-amber-50 text-amber-900 border-amber-200',
     dotColor: '#fef3c7',
     chipClass: 'bg-amber-100 text-amber-900 border-amber-300',
+    barColor: '#f59e0b',
   },
   {
     key: 'อลูซิงค์',
@@ -151,45 +165,67 @@ export const KNOWN_BASE_THAI_COLORS: BaseColorMeta[] = [
     badgeClass: 'bg-zinc-200 text-zinc-900 border-zinc-400',
     dotColor: '#71717a',
     chipClass: 'bg-zinc-600 text-white border-zinc-700',
-  },
-  {
-    key: 'ซิงค์',
-    label: 'ซิงค์',
-    bgClass: 'bg-zinc-100/70',
-    borderClass: 'border-zinc-400',
-    textClass: 'text-zinc-950',
-    badgeClass: 'bg-zinc-200 text-zinc-900 border-zinc-400',
-    dotColor: '#71717a',
-    chipClass: 'bg-zinc-600 text-white border-zinc-700',
+    barColor: '#71717a',
   },
 ];
 
 /**
+ * ปรับชื่อสีย่อยให้เป็นรูปแบบมาตรฐาน (Canonical Sub-color):
+ * 1. ตัดคำนำหน้า "สี" เช่น "สีขาว AW" -> "ขาว AW", "สีดำ" -> "ดำ"
+ * 2. ยุบช่องว่างซ้ำซ้อนให้เหลือ 1 เคาะ
+ * 3. จัดการเว้นวรรคเครื่องหมาย / เช่น "AW / Z.cool" -> "AW/Z.cool"
+ * 4. ปรับอักษรพิมพ์เล็ก-ใหญ่ให้สอดคล้องกัน เช่น "aw" -> "AW", "z.cool" -> "Z.cool"
+ */
+export function normalizeSubColor(rawColor: string): string {
+  if (!rawColor || !rawColor.trim()) return 'ไม่ระบุสี';
+  let s = rawColor.trim();
+
+  // 1. ตัดคำนำหน้า "สี" หากตามด้วยอักษรภาษาไทยอื่นๆ (เช่น "สีขาว AW" -> "ขาว AW")
+  if (s.startsWith('สี') && s.length > 2) {
+    s = s.slice(2).trim();
+  }
+
+  // 2. ยุบช่องว่างซ้ำซ้อน
+  s = s.replace(/\s+/g, ' ');
+
+  // 3. จัดการเครื่องหมายสแลช /
+  s = s.replace(/\s*\/\s*/g, '/');
+
+  // 4. จัดการคำเฉพาะภาษาอังกฤษ (AW, Z.cool, Blue Scope)
+  s = s.replace(/\baw\b/gi, 'AW');
+  s = s.replace(/\bz\.cool\b/gi, 'Z.cool');
+  s = s.replace(/\bblue\s*scope\b/gi, 'Blue Scope');
+
+  // 5. จัดการ ช็อคโกแลต -> ช็อกโกแลต
+  s = s.replace(/ช็อคโกแลต/g, 'ช็อกโกแลต');
+
+  // 6. ซิงค์ -> อลูซิงค์ (ถ้าเป็นคำเดี่ยวหรือซิงค์เฉยๆ)
+  if (s === 'ซิงค์') s = 'อลูซิงค์';
+
+  return s;
+}
+
+/**
  * ดึงชื่อสีหลักภาษาไทย (Base Thai Color)
- * เช่น "ขาว AW", "ขาว AW/Z.cool", "ขาวมุก" -> "ขาว"
- * "ดำด้าน", "ดำเงา" -> "ดำ"
+ * เช่น "ขาว AW", "ขาว AW/Z.cool", "สีขาวมุก" -> "ขาว"
+ * "ดำด้าน", "สีดำเงา" -> "ดำ"
  * "ช็อคโกแลต AW" -> "ช็อกโกแลต"
  */
 export function extractBaseThaiColor(rawColor: string): string {
   if (!rawColor || !rawColor.trim()) return 'ไม่ระบุสี';
-  const clean = rawColor.trim();
-
-  // จัดการกรณี ช็อคโกแลต -> ช็อกโกแลต
-  if (clean.includes('ช็อคโกแลต') || clean.includes('ช็อกโกแลต')) {
-    return 'ช็อกโกแลต';
-  }
+  const clean = normalizeSubColor(rawColor);
 
   // ค้นหาคำขึ้นต้นตามรายชื่อสีหลัก
   for (const item of KNOWN_BASE_THAI_COLORS) {
     if (clean.startsWith(item.key)) {
-      return item.key === 'ซิงค์' ? 'อลูซิงค์' : item.key;
+      return item.key;
     }
   }
 
   // ค้นหาว่ามีคำว่าสีเหล่านี้ประกอบอยู่หรือไม่
   for (const item of KNOWN_BASE_THAI_COLORS) {
     if (clean.includes(item.key)) {
-      return item.key === 'ซิงค์' ? 'อลูซิงค์' : item.key;
+      return item.key;
     }
   }
 
@@ -218,11 +254,26 @@ export function getColorStyle(baseColorKey: string): BaseColorMeta {
     badgeClass: 'bg-slate-100 text-slate-800 border-slate-300',
     dotColor: '#94a3b8',
     chipClass: 'bg-slate-700 text-white border-slate-800',
+    barColor: '#64748b',
   };
+}
+
+/**
+ * ปรับค่าความหนาให้เป็นรูปแบบตัวเลขมาตรฐาน เช่น "0.35 มม."
+ */
+export function normalizeThickness(rawThickness: string | number | undefined): string {
+  if (rawThickness == null) return 'ไม่ระบุ';
+  const str = String(rawThickness).trim();
+  const num = parseFloat(str.replace(/[^0-9.]/g, ''));
+  if (!isNaN(num) && num > 0) {
+    return `${num.toFixed(2)} มม.`;
+  }
+  return str.endsWith('มม.') ? str : (str ? `${str} มม.` : 'ไม่ระบุ');
 }
 
 export interface ThicknessGroup {
   thickness: string;
+  steelOrigin: string; // แหล่งเหล็กของแถวความหนานี้ (เช่น เหล็กนอก, เหล็กBlue Scope)
   count: number;
   totalLengthMeters: number;
   totalWeightKg: number;
@@ -233,8 +284,8 @@ export interface ThicknessGroup {
 }
 
 export interface SubColorVariantGroup {
-  subColor: string; // เช่น "ขาว AW", "ขาว AW/Z.cool"
-  steelOrigin: string; // เช่น "เหล็กนอก", "เหล็กBlue Scope"
+  subColor: string; // เช่น "ขาว AW", "ขาว AW/Z.cool" (ไม่แยกการ์ดหากสีย่อยเดียวกัน)
+  steelOrigins: string[]; // รายการแหล่งเหล็กทั้งหมดที่ใช้ในสีย่อยนี้ เช่น ['เหล็กนอก'] หรือ ['เหล็กนอก', 'เหล็กBlue Scope']
   count: number;
   totalLengthMeters: number;
   totalWeightKg: number;
@@ -260,8 +311,8 @@ export interface PrimaryColorGroup {
 /**
  * รวมกลุ่มข้อมูลคอยล์ PU Sandwich:
  * ระดับ 1: สีหลักภาษาไทย (เช่น "ขาว" รวม "ขาว AW", "ขาว AW/Z.cool")
- * ระดับ 2: สีย่อย + แหล่งเหล็ก (เช่น "ขาว AW (เหล็กนอก)" vs "ขาว AW/Z.cool (เหล็กBlue Scope)")
- * ระดับ 3: ความหนา (เช่น 0.35 มม., 0.40 มม., 0.45 มม.)
+ * ระดับ 2: สีย่อย (Sub-color) เช่น "ขาว AW" รวมทุกเรคอร์ดที่เป็นขาว AW ไว้ในการ์ดเดียว ไม่แยกออกจากกัน
+ * ระดับ 3: ตารางแจกแจงความหนาและแหล่งเหล็ก (Thickness + Origin Breakdown)
  */
 export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): PrimaryColorGroup[] {
   if (!Array.isArray(records) || records.length === 0) return [];
@@ -275,7 +326,7 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
         string,
         {
           subColor: string;
-          steelOrigin: string;
+          steelOriginsSet: Set<string>;
           thickMap: Map<string, ThicknessGroup>;
         }
       >;
@@ -284,11 +335,10 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
 
   records.forEach((r) => {
     const rawColor = (r.coilColor || '').trim() || 'ไม่ระบุสี';
-    const baseColor = extractBaseThaiColor(rawColor);
+    const subColor = normalizeSubColor(rawColor);
+    const baseColor = extractBaseThaiColor(subColor);
     const origin = (r.steelOrigin || 'เหล็กนอก').trim();
-    const subColor = rawColor;
-    const thicknessRaw = (r.thickness || '').trim() || 'ไม่ระบุ';
-    const thickness = thicknessRaw.endsWith('มม.') ? thicknessRaw : `${thicknessRaw} มม.`;
+    const thickness = normalizeThickness(r.thickness);
 
     const weight = Number(r.weightUsed) || 0;
     const length = Number(r.soLengthMeters) || 0;
@@ -297,7 +347,7 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
     const soNo = (r.soNumber || '').trim();
     const coilNo = (r.coilNumber || '').trim();
 
-    // 1. Primary level
+    // 1. Primary level (สีหลัก เช่น "ขาว", "ดำ", "น้ำเงิน")
     if (!primaryMap.has(baseColor)) {
       primaryMap.set(baseColor, {
         baseColor,
@@ -307,21 +357,25 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
     }
     const prim = primaryMap.get(baseColor)!;
 
-    // 2. Sub-variant level (key = subColor + steelOrigin)
-    const subKey = `${subColor}___${origin}`;
+    // 2. Sub-variant level: ใช้เฉพาะ subColor เป็น key (ไม่นำ origin มาแยกการ์ดสีย่อย)
+    // เพื่อให้สีเหมือนกัน สีย่อยเหมือนกัน ถูกรวมอยู่ในการ์ดเดียวกัน 100%
+    const subKey = subColor.toLowerCase();
     if (!prim.subMap.has(subKey)) {
       prim.subMap.set(subKey, {
         subColor,
-        steelOrigin: origin,
+        steelOriginsSet: new Set(),
         thickMap: new Map(),
       });
     }
     const sub = prim.subMap.get(subKey)!;
+    sub.steelOriginsSet.add(origin);
 
-    // 3. Thickness level
-    if (!sub.thickMap.has(thickness)) {
-      sub.thickMap.set(thickness, {
+    // 3. Thickness + Origin level (แจกแจงในตารางของสีย่อย)
+    const thickKey = `${thickness}___${origin}`;
+    if (!sub.thickMap.has(thickKey)) {
+      sub.thickMap.set(thickKey, {
         thickness,
+        steelOrigin: origin,
         count: 0,
         totalLengthMeters: 0,
         totalWeightKg: 0,
@@ -331,7 +385,7 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
         coilNumbers: [],
       });
     }
-    const thick = sub.thickMap.get(thickness)!;
+    const thick = sub.thickMap.get(thickKey)!;
 
     thick.count += 1;
     thick.totalLengthMeters += length;
@@ -342,7 +396,7 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
     if (coilNo && !thick.coilNumbers.includes(coilNo)) thick.coilNumbers.push(coilNo);
   });
 
-  // Convert to formatted arrays
+  // แปลงโครงสร้างเป็น Array ที่เรียงลำดับสวยงาม
   const result: PrimaryColorGroup[] = [];
 
   primaryMap.forEach((prim) => {
@@ -379,11 +433,12 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
         });
       });
 
-      // Sort thicknesses numerically
+      // เรียงลำดับความหนาจากน้อยไปมาก
       thicknesses.sort((a, b) => {
         const numA = parseFloat(a.thickness) || 0;
         const numB = parseFloat(b.thickness) || 0;
-        return numA - numB;
+        if (numA !== numB) return numA - numB;
+        return a.steelOrigin.localeCompare(b.steelOrigin, 'th');
       });
 
       primTotalCount += subTotalCount;
@@ -394,7 +449,7 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
 
       subVariants.push({
         subColor: sub.subColor,
-        steelOrigin: sub.steelOrigin,
+        steelOrigins: Array.from(sub.steelOriginsSet),
         count: subTotalCount,
         totalLengthMeters: Math.round(subTotalLength * 10) / 10,
         totalWeightKg: Math.round(subTotalWeight * 100) / 100,
@@ -404,7 +459,7 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
       });
     });
 
-    // Sort sub-variants by total meters descending
+    // เรียงสีย่อยตามยอดเมตรผลิตจากมากไปน้อย
     subVariants.sort((a, b) => b.totalLengthMeters - a.totalLengthMeters);
 
     const ngPercent = primTotalWeight > 0 ? (primTotalNgKg / primTotalWeight) * 100 : 0;
@@ -424,7 +479,7 @@ export function groupPuSandwichByThaiColors(records: PuSandwichCutRecord[]): Pri
     });
   });
 
-  // Sort primary colors by total meters descending
+  // เรียงสีหลักตามยอดเมตรผลิตรวมจากมากไปน้อย
   result.sort((a, b) => b.totalLengthMeters - a.totalLengthMeters);
 
   return result;

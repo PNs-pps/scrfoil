@@ -30,6 +30,7 @@ import { exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { UserMode } from '../utils/auth';
 import { KpiSlideRow } from './KpiSlideRow';
 import { PuSandwichColorBreakdown } from './PuSandwichColorBreakdown';
+import { PuSandwichChart } from './PuSandwichChart';
 
 interface PuSandwichViewProps {
   records?: PuSandwichCutRecord[];
@@ -535,6 +536,9 @@ export const PuSandwichView: React.FC<PuSandwichViewProps> = ({
           ]}
         />
       </div>
+
+      {/* ชาร์ตวิเคราะห์การผลิต PU Sandwich (แยกตามสีคอยล์, รายเดือน, ตามความหนา) */}
+      <PuSandwichChart records={safeRecords} />
 
       {/* สรุปคอยล์แยกตามสีหลัก สีย่อย และความหนา */}
       <PuSandwichColorBreakdown records={safeRecords} />

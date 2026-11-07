@@ -30,7 +30,7 @@ import {
   WifiOff,
   Database,
 } from 'lucide-react';
-import { TouchNumpad, TouchNumpadTarget } from './TouchNumpad';
+import { TouchNumpad, TouchNumpadTarget, SoToolbarConfig } from './TouchNumpad';
 import { FoilStatusTube } from './FoilStatusTube';
 import { loadPendingCuts } from '../utils/pendingCutQueue';
 
@@ -186,6 +186,34 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     return list;
   }, [orders]);
 
+  // Order management: สร้างใบงาน SO ใหม่ และโฟกัสไปที่ช่องกรอก SO ทันที
+  const handleAddOrder = () => {
+    const newOrder = createEmptyOrder(orders.length + 1, 'so');
+    pendingFocusOrderIdRef.current = newOrder.id;
+    setOrders(prev => [...prev, newOrder]);
+    setActiveNumpadTargetId(`used-${newOrder.id}`);
+
+    // Robust multi-tier focus trigger with requestAnimationFrame polling
+    const tryFocus = (attempt = 0) => {
+      const el = soInputRefs.current[newOrder.id];
+      if (el) {
+        focusAndSelect(el);
+      } else if (attempt < 12) {
+        requestAnimationFrame(() => tryFocus(attempt + 1));
+      }
+    };
+    requestAnimationFrame(() => tryFocus(0));
+  };
+
+  const handleRemoveOrder = (orderId: string) => {
+    if (orders.length <= 1) return;
+    setOrders(prev => prev.filter(o => o.id !== orderId));
+  };
+
+  const handleUpdateOrder = (orderId: string, updates: Partial<CutOrderItem>) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
+  };
+
   const handleNumpadValueChange = (targetId: string, val: string) => {
     if (targetId.startsWith('so-')) {
       const orderId = targetId.replace('so-', '');
@@ -199,11 +227,79 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
     }
   };
 
+  // SO Toolbar configuration for TouchNumpad (5-control toolbar: 1. ลำดับ SO, 2. ช่องกรอก SO, 3. กรอกเมตร, 4. NG, 5. เพิ่ม SO)
+  const soToolbarConfig: SoToolbarConfig = useMemo(() => {
+    let activeIndex = 0;
+    let activeField: 'soNumber' | 'meters' | 'ngMeters' | 'other' = 'meters';
+
+    if (activeNumpadTargetId) {
+      if (activeNumpadTargetId.startsWith('so-')) {
+        activeField = 'soNumber';
+        const id = activeNumpadTargetId.replace('so-', '');
+        const idx = orders.findIndex((o) => o.id === id);
+        if (idx >= 0) activeIndex = idx;
+      } else if (activeNumpadTargetId.startsWith('used-')) {
+        activeField = 'meters';
+        const id = activeNumpadTargetId.replace('used-', '');
+        const idx = orders.findIndex((o) => o.id === id);
+        if (idx >= 0) activeIndex = idx;
+      } else if (activeNumpadTargetId.startsWith('ng-')) {
+        activeField = 'ngMeters';
+        const id = activeNumpadTargetId.replace('ng-', '');
+        const idx = orders.findIndex((o) => o.id === id);
+        if (idx >= 0) activeIndex = idx;
+      }
+    }
+
+    return {
+      rows: orders.map((o) => ({
+        id: o.id,
+        soNumber: o.soNumber,
+        meters: o.usedMeters,
+        ngMeters: o.ngMeters,
+      })),
+      activeRowIndex: activeIndex,
+      activeField,
+      onSelectRowIndex: (idx: number) => {
+        if (orders[idx]) {
+          const prefix = activeField === 'soNumber' ? 'so' : activeField === 'ngMeters' ? 'ng' : 'used';
+          setActiveNumpadTargetId(`${prefix}-${orders[idx].id}`);
+        }
+      },
+      onSelectField: (field: 'soNumber' | 'meters' | 'ngMeters') => {
+        const cur = orders[activeIndex] || orders[0];
+        if (cur) {
+          const prefix = field === 'soNumber' ? 'so' : field === 'meters' ? 'used' : 'ng';
+          setActiveNumpadTargetId(`${prefix}-${cur.id}`);
+        }
+      },
+      onAddRow: handleAddOrder,
+    };
+  }, [orders, activeNumpadTargetId, handleAddOrder]);
+
   const handleNextNumpadTarget = () => {
-    if (numpadTargets.length === 0) return;
-    const curIdx = numpadTargets.findIndex(t => t.id === activeNumpadTargetId);
-    const nextIdx = (curIdx + 1) % numpadTargets.length;
-    setActiveNumpadTargetId(numpadTargets[nextIdx].id);
+    if (!activeNumpadTargetId) {
+      if (orders[0]) setActiveNumpadTargetId(`so-${orders[0].id}`);
+      return;
+    }
+
+    if (activeNumpadTargetId.startsWith('so-')) {
+      const orderId = activeNumpadTargetId.replace('so-', '');
+      setActiveNumpadTargetId(`used-${orderId}`);
+    } else if (activeNumpadTargetId.startsWith('used-')) {
+      const orderId = activeNumpadTargetId.replace('used-', '');
+      setActiveNumpadTargetId(`ng-${orderId}`);
+    } else if (activeNumpadTargetId.startsWith('ng-')) {
+      const orderId = activeNumpadTargetId.replace('ng-', '');
+      const idx = orders.findIndex((o) => o.id === orderId);
+      if (idx >= 0 && idx + 1 < orders.length) {
+        setActiveNumpadTargetId(`so-${orders[idx + 1].id}`);
+      } else {
+        handleAddOrder();
+      }
+    } else {
+      if (orders[0]) setActiveNumpadTargetId(`used-${orders[0].id}`);
+    }
   };
 
   const recentOperators = getRecentOperators();
@@ -380,34 +476,6 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       }
     }
   }, [orders]);
-
-  // Order management: สร้างใบงาน SO ใหม่ และโฟกัสไปที่ช่องกรอก SO ทันที
-  const handleAddOrder = () => {
-    const newOrder = createEmptyOrder(orders.length + 1, 'so');
-    pendingFocusOrderIdRef.current = newOrder.id;
-    setOrders(prev => [...prev, newOrder]);
-    setActiveNumpadTargetId(`used-${newOrder.id}`);
-
-    // Robust multi-tier focus trigger with requestAnimationFrame polling
-    const tryFocus = (attempt = 0) => {
-      const el = soInputRefs.current[newOrder.id];
-      if (el) {
-        focusAndSelect(el);
-      } else if (attempt < 12) {
-        requestAnimationFrame(() => tryFocus(attempt + 1));
-      }
-    };
-    requestAnimationFrame(() => tryFocus(0));
-  };
-
-  const handleRemoveOrder = (orderId: string) => {
-    if (orders.length <= 1) return;
-    setOrders(prev => prev.filter(o => o.id !== orderId));
-  };
-
-  const handleUpdateOrder = (orderId: string, updates: Partial<CutOrderItem>) => {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates } : o));
-  };
 
   // Calculation logic
   const remainingBefore = currentRoll ? currentRoll.remainingMeters : 0;
@@ -1134,7 +1202,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                   {/* ลูปกรอกข้อมูลตัดฟอยล์แบบตรงจุด: SO > เมตร > NG */}
                   {order.cutType === 'so' ? (
                     <div className="space-y-3">
-                      {/* ช่อง 1: เลขที่ใบสั่งซื้อ / SO */}
+                      {/* ช่อง 1: เลขที่ใบสั่งซื้อ / SO พร้อมตัวเลือกท้องพิเศษในบรรทัดเดียวกัน */}
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label 
@@ -1145,37 +1213,92 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                             <span>เลขที่ใบสั่งซื้อ / SO</span>
                             <span className="text-rose-500">*</span>
                           </label>
+                          <span className="text-[11px] text-slate-500 hidden sm:inline">
+                            ตัวเลือกท้องพิเศษ (ฟอยล์)
+                          </span>
                         </div>
-                        <input
-                          id={`input-so-${order.id}`}
-                          ref={(el) => { soInputRefs.current[order.id] = el; }}
-                          type="text"
-                          value={order.soNumber}
-                          onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value })}
-                          onFocus={() => {
-                            setActiveNumpadTargetId(`used-${order.id}`);
-                          }}
-                          onClick={() => {
-                            setActiveNumpadTargetId(`used-${order.id}`);
-                          }}
-                          onKeyDown={(e) => {
-                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                              e.preventDefault();
-                              e.currentTarget.form?.requestSubmit();
-                              return;
-                            }
-                            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              const target = usedMetersInputRefs.current[order.id];
-                              if (target) {
-                                focusAndSelect(target);
-                              }
-                            }
-                          }}
-                          placeholder={`เช่น ${defaultSoPrefix}500`}
-                          className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border border-slate-300 rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 placeholder:text-slate-400 placeholder:font-normal"
-                        />
+                        <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
+                          <div className="flex-1 min-w-[180px]">
+                            <input
+                              id={`input-so-${order.id}`}
+                              ref={(el) => { soInputRefs.current[order.id] = el; }}
+                              type="text"
+                              value={order.soNumber}
+                              onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value })}
+                              onFocus={() => {
+                                setActiveNumpadTargetId(`so-${order.id}`);
+                              }}
+                              onClick={() => {
+                                setActiveNumpadTargetId(`so-${order.id}`);
+                              }}
+                              onKeyDown={(e) => {
+                                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                  e.preventDefault();
+                                  e.currentTarget.form?.requestSubmit();
+                                  return;
+                                }
+                                if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const target = usedMetersInputRefs.current[order.id];
+                                  if (target) {
+                                    focusAndSelect(target);
+                                  }
+                                }
+                              }}
+                              placeholder={`เช่น ${defaultSoPrefix}500`}
+                              className={`w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 placeholder:text-slate-400 placeholder:font-normal transition-all ${
+                                showTabletNumpad && activeNumpadTargetId === `so-${order.id}`
+                                  ? 'border-amber-500 ring-2 ring-amber-400/80 bg-amber-50/20'
+                                  : 'border-slate-300'
+                              }`}
+                            />
+                          </div>
+
+                          {/* กล่องติ๊กเลือกเช็คบ็อกซ์ท้องพิเศษข้างช่อง SO */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <label className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border cursor-pointer select-none transition-all text-xs font-bold ${
+                              order.isSilverSide 
+                                ? 'bg-slate-900 text-amber-300 border-slate-900 shadow-xs ring-1 ring-slate-800' 
+                                : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(order.isSilverSide)}
+                                onChange={(e) =>
+                                  handleUpdateOrder(order.id, {
+                                    isSilverSide: e.target.checked,
+                                    isWhiteSide: e.target.checked ? false : order.isWhiteSide,
+                                  })
+                                }
+                                className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 cursor-pointer"
+                              />
+                              <span>ท้องเงิน</span>
+                            </label>
+
+                            <label className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 cursor-pointer select-none transition-all text-xs font-bold ${
+                              order.isWhiteSide 
+                                ? 'bg-slate-100 text-slate-950 border-slate-700 shadow-xs' 
+                                : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(order.isWhiteSide)}
+                                onChange={(e) =>
+                                  handleUpdateOrder(order.id, {
+                                    isWhiteSide: e.target.checked,
+                                    isSilverSide: e.target.checked ? false : order.isSilverSide,
+                                  })
+                                }
+                                className="w-4 h-4 rounded text-slate-800 focus:ring-slate-700 cursor-pointer"
+                              />
+                              <span className="flex items-center gap-1">
+                                <span className={`w-2.5 h-2.5 rounded-full ${order.isWhiteSide ? 'bg-white ring-1.5 ring-slate-800' : 'bg-slate-200'}`} />
+                                <span>ท้องขาว</span>
+                              </span>
+                            </label>
+                          </div>
+                        </div>
                       </div>
 
                       {/* ช่อง 2 & 3: จำนวนเมตรที่ใช้ & NG หัวท้าย (อยู่เรียงติดกันทันที ไม่ถูกคั่นด้วยรอบหรือหมายเหตุ) */}
@@ -1294,30 +1417,20 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         </div>
                       </div>
 
-                      {/* ตัวเลือกเสริม (รอบผลิต / ท้องพิเศษ / หมายเหตุ): พับเก็บได้ ไม่บังทางลูปตัดเร็ว */}
+                      {/* ตัวเลือกเสริม (รอบผลิต / หมายเหตุ): พับเก็บได้ ไม่บังทางลูปตัดเร็ว */}
                       <details 
                         className="pt-2 border-t border-slate-100 text-xs group"
-                        open={Boolean(order.productionRound || order.isSilverSide || order.isWhiteSide || order.notes)}
+                        open={Boolean(order.productionRound || order.notes)}
                       >
                         <summary className="cursor-pointer list-none flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors select-none">
                           <span className="flex items-center gap-1.5 font-medium">
                             <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
-                            <span>ตัวเลือกเสริม (รอบผลิต / ท้องพิเศษ / หมายเหตุ)</span>
+                            <span>ตัวเลือกเสริม (รอบผลิต / หมายเหตุ)</span>
                           </span>
                           <div className="flex items-center gap-1.5">
                             {order.productionRound && (
                               <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold text-[10px]">
                                 {order.productionRound}
-                              </span>
-                            )}
-                            {order.isSilverSide && (
-                              <span className="px-1.5 py-0.5 rounded bg-slate-900 text-amber-300 font-bold text-[10px]">
-                                ท้องเงิน
-                              </span>
-                            )}
-                            {order.isWhiteSide && (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-200 text-amber-950 font-bold text-[10px]">
-                                ท้องขาว
                               </span>
                             )}
                             {order.notes && (
@@ -1364,62 +1477,6 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                               placeholder="อื่นๆ"
                               className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded-md font-mono"
                             />
-                          </div>
-
-                          {/* ตัวเลือกท้องพิเศษ (ถ้ามี) */}
-                          <div className="space-y-1">
-                            <span className="text-[11px] font-bold text-slate-600">ตัวเลือกท้องพิเศษ:</span>
-                            <div className="grid grid-cols-2 gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleUpdateOrder(order.id, {
-                                    isSilverSide: !order.isSilverSide,
-                                    isWhiteSide: false,
-                                  })
-                                }
-                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
-                                  order.isSilverSide
-                                    ? 'bg-slate-900 text-white border-slate-950 ring-1 ring-slate-400'
-                                    : 'bg-slate-50/80 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center ${
-                                    order.isSilverSide ? 'bg-gradient-to-br from-slate-200 via-white to-slate-400' : 'bg-slate-300'
-                                  }`}>
-                                    {order.isSilverSide && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
-                                  </span>
-                                  <span>ท้องเงิน</span>
-                                </div>
-                                <span className="text-[10px]">{order.isSilverSide ? 'ใช้งาน' : 'เลือก'}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleUpdateOrder(order.id, {
-                                    isWhiteSide: !order.isWhiteSide,
-                                    isSilverSide: false,
-                                  })
-                                }
-                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
-                                  order.isWhiteSide
-                                    ? 'bg-amber-100 text-amber-950 border-amber-500 ring-1 ring-amber-400'
-                                    : 'bg-slate-50/80 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border ${
-                                    order.isWhiteSide ? 'bg-white border-amber-600' : 'bg-white border-slate-400'
-                                  }`}>
-                                    {order.isWhiteSide && <Check className="w-2.5 h-2.5 text-amber-950 stroke-[3]" />}
-                                  </span>
-                                  <span>ท้องขาว</span>
-                                </div>
-                                <span className="text-[10px]">{order.isWhiteSide ? 'ใช้งาน' : 'เลือก'}</span>
-                              </button>
-                            </div>
                           </div>
 
                           {/* หมายเหตุเพิ่มเติม */}
@@ -1658,6 +1715,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 onValueChange={handleNumpadValueChange}
                 onClose={() => setShowTabletNumpad(false)}
                 onNextTarget={handleNextNumpadTarget}
+                soToolbar={soToolbarConfig}
               />
             </div>
           )}

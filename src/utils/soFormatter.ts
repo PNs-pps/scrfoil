@@ -138,12 +138,12 @@ export function getCanonicalPatternStyle(patternRaw: string): PatternStyleDef {
         label: 'ขาว',
         name: 'ขาว',
         colorName: 'สีขาว',
-        dotClass: 'bg-white border-2 border-slate-400 shadow-2xs',
-        badgeClass: 'bg-slate-100 text-slate-800 border border-slate-300',
-        progressClass: 'bg-slate-400',
-        borderClass: 'border-slate-400',
-        highlightClass: 'bg-slate-100 text-slate-900 border-slate-400',
-        tintClass: 'bg-slate-50 border-slate-300',
+        dotClass: 'bg-slate-100 border-2 border-slate-700 shadow-2xs',
+        badgeClass: 'bg-slate-100 text-slate-950 border-2 border-slate-700 font-bold',
+        progressClass: 'bg-slate-200',
+        borderClass: 'border-slate-700',
+        highlightClass: 'bg-slate-100 text-slate-950 border-2 border-slate-700',
+        tintClass: 'bg-slate-100/90 border-slate-400',
       };
     case 'ดำ':
       return {

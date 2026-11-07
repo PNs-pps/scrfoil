@@ -614,8 +614,8 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                     </span>
                   )}
                   {record.isWhiteSide && (
-                    <span className="inline-flex items-center gap-1.5 font-bold text-slate-950 bg-white px-2.5 py-1 rounded-lg border-2 border-slate-400 shadow-2xs">
-                      <span className="w-2.5 h-2.5 rounded-full bg-white ring-1.5 ring-slate-700 shadow-xs shrink-0" />
+                    <span className="inline-flex items-center gap-1.5 font-black text-slate-950 bg-slate-100 px-2.5 py-1 rounded-lg border-2 border-slate-700 shadow-xs">
+                      <span className="w-2.5 h-2.5 rounded-full bg-white ring-2 ring-slate-800 shadow-2xs shrink-0" />
                       <span>ท้องขาว</span>
                     </span>
                   )}

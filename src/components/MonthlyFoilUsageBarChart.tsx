@@ -808,7 +808,8 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
         {allActivePatterns.map((pat) => {
           const isSelected = selectedPatterns.includes(pat);
           const pStyle = getCanonicalPatternStyle(pat);
-          const hexColor = getPatternHexColor(pat);
+          const isWhite = pat === 'ขาว' || pat === 'ท้องขาว';
+          const hexColor = isWhite ? '#f1f5f9' : getPatternHexColor(pat);
 
           return (
             <button
@@ -817,12 +818,14 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
               onClick={() => togglePattern(pat)}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
                 isSelected
-                  ? 'bg-white text-slate-900 border-slate-300 shadow-2xs'
+                  ? isWhite
+                    ? 'bg-slate-100 text-slate-950 border-2 border-slate-700 shadow-2xs font-bold'
+                    : 'bg-white text-slate-900 border-slate-300 shadow-2xs'
                   : 'bg-slate-100 text-slate-400 border-transparent opacity-50'
               }`}
             >
               <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
+                className={`w-2.5 h-2.5 rounded-full shrink-0 ${isWhite ? 'border border-slate-700 bg-white' : ''}`}
                 style={{ backgroundColor: hexColor }}
               />
               <span>{pStyle.label}</span>
@@ -877,13 +880,16 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
 
               {/* Render Bars for each selected pattern */}
               {selectedPatterns.map((pat) => {
-                const hexColor = getPatternHexColor(pat);
+                const isWhite = pat === 'ขาว' || pat === 'ท้องขาว';
+                const hexColor = isWhite ? '#f1f5f9' : getPatternHexColor(pat);
                 return (
                   <Bar
                     key={pat}
                     dataKey={pat}
                     name={getCanonicalPatternStyle(pat).label}
                     fill={hexColor}
+                    stroke={isWhite ? '#475569' : undefined}
+                    strokeWidth={isWhite ? 1.5 : 0}
                     stackId={chartType === 'stacked' ? 'monthly_stack' : undefined}
                     radius={chartType === 'stacked' ? [0, 0, 0, 0] : [4, 4, 0, 0]}
                   />

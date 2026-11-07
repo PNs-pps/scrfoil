@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { MonthlyFoilUsageBarChart } from './MonthlyFoilUsageBarChart';
 import { PuSandwichColorBreakdown } from './PuSandwichColorBreakdown';
+import { PuSandwichChart } from './PuSandwichChart';
 
 export type MonthlySummaryScope = 'all' | 'foil' | 'sandwich';
 
@@ -633,6 +634,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
             </div>
           </div>
+
+          {/* ชาร์ตวิเคราะห์การผลิต PU Sandwich (แยกตามสีคอยล์, รายเดือน, ตามความหนา) */}
+          <PuSandwichChart records={safePuRecords} />
 
           {/* สรุปคอยล์แยกตามสีหลัก สีย่อย และความหนา (เช่น ขาว AW, ขาว AW/Z.cool รวมเป็นสีขาว แล้วแยกย่อย) */}
           <PuSandwichColorBreakdown records={safePuRecords} defaultExpanded={dashboardTab === 'sandwich'} />

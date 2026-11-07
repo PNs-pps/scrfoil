@@ -30,7 +30,7 @@ interface PuSandwichColorBreakdownProps {
 export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> = ({
   records,
   className = '',
-  defaultExpanded = true,
+  defaultExpanded = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrigin, setSelectedOrigin] = useState<'all' | 'เหล็กนอก' | 'เหล็กBlue Scope' | 'อื่นๆ'>('all');
@@ -49,21 +49,45 @@ export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> =
         const filteredSubs = group.subVariants
           .map((sub) => {
             // Origin check
-            if (selectedOrigin !== 'all' && sub.steelOrigin !== selectedOrigin) {
-              return null;
-            }
+            const matchesOrigin =
+              selectedOrigin === 'all' || sub.steelOrigins.includes(selectedOrigin);
+            if (!matchesOrigin) return null;
+
+            // Filter thicknesses if origin is selected
+            const matchingThicknesses =
+              selectedOrigin === 'all'
+                ? sub.thicknesses
+                : sub.thicknesses.filter((t) => t.steelOrigin === selectedOrigin);
+
+            if (matchingThicknesses.length === 0) return null;
 
             // Search query matches group baseColor, subColor, steelOrigin, or thickness
-            if (!q) return sub;
+            if (q) {
+              const matchesText =
+                group.baseColor.toLowerCase().includes(q) ||
+                group.displayLabel.toLowerCase().includes(q) ||
+                sub.subColor.toLowerCase().includes(q) ||
+                sub.steelOrigins.some((orig) => orig.toLowerCase().includes(q)) ||
+                matchingThicknesses.some((t) => t.thickness.toLowerCase().includes(q));
 
-            const matchesText =
-              group.baseColor.toLowerCase().includes(q) ||
-              group.displayLabel.toLowerCase().includes(q) ||
-              sub.subColor.toLowerCase().includes(q) ||
-              sub.steelOrigin.toLowerCase().includes(q) ||
-              sub.thicknesses.some((t) => t.thickness.toLowerCase().includes(q));
+              if (!matchesText) return null;
+            }
 
-            return matchesText ? sub : null;
+            const subTotalLength = matchingThicknesses.reduce((acc, t) => acc + t.totalLengthMeters, 0);
+            const subTotalWeight = matchingThicknesses.reduce((acc, t) => acc + t.totalWeightKg, 0);
+            const subTotalNgKg = matchingThicknesses.reduce((acc, t) => acc + t.totalNgKg, 0);
+            const subTotalNgM = matchingThicknesses.reduce((acc, t) => acc + t.totalNgMeters, 0);
+            const subTotalCount = matchingThicknesses.reduce((acc, t) => acc + t.count, 0);
+
+            return {
+              ...sub,
+              count: subTotalCount,
+              totalLengthMeters: Math.round(subTotalLength * 10) / 10,
+              totalWeightKg: Math.round(subTotalWeight * 100) / 100,
+              totalNgKg: Math.round(subTotalNgKg * 100) / 100,
+              totalNgMeters: Math.round(subTotalNgM * 10) / 10,
+              thicknesses: matchingThicknesses,
+            };
           })
           .filter(Boolean) as SubColorVariantGroup[];
 
@@ -286,64 +310,64 @@ export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> =
             return (
               <div
                 key={group.baseColor}
-                className="rounded-2xl border-2 border-slate-200 overflow-hidden shadow-2xs transition-all duration-200 hover:border-slate-300 bg-white"
+                className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs transition-all duration-200 hover:border-slate-300 bg-white"
+                style={{ borderLeftWidth: '5px', borderLeftColor: group.colorMeta.barColor || '#94a3b8' }}
               >
-                {/* 1. Primary Color Card Header (Clickable Accordion) */}
+                {/* 1. Primary Color Card Header (Clickable Compact Accordion) */}
                 <div
                   onClick={() => toggleExpand(group.baseColor)}
-                  className={`p-3.5 sm:p-4 cursor-pointer flex flex-wrap items-center justify-between gap-3 transition-colors ${
+                  className={`p-2.5 sm:p-3 cursor-pointer flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
                     expanded ? 'bg-slate-100/90 border-b border-slate-200' : 'bg-slate-50/70 hover:bg-slate-100/60'
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     {/* Color Swatch Dot */}
                     <div
-                      className="w-8 h-8 rounded-xl border border-black/20 flex items-center justify-center shrink-0 shadow-2xs"
+                      className="w-7 h-7 rounded-lg border border-black/20 flex items-center justify-center shrink-0 shadow-2xs"
                       style={{ backgroundColor: group.colorMeta.dotColor }}
                     >
-                      <span className="text-xs font-bold text-slate-700/80">
+                      <span className="text-[11px] font-bold text-slate-700/80">
                         {group.baseColor.slice(0, 1)}
                       </span>
                     </div>
 
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
                           {group.displayLabel}
                         </h4>
-                        <span className="px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 text-[11px] font-bold font-mono">
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-700 text-[10px] font-bold font-mono">
                           {group.subVariants.length} สีย่อย
                         </span>
-                        <span className="text-xs text-slate-500 font-mono">
-                          ({group.count} ใบงาน SO)
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          ({group.count} SO)
                         </span>
                       </div>
-                      <div className="text-xs text-slate-500 truncate mt-0.5">
-                        สีย่อย:{' '}
-                        {group.subVariants.map((s) => `${s.subColor} [${s.steelOrigin}]`).join(', ')}
+                      <div className="text-[11px] text-slate-500 truncate mt-0.5 max-w-md sm:max-w-xl">
+                        {group.subVariants.map((s) => `${s.subColor}${s.steelOrigins.length > 0 ? ` [${s.steelOrigins.join(', ')}]` : ''}`).join(', ')}
                       </div>
                     </div>
                   </div>
 
                   {/* Summary Metrics & Toggle Arrow */}
-                  <div className="flex items-center gap-3 sm:gap-5 ml-auto">
+                  <div className="flex items-center gap-3 sm:gap-4 shrink-0">
                     {/* Meters (Primary Metric) */}
                     <div className="text-right">
-                      <span className="text-[10px] text-slate-500 uppercase font-semibold block">ความยาวรวม</span>
-                      <span className="text-base sm:text-lg font-black font-mono text-emerald-800">
+                      <span className="text-[9px] text-slate-400 uppercase font-semibold block leading-tight">ยอดผลิต</span>
+                      <span className="text-sm sm:text-base font-black font-mono text-emerald-800 leading-tight">
                         {formatMeters(group.totalLengthMeters)}{' '}
-                        <span className="text-xs font-normal text-slate-500">ม.</span>
+                        <span className="text-[10px] font-normal text-slate-500">ม.</span>
                       </span>
                     </div>
 
                     {/* Weight (Secondary Metric) */}
                     <div className="text-right hidden sm:block">
-                      <span className="text-[10px] text-slate-500 uppercase font-semibold block">น้ำหนักใช้</span>
-                      <span className="text-sm sm:text-base font-bold font-mono text-slate-800">
+                      <span className="text-[9px] text-slate-400 uppercase font-semibold block leading-tight">น้ำหนัก</span>
+                      <span className="text-xs sm:text-sm font-bold font-mono text-slate-800 leading-tight">
                         {formatMeters(group.totalWeightKg)}{' '}
-                        <span className="text-[10px] font-normal text-slate-400">กก.</span>
+                        <span className="text-[9px] font-normal text-slate-400">กก.</span>
                       </span>
-                      <span className="text-[10px] text-emerald-700 font-semibold block font-mono">
+                      <span className="text-[9px] text-emerald-700 font-semibold block font-mono leading-none">
                         ≈ {group.totalTons} ตัน
                       </span>
                     </div>
@@ -351,15 +375,15 @@ export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> =
                     {/* NG Rate */}
                     {group.totalNgMeters > 0 && (
                       <div className="text-right hidden md:block">
-                        <span className="text-[10px] text-rose-500 uppercase font-semibold block">NG รวม</span>
-                        <span className="text-xs sm:text-sm font-bold font-mono text-rose-600">
+                        <span className="text-[9px] text-rose-400 uppercase font-semibold block leading-tight">NG</span>
+                        <span className="text-xs font-bold font-mono text-rose-600 leading-tight">
                           {formatMeters(group.totalNgMeters)} ม. ({group.ngPercent.toFixed(1)}%)
                         </span>
                       </div>
                     )}
 
                     <div className="p-1 rounded-lg text-slate-400 hover:text-slate-700">
-                      {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                      {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </div>
                   </div>
                 </div>
@@ -368,28 +392,34 @@ export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> =
                 {expanded && (
                   <div className="p-3.5 sm:p-5 space-y-4 bg-white divide-y divide-slate-100">
                     {group.subVariants.map((sub, sIdx) => {
-                      const isBlueScope = sub.steelOrigin.includes('Blue Scope');
-                      const isExternal = sub.steelOrigin.includes('เหล็กนอก');
-
                       return (
-                        <div key={`${sub.subColor}-${sub.steelOrigin}`} className={sIdx > 0 ? 'pt-4' : ''}>
+                        <div key={sub.subColor} className={sIdx > 0 ? 'pt-4' : ''}>
                           {/* Sub-variant title and badges */}
                           <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-sm sm:text-base text-slate-900 font-sans">
                                 {sub.subColor}
                               </span>
-                              <span
-                                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border ${
-                                  isBlueScope
-                                    ? 'bg-sky-50 text-sky-800 border-sky-300'
-                                    : isExternal
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                      : 'bg-slate-100 text-slate-700 border-slate-300'
-                                }`}
-                              >
-                                {sub.steelOrigin}
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {sub.steelOrigins.map((orig) => {
+                                  const isBs = orig.includes('Blue Scope');
+                                  const isExt = orig.includes('เหล็กนอก');
+                                  return (
+                                    <span
+                                      key={orig}
+                                      className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border ${
+                                        isBs
+                                          ? 'bg-sky-50 text-sky-800 border-sky-300'
+                                          : isExt
+                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                            : 'bg-slate-100 text-slate-700 border-slate-300'
+                                      }`}
+                                    >
+                                      {orig}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-3 text-xs font-mono">
@@ -411,6 +441,7 @@ export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> =
                               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                                 <tr>
                                   <th className="py-2 px-3">ความหนา</th>
+                                  <th className="py-2 px-3">แหล่งเหล็ก</th>
                                   <th className="py-2 px-3 text-center">จำนวน SO</th>
                                   <th className="py-2 px-3 text-right">ความยาวผลิต (เมตร)</th>
                                   <th className="py-2 px-3 text-right">น้ำหนักใช้ (กก.)</th>
@@ -420,11 +451,26 @@ export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> =
                               </thead>
                               <tbody className="divide-y divide-slate-100 font-mono">
                                 {sub.thicknesses.map((th) => (
-                                  <tr key={th.thickness} className="hover:bg-slate-50/70 transition-colors">
+                                  <tr key={`${th.thickness}-${th.steelOrigin}`} className="hover:bg-slate-50/70 transition-colors">
                                     {/* ความหนา */}
                                     <td className="py-2 px-3 font-bold text-slate-900 whitespace-nowrap">
                                       <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-900 font-sans font-bold">
                                         {th.thickness}
+                                      </span>
+                                    </td>
+
+                                    {/* แหล่งเหล็ก */}
+                                    <td className="py-2 px-3 whitespace-nowrap">
+                                      <span
+                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                                          th.steelOrigin.includes('Blue Scope')
+                                            ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                            : th.steelOrigin.includes('เหล็กนอก')
+                                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                              : 'bg-slate-100 text-slate-700 border-slate-200'
+                                        }`}
+                                      >
+                                        {th.steelOrigin}
                                       </span>
                                     </td>
 

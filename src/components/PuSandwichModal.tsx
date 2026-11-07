@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { confirmAction } from '../utils/confirmAction';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { todayLocalISO } from '../utils/formatters';
@@ -6,6 +6,7 @@ import { PuSandwichCutRecord, SteelOriginType } from '../types';
 import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator, exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { isStaffEmail, getStaffEmails } from '../utils/auth';
+import { normalizeSubColor } from '../utils/thaiColorCategorizer';
 import { 
   X, 
   Layers, 
@@ -27,9 +28,10 @@ import {
   Ruler,
   ShieldAlert,
   Lock,
-  Calculator
+  Calculator,
+  ChevronDown
 } from 'lucide-react';
-import { TouchNumpad, TouchNumpadTarget } from './TouchNumpad';
+import { TouchNumpad, TouchNumpadTarget, SoToolbarConfig } from './TouchNumpad';
 import { 
   COMMON_THICKNESSES,
   FACTORY_THICKNESS_SPECS, 
@@ -133,6 +135,58 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   // History search state
   const [historySearch, setHistorySearch] = useState('');
   const [historySteelFilter, setHistorySteelFilter] = useState<string>('all');
+
+  // Coil Color Autocomplete State (สกัดจาก records ที่เคยใช้ + สีมาตรฐาน เพื่อป้องกันสีแตกกระจายบนแดชบอร์ด)
+  const [showColorDropdown, setShowColorDropdown] = useState(false);
+  const colorDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (colorDropdownRef.current && !colorDropdownRef.current.contains(e.target as Node)) {
+        setShowColorDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const historicalCoilColors = useMemo(() => {
+    const map = new Map<string, { label: string; count: number; origin?: SteelOriginType }>();
+
+    (records || []).forEach((r) => {
+      const raw = (r.coilColor || '').trim();
+      if (!raw) return;
+      const normalized = normalizeSubColor(raw);
+      const key = normalized.toLowerCase();
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+        if (!existing.origin && r.steelOrigin) existing.origin = r.steelOrigin;
+      } else {
+        map.set(key, { label: normalized, count: 1, origin: r.steelOrigin });
+      }
+    });
+
+    COMMON_COIL_COLORS.forEach((c) => {
+      const norm = normalizeSubColor(c);
+      const key = norm.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { label: norm, count: 0 });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [records]);
+
+  const filteredColorSuggestions = useMemo(() => {
+    const q = coilColor.trim().toLowerCase();
+    if (!q) {
+      return historicalCoilColors.slice(0, 10);
+    }
+    return historicalCoilColors
+      .filter((item) => item.label.toLowerCase().includes(q))
+      .slice(0, 10);
+  }, [historicalCoilColors, coilColor]);
 
   // เปิดฟอร์ม: สร้างใหม่ หรือโหลดรายการแก้ไข
   useEffect(() => {
@@ -433,31 +487,85 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
   };
 
-  // ===== Tablet Numpad: น้ำหนักระดับม้วน + ความยาว SO + NG ของแถวที่ active =====
-  const numpadRowPrefix = rows.length > 1 ? `แถว ${activeRowIndex + 1} · ` : '';
+  // ===== Tablet Numpad: แถบควบคุม 5 ส่วน (ลำดับ SO, เลขที่ SO, เมตร, NG, เพิ่ม SO) + น้ำหนักระดับม้วน =====
+  const numpadRowPrefix = rows.length > 1 ? `ใบที่ ${activeRowIndex + 1} · ` : '';
   const numpadTargets: TouchNumpadTarget[] = [
     { id: 'weightBefore', label: 'ก่อนใช้ (ม้วน)', value: weightBefore, unit: 'กก.', isAccent: false },
     { id: 'weightAfter', label: 'หลังใช้ (ม้วน)', value: weightAfter, unit: 'กก.', isAccent: false },
     ...(activeRow
       ? [
+          { id: 'soNumber', label: `${numpadRowPrefix}เลขที่ SO`, value: activeRow.soNumber, unit: '', isAccent: false, isText: true },
           { id: 'soLengthMeters', label: `${numpadRowPrefix}ยาว SO`, value: activeRow.soLengthMeters, unit: 'ม.', isAccent: false },
           { id: 'rowNgMeters', label: `${numpadRowPrefix}NG ใบนี้`, value: activeRow.ngMeters || '', unit: 'ม.', isAccent: true },
         ]
       : []),
   ];
 
+  // SO Toolbar configuration for TouchNumpad (5-part toolbar)
+  const soToolbarConfig: SoToolbarConfig = useMemo(() => {
+    let activeField: 'soNumber' | 'meters' | 'ngMeters' | 'other' = 'meters';
+    if (activeNumpadTargetId === 'soNumber') activeField = 'soNumber';
+    else if (activeNumpadTargetId === 'soLengthMeters') activeField = 'meters';
+    else if (activeNumpadTargetId === 'rowNgMeters') activeField = 'ngMeters';
+    else activeField = 'other';
+
+    return {
+      rows: rows.map((r) => ({
+        id: r.id,
+        soNumber: r.soNumber,
+        meters: r.soLengthMeters,
+        ngMeters: r.ngMeters || '',
+      })),
+      activeRowIndex,
+      activeField,
+      onSelectRowIndex: (idx: number) => {
+        if (rows[idx]) {
+          setActiveRowId(rows[idx].id);
+        }
+      },
+      onSelectField: (field: 'soNumber' | 'meters' | 'ngMeters') => {
+        if (field === 'soNumber') setActiveNumpadTargetId('soNumber');
+        else if (field === 'meters') setActiveNumpadTargetId('soLengthMeters');
+        else if (field === 'ngMeters') setActiveNumpadTargetId('rowNgMeters');
+      },
+      onAddRow: handleAddRow,
+    };
+  }, [rows, activeRowIndex, activeNumpadTargetId, handleAddRow]);
+
   const handleNumpadValueChange = (targetId: string, val: string) => {
-    if (targetId === 'weightBefore') setWeightBefore(val);
-    else if (targetId === 'weightAfter') setWeightAfter(val);
-    else if (targetId === 'soLengthMeters' && activeRow) handleSoLengthChange(activeRow.id, val);
-    else if (targetId === 'rowNgMeters' && activeRow) handleRowNgMetersChange(activeRow.id, val);
+    if (targetId === 'weightBefore') {
+      setWeightBefore(val);
+    } else if (targetId === 'weightAfter') {
+      setWeightAfter(val);
+    } else if (targetId === 'soNumber' && activeRow) {
+      handleUpdateRow(activeRow.id, { soNumber: val });
+    } else if (targetId === 'soLengthMeters' && activeRow) {
+      handleSoLengthChange(activeRow.id, val);
+    } else if (targetId === 'rowNgMeters' && activeRow) {
+      handleRowNgMetersChange(activeRow.id, val);
+    }
   };
 
   const handleNextNumpadTarget = () => {
-    if (numpadTargets.length === 0) return;
-    const curIdx = numpadTargets.findIndex(t => t.id === activeNumpadTargetId);
-    const nextIdx = (curIdx + 1) % numpadTargets.length;
-    setActiveNumpadTargetId(numpadTargets[nextIdx].id);
+    if (activeNumpadTargetId === 'soNumber') {
+      setActiveNumpadTargetId('soLengthMeters');
+    } else if (activeNumpadTargetId === 'soLengthMeters') {
+      setActiveNumpadTargetId('rowNgMeters');
+    } else if (activeNumpadTargetId === 'rowNgMeters') {
+      if (activeRowIndex + 1 < rows.length) {
+        setActiveRowId(rows[activeRowIndex + 1].id);
+        setActiveNumpadTargetId('soNumber');
+      } else {
+        handleAddRow();
+        setActiveNumpadTargetId('soNumber');
+      }
+    } else if (activeNumpadTargetId === 'weightBefore') {
+      setActiveNumpadTargetId('weightAfter');
+    } else if (activeNumpadTargetId === 'weightAfter') {
+      setActiveNumpadTargetId('soNumber');
+    } else {
+      setActiveNumpadTargetId('soLengthMeters');
+    }
   };
 
   /**
@@ -851,33 +959,100 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     </span>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                      <Palette className="w-3.5 h-3.5 text-emerald-600" />
-                      สีคอล์ย <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={coilColor}
-                      onChange={(e) => setCoilColor(e.target.value)}
-                      placeholder="เช่น สีขาว, สีดำ, สีน้ำตาล"
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
-                      required
-                    />
-                    {/* Quick color chips */}
+                  <div className="relative" ref={colorDropdownRef}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Palette className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>สีคอล์ย</span>
+                        <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[10px] text-emerald-700 font-medium">
+                        เลือกสีเดิมป้องกันแดชบอร์ดแตก
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={coilColor}
+                        onChange={(e) => {
+                          setCoilColor(e.target.value);
+                          setShowColorDropdown(true);
+                        }}
+                        onFocus={() => setShowColorDropdown(true)}
+                        placeholder="พิมพ์เพื่อค้นหา เช่น ขาว AW, ขาว AW/Z.cool, สีดำ"
+                        className="w-full px-3 py-2 pr-8 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                        required
+                      />
+                      <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+
+                    {/* Autocomplete Dropdown List */}
+                    {showColorDropdown && filteredColorSuggestions.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-56 overflow-y-auto divide-y divide-slate-100 animate-in fade-in duration-100">
+                        <div className="px-3 py-1.5 bg-slate-50 text-[10px] font-bold text-slate-500 flex items-center justify-between">
+                          <span>สีที่เคยใช้ ({filteredColorSuggestions.length})</span>
+                          <span className="text-emerald-600 font-normal">แตะเลือกทันที</span>
+                        </div>
+                        {filteredColorSuggestions.map((item) => (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => {
+                              setCoilColor(item.label);
+                              if (item.origin && (!steelOrigin || steelOrigin === 'เหล็กนอก')) {
+                                setSteelOrigin(item.origin);
+                              }
+                              setShowColorDropdown(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-emerald-50 transition-colors cursor-pointer ${
+                              coilColor.toLowerCase() === item.label.toLowerCase()
+                                ? 'bg-emerald-50 text-emerald-950 font-bold'
+                                : 'text-slate-800'
+                            }`}
+                          >
+                            <span className="font-medium">{item.label}</span>
+                            <div className="flex items-center gap-1.5">
+                              {item.origin && (
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded font-sans ${
+                                  item.origin === 'เหล็กBlue Scope'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {item.origin}
+                                </span>
+                              )}
+                              {item.count > 0 && (
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  {item.count} ครั้ง
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Quick color chips: แสดง 5 อันดับแรกที่ใช้บ่อย */}
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {COMMON_COIL_COLORS.map((c) => (
+                      {historicalCoilColors.slice(0, 5).map((c) => (
                         <button
-                          key={c}
+                          key={c.label}
                           type="button"
-                          onClick={() => setCoilColor(c)}
+                          onClick={() => {
+                            setCoilColor(c.label);
+                            if (c.origin && (!steelOrigin || steelOrigin === 'เหล็กนอก')) {
+                              setSteelOrigin(c.origin);
+                            }
+                            setShowColorDropdown(false);
+                          }}
                           className={`text-[10px] px-2 py-0.5 rounded-lg border cursor-pointer transition-colors ${
-                            coilColor === c
+                            coilColor === c.label
                               ? 'bg-emerald-600 text-white border-emerald-600 font-bold'
                               : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                           }`}
                         >
-                          {c}
+                          {c.label}
                         </button>
                       ))}
                     </div>
@@ -1226,10 +1401,15 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                             type="text"
                             value={row.soNumber}
                             onChange={(e) => handleUpdateRow(row.id, { soNumber: e.target.value.toLowerCase() })}
-                            onFocus={() => setActiveRowId(row.id)}
+                            onFocus={() => activateRow(row.id, 'soNumber')}
+                            onClick={() => activateRow(row.id, 'soNumber')}
                             onKeyDown={(e) => handleRowKeyDown(e, row, 'soNumber')}
                             placeholder="เช่น so6909001"
-                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                            className={`w-full px-3 py-2 bg-white border rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                              showTabletNumpad && activeNumpadTargetId === 'soNumber' && activeRowId === row.id
+                                ? 'border-amber-500 ring-2 ring-amber-300 bg-amber-50/20'
+                                : 'border-slate-300'
+                            }`}
                             required
                           />
                           {idx === 0 && (
@@ -1507,6 +1687,7 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                     onValueChange={handleNumpadValueChange}
                     onClose={() => setShowTabletNumpad(false)}
                     onNextTarget={handleNextNumpadTarget}
+                    soToolbar={soToolbarConfig}
                   />
                 </div>
               )}

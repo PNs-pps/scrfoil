@@ -893,8 +893,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                                 </span>
                               )}
                               {item.isWhiteSide && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white text-slate-950 rounded-md text-[10px] font-black border-2 border-slate-400 shadow-2xs">
-                                  <span className="w-2 h-2 rounded-full bg-white ring-1 ring-slate-700 shrink-0" />
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-950 rounded-md text-[10px] font-black border-2 border-slate-700 shadow-xs">
+                                  <span className="w-2 h-2 rounded-full bg-white ring-1.5 ring-slate-800 shrink-0" />
                                   <span>ท้องขาว</span>
                                 </span>
                               )}
