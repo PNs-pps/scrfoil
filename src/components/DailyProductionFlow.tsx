@@ -792,8 +792,8 @@ export const DailyProductionFlow: React.FC<DailyProductionFlowProps> = ({
                               </span>
                             )}
                             {r.isWhiteSide && (
-                              <span className="inline-flex items-center gap-1 w-fit px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-950 text-[10px] font-black border-2 border-slate-700 shadow-xs">
-                                <span className="w-2 h-2 rounded-full bg-white ring-1.5 ring-slate-800 shrink-0" />
+                              <span className="inline-flex items-center gap-1 w-fit px-1.5 py-0.5 rounded-md bg-gradient-to-r from-white via-slate-50 to-slate-100 text-slate-900 text-[10px] font-black border border-slate-400 shadow-2xs">
+                                <span className="w-2 h-2 rounded-full bg-white ring-1 ring-slate-400 shrink-0" />
                                 <span>ขาว</span>
                               </span>
                             )}

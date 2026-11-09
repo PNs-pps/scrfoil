@@ -1276,9 +1276,9 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                               <span>ท้องเงิน</span>
                             </label>
 
-                            <label className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 cursor-pointer select-none transition-all text-xs font-bold ${
+                            <label className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border cursor-pointer select-none transition-all text-xs font-bold ${
                               order.isWhiteSide 
-                                ? 'bg-slate-100 text-slate-950 border-slate-700 shadow-xs' 
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-xs ring-1 ring-slate-800' 
                                 : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
                             }`}>
                               <input
@@ -1290,10 +1290,10 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                                     isSilverSide: e.target.checked ? false : order.isSilverSide,
                                   })
                                 }
-                                className="w-4 h-4 rounded text-slate-800 focus:ring-slate-700 cursor-pointer"
+                                className="w-4 h-4 rounded text-slate-900 focus:ring-slate-700 cursor-pointer"
                               />
-                              <span className="flex items-center gap-1">
-                                <span className={`w-2.5 h-2.5 rounded-full ${order.isWhiteSide ? 'bg-white ring-1.5 ring-slate-800' : 'bg-slate-200'}`} />
+                              <span className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${order.isWhiteSide ? 'bg-white ring-1 ring-white/80' : 'bg-slate-300'}`} />
                                 <span>ท้องขาว</span>
                               </span>
                             </label>

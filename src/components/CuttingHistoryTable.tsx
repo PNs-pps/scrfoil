@@ -1048,17 +1048,17 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
                               </span>
                             )}
 
-                            {/* จุดและป้ายตัวเลือก: ท้องขาว (ขาวมุกตัดขอบเทาเข้ม ชัดเจน ไม่กลืนกับพื้นหลัง) */}
+                            {/* จุดและป้ายตัวเลือก: ท้องขาว (แสดงผลแบบเดียวกับท้องเงิน) */}
                             {item.isWhiteSide && (
                               <span
-                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-100 text-slate-950 border-2 border-slate-700 text-[11px] font-black shadow-xs tracking-tight"
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-white via-slate-50 to-slate-100 text-slate-900 border border-slate-400 text-[11px] font-black shadow-2xs"
                                 title="ตัวเลือกพิเศษ: ท้องขาว"
                               >
                                 <span
-                                  className="w-2.5 h-2.5 rounded-full bg-white ring-2 ring-slate-800 shadow-2xs shrink-0"
+                                  className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-xs shrink-0"
                                   aria-hidden="true"
                                 />
-                                <span>ท้องขาว</span>
+                                <span>ขาว</span>
                               </span>
                             )}
                           </div>
