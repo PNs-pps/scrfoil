@@ -2699,7 +2699,9 @@ const updated = [newRoll, ...rolls];
         // remainingBefore/remainingAfter. Re-chain every cut record for this
         // roll too, so ใบงานที่ 1's "หลังตัด" always equals ใบงานที่ 2's "ก่อนตัด", etc.
         if (!updated[0].isZeroedOut) {
-          const rollRecordIds = recordsRef.current.filter((r) => r.foilId === rollId).map((r) => r.id);
+          const rollRecordIds = recordsRef.current
+            .filter((r) => r.foilId === rollId || (r.lotNumber && r.rollNumber && r.lotNumber === updated[0].lotNumber && r.rollNumber === updated[0].rollNumber))
+            .map((r) => r.id);
           if (rollRecordIds.length > 0) {
             try {
               const { updatedRoll: realignedRollRes, updatedRecords } = await realignRollCutChainInFirestore(rollId, rollRecordIds);
@@ -2749,7 +2751,9 @@ const updated = [newRoll, ...rolls];
         // not just the roll-level total.
         for (const roll of updated) {
           if (roll.isZeroedOut) continue;
-          const rollRecordIds = recordsRef.current.filter((r) => r.foilId === roll.id).map((r) => r.id);
+          const rollRecordIds = recordsRef.current
+            .filter((r) => r.foilId === roll.id || (r.lotNumber && r.rollNumber && r.lotNumber === roll.lotNumber && r.rollNumber === roll.rollNumber))
+            .map((r) => r.id);
           if (rollRecordIds.length === 0) continue;
           try {
             const { updatedRoll: realignedRoll, updatedRecords } = await realignRollCutChainInFirestore(roll.id, rollRecordIds);
@@ -3308,6 +3312,7 @@ const updated = [newRoll, ...rolls];
             onConfirmProduction={handleConfirmProduction}
             onReallocateRoll={(rec) => setReallocatingRecord(rec)}
             onCancelProduction={(rec) => setCancellingRecord(rec)}
+            onFixRoll={handleFixRoll}
             onNavigateToAuditHub={() => setActiveTab('audit')}
           />
         )}
@@ -3743,6 +3748,7 @@ const updated = [newRoll, ...rolls];
           onConfirmProduction={handleConfirmProduction}
           onReallocateRoll={(rec) => setReallocatingRecord(rec)}
           onCancelProduction={(rec) => setCancellingRecord(rec)}
+          onFixRoll={handleFixRoll}
           userMode={userMode}
           onRequestUnlock={() => requireEditorPermission(() => {})}
           auditLogs={soAuditLogs}

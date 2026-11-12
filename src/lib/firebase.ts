@@ -1095,11 +1095,43 @@ export async function revertCutRecordInFirestore(
 }
 
 /** Every cut record of one roll, read from the server (never from cache). */
-export async function fetchCutRecordsForRollFromServer(rollId: string): Promise<StockCutRecord[]> {
-  const snap = await getDocsFromServer(
-    query(collection(db, RECORDS_COLLECTION), where('foilId', '==', rollId))
-  );
-  return snap.docs.map((d) => ({ ...(d.data() as StockCutRecord), id: d.id }));
+export async function fetchCutRecordsForRollFromServer(
+  rollId: string,
+  rollMeta?: { lotNumber?: string; rollNumber?: string }
+): Promise<StockCutRecord[]> {
+  const recordsMap = new Map<string, StockCutRecord>();
+
+  // 1. Query by foilId
+  try {
+    const snap = await getDocsFromServer(
+      query(collection(db, RECORDS_COLLECTION), where('foilId', '==', rollId))
+    );
+    snap.docs.forEach((d) => {
+      recordsMap.set(d.id, { ...(d.data() as StockCutRecord), id: d.id });
+    });
+  } catch (err) {
+    console.warn('Query by foilId failed:', err);
+  }
+
+  // 2. Also query by lotNumber & rollNumber if provided, to catch cuts linked by Lot/Roll
+  if (rollMeta?.lotNumber && rollMeta?.rollNumber) {
+    try {
+      const snapLot = await getDocsFromServer(
+        query(
+          collection(db, RECORDS_COLLECTION),
+          where('lotNumber', '==', rollMeta.lotNumber),
+          where('rollNumber', '==', rollMeta.rollNumber)
+        )
+      );
+      snapLot.docs.forEach((d) => {
+        recordsMap.set(d.id, { ...(d.data() as StockCutRecord), id: d.id });
+      });
+    } catch (err) {
+      console.warn('Query by lot/roll failed:', err);
+    }
+  }
+
+  return Array.from(recordsMap.values());
 }
 
 /**
@@ -1117,14 +1149,15 @@ export async function recomputeAdjustmentsFromServer(
 ): Promise<RollAdjustmentItem[]> {
   const out: RollAdjustmentItem[] = [];
   for (const adj of adjustments) {
-    const [rollSnap, records] = await Promise.all([
-      getDocFromServer(doc(db, ROLLS_COLLECTION, adj.rollId)),
-      fetchCutRecordsForRollFromServer(adj.rollId),
-    ]);
+    const rollSnap = await getDocFromServer(doc(db, ROLLS_COLLECTION, adj.rollId));
     if (!rollSnap.exists()) {
       throw new Error(`ไม่พบม้วน ${adj.rollId} บน Cloud — ยกเลิกการปรับยอด`);
     }
     const server = rollSnap.data() as FoilRoll;
+    const records = await fetchCutRecordsForRollFromServer(adj.rollId, {
+      lotNumber: server.lotNumber,
+      rollNumber: server.rollNumber,
+    });
     const d = summarizeRollDeduction(records);
     out.push({
       ...adj,
@@ -1224,7 +1257,12 @@ export async function realignRollCutChainInFirestore(
   // chain sets the roll's remaining to totalMeters minus everything IN the chain,
   // so a missing record means a wrong final remaining. Ask the server for the
   // roll's full record set (a transaction cannot run a query) and merge it in.
-  const serverRecords = await fetchCutRecordsForRollFromServer(rollId);
+  const rollSnapEarly = await getDocFromServer(rollRef);
+  const rollMetaEarly = rollSnapEarly.exists() ? (rollSnapEarly.data() as FoilRoll) : undefined;
+  const serverRecords = await fetchCutRecordsForRollFromServer(rollId, {
+    lotNumber: rollMetaEarly?.lotNumber,
+    rollNumber: rollMetaEarly?.rollNumber,
+  });
   const allIds = Array.from(new Set([...recordIds, ...serverRecords.map((r) => r.id)]));
   const recordRefs = allIds.map((id) => doc(db, RECORDS_COLLECTION, id));
 
@@ -1288,6 +1326,9 @@ export async function realignRollCutChainInFirestore(
 
       const updatedRec: StockCutRecord = {
         ...rec,
+        foilId: rollId,
+        lotNumber: serverRoll.lotNumber,
+        rollNumber: serverRoll.rollNumber,
         usedMeters: isStockIn ? 0 : safeUsed,
         ngMeters: isStockIn ? 0 : safeNg,
         totalDeducted: signedTotal,

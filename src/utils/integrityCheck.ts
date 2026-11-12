@@ -79,13 +79,36 @@ export function checkStockIntegrity(
   records: StockCutRecord[],
   options?: CheckStockIntegrityOptions
 ): IntegrityMismatch[] {
+  // Index rolls by ID and by lotNumber + rollNumber for robust matching
+  const rollById = new Map<string, FoilRoll>();
+  const rollByLotAndNo = new Map<string, FoilRoll>();
+
+  rolls.forEach((roll) => {
+    rollById.set(roll.id, roll);
+    const key = `${(roll.lotNumber || '').trim().toUpperCase()}::${(roll.rollNumber || '').trim().toUpperCase()}`;
+    if (key !== '::') {
+      rollByLotAndNo.set(key, roll);
+    }
+  });
+
   const deductionByRoll = new Map<string, { total: number; used: number; ng: number; count: number }>();
 
   records.forEach((rec) => {
     // รายการจองรอตัด หรือยกเลิก จะยังไม่ถูกหักสต๊อกจริงจากม้วน
     if (rec.cutStatus === 'reserved' || rec.cutStatus === 'cancelled') return;
 
-    const existing = deductionByRoll.get(rec.foilId) || { total: 0, used: 0, ng: 0, count: 0 };
+    let targetRollId = rec.foilId;
+    if (!targetRollId || !rollById.has(targetRollId)) {
+      const key = `${(rec.lotNumber || '').trim().toUpperCase()}::${(rec.rollNumber || '').trim().toUpperCase()}`;
+      const found = rollByLotAndNo.get(key);
+      if (found) {
+        targetRollId = found.id;
+      }
+    }
+
+    if (!targetRollId) return;
+
+    const existing = deductionByRoll.get(targetRollId) || { total: 0, used: 0, ng: 0, count: 0 };
     // usedMeters / ngMeters are always non-negative (production cuts).
     // totalDeducted is SIGNED: positive = stock out, negative = stock in
     // (e.g. Cycle Count when physical count > system remaining).
@@ -102,7 +125,7 @@ export function checkStockIntegrity(
     existing.ng = round2(existing.ng + safeNg);
     existing.total = round2(existing.total + deducted);
     existing.count += 1;
-    deductionByRoll.set(rec.foilId, existing);
+    deductionByRoll.set(targetRollId, existing);
   });
 
   const mismatches: IntegrityMismatch[] = [];

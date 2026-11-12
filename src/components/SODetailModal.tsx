@@ -26,7 +26,7 @@ import {
   RefreshCw,
   Ban
 } from 'lucide-react';
-import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate, formatThaiDateTime } from '../utils/formatters';
+import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate, formatThaiDateTime, round2 } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
 import { UserMode } from '../utils/auth';
 import { FoilStatusTube } from './FoilStatusTube';
@@ -42,6 +42,7 @@ interface SODetailModalProps {
   onConfirmProduction?: (recordId: string, soNumber: string) => Promise<void> | void;
   onReallocateRoll?: (record: StockCutRecord) => void;
   onCancelProduction?: (record: StockCutRecord) => void;
+  onFixRoll?: (rollId: string, expectedRemaining: number, sumUsed?: number, sumNg?: number) => Promise<void> | void;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
   auditLogs?: SOAuditLogItem[];
@@ -58,12 +59,15 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   onConfirmProduction,
   onReallocateRoll,
   onCancelProduction,
+  onFixRoll,
   userMode = 'visitor',
   onRequestUnlock,
   auditLogs = [],
 }) => {
   const [currentView, setCurrentView] = useState<'so' | 'roll'>('so');
   const [copied, setCopied] = useState(false);
+  const [isFixingRoll, setIsFixingRoll] = useState(false);
+  const [fixSuccess, setFixSuccess] = useState(false);
 
   // Filter audit logs specifically for this SO cut record
   const soAuditHistory = React.useMemo(() => {
@@ -92,13 +96,91 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
 
   const patternStyle = getPatternStyle(record.pattern);
 
-  // All cuts for this roll
-  const rollCuts = records.filter(
-    (r) =>
-      r.foilId === (matchedRoll?.id || record.foilId) ||
-      (r.lotNumber === (matchedRoll?.lotNumber || record.lotNumber) &&
-        r.rollNumber === (matchedRoll?.rollNumber || record.rollNumber))
-  );
+  // All cuts for this roll: match by foilId OR by (lotNumber and rollNumber)
+  const rollCuts = React.useMemo(() => {
+    const list = records.filter(
+      (r) =>
+        r.foilId === (matchedRoll?.id || record.foilId) ||
+        (r.lotNumber === (matchedRoll?.lotNumber || record.lotNumber) &&
+          r.rollNumber === (matchedRoll?.rollNumber || record.rollNumber))
+    );
+    return list.sort((a, b) => {
+      const da = a.usageDate || a.recordedDate || a.createdAt || '';
+      const db = b.usageDate || b.recordedDate || b.createdAt || '';
+      return String(db).localeCompare(String(da));
+    });
+  }, [records, matchedRoll, record]);
+
+  // Actual countable cuts (excluding reserved and cancelled)
+  const actualRollCuts = React.useMemo(() => {
+    return rollCuts.filter((r) => r.cutStatus !== 'reserved' && r.cutStatus !== 'cancelled');
+  }, [rollCuts]);
+
+  const liveUsedMeters = React.useMemo(() => {
+    return round2(actualRollCuts.reduce((sum, r) => sum + Math.abs(Number(r.usedMeters || 0)), 0));
+  }, [actualRollCuts]);
+
+  const liveNgMeters = React.useMemo(() => {
+    return round2(actualRollCuts.reduce((sum, r) => sum + Math.abs(Number(r.ngMeters || 0)), 0));
+  }, [actualRollCuts]);
+
+  const liveTotalDeducted = React.useMemo(() => {
+    return round2(
+      actualRollCuts.reduce((sum, r) => {
+        const rawTotal = Number(r.totalDeducted);
+        const deducted = Number.isFinite(rawTotal)
+          ? rawTotal
+          : Math.abs(Number(r.usedMeters || 0)) + Math.abs(Number(r.ngMeters || 0));
+        return sum + deducted;
+      }, 0)
+    );
+  }, [actualRollCuts]);
+
+  const currentRollTotal = matchedRoll
+    ? Number(matchedRoll.totalMeters || 1000)
+    : (record.remainingBefore || record.remainingAfter + record.totalDeducted || 1000);
+
+  // Expected remaining based on all recorded cuts
+  const expectedRemaining = React.useMemo(() => {
+    return round2(Math.max(0, currentRollTotal - liveTotalDeducted));
+  }, [currentRollTotal, liveTotalDeducted]);
+
+  // Check if roll inventory state has discrepancy with cut history
+  const isMismatch = React.useMemo(() => {
+    if (!matchedRoll || actualRollCuts.length === 0) return false;
+    const actualRem = Number(matchedRoll.remainingMeters || 0);
+    const actualUsed = Number(matchedRoll.usedMeters || 0);
+    return Math.abs(actualRem - expectedRemaining) > 0.05 || Math.abs(actualUsed - liveUsedMeters) > 0.05;
+  }, [matchedRoll, actualRollCuts, expectedRemaining, liveUsedMeters]);
+
+  // If the roll is zeroed out, it is 0. Otherwise, if there are cuts, show the true live calculated remaining
+  const currentRollRemaining = matchedRoll?.isZeroedOut
+    ? 0
+    : actualRollCuts.length > 0
+      ? expectedRemaining
+      : (matchedRoll ? Number(matchedRoll.remainingMeters || 0) : record.remainingAfter);
+
+  const displayUsedMeters = actualRollCuts.length > 0
+    ? liveUsedMeters
+    : (matchedRoll ? Number(matchedRoll.usedMeters || 0) : record.usedMeters);
+
+  const displayNgMeters = actualRollCuts.length > 0
+    ? liveNgMeters
+    : (matchedRoll ? Number(matchedRoll.ngMeters || 0) : record.ngMeters);
+
+  const rollPercentLeft = currentRollTotal > 0 ? Math.round((currentRollRemaining / currentRollTotal) * 100) : 0;
+
+  const handleSyncRoll = async () => {
+    if (!matchedRoll || !onFixRoll) return;
+    setIsFixingRoll(true);
+    try {
+      await onFixRoll(matchedRoll.id, expectedRemaining, liveUsedMeters, liveNgMeters);
+      setFixSuccess(true);
+      setTimeout(() => setFixSuccess(false), 3000);
+    } finally {
+      setIsFixingRoll(false);
+    }
+  };
 
   const handleCopyLine = () => {
     const sideText = record.isSilverSide ? ' [ท้องเงิน]' : record.isWhiteSide ? ' [ท้องขาว]' : '';
@@ -124,10 +206,6 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
       setTimeout(() => setCopied(false), 2000);
     });
   };
-
-  const currentRollRemaining = matchedRoll ? matchedRoll.remainingMeters : record.remainingAfter;
-  const currentRollTotal = matchedRoll ? matchedRoll.totalMeters : (record.remainingBefore || record.remainingAfter + record.totalDeducted);
-  const rollPercentLeft = currentRollTotal > 0 ? Math.round((currentRollRemaining / currentRollTotal) * 100) : 0;
 
   return (
     <div 
@@ -626,6 +704,35 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                   )}
                 </div>
 
+                {/* Alert banner if roll inventory diverges from cut history */}
+                {isMismatch && matchedRoll && (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        ยอดในฐานข้อมูล ({formatMeters(Number(matchedRoll.remainingMeters || 0))} ม.) ไม่ตรงกับประวัติการตัด ({formatMeters(expectedRemaining)} ม.)
+                      </span>
+                    </div>
+                    {onFixRoll && (
+                      <button
+                        type="button"
+                        disabled={isFixingRoll}
+                        onClick={handleSyncRoll}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isFixingRoll ? 'animate-spin' : ''}`} />
+                        <span>{isFixingRoll ? 'กำลังอัปเดต...' : '🔄 อัปเดตยอดม้วนนี้'}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+                {fixSuccess && (
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-1.5">
+                    <Check className="w-4 h-4 text-emerald-600" />
+                    <span>อัปเดตยอดคงเหลือม้วนในฐานข้อมูลเรียบร้อยแล้ว</span>
+                  </div>
+                )}
+
                 {/* Meter Stats Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center pt-2">
                   <div className="p-2.5 bg-white rounded-xl border border-slate-200">
@@ -637,13 +744,13 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                   <div className="p-2.5 bg-white rounded-xl border border-slate-200">
                     <span className="text-[10px] text-slate-400 block font-medium">ใช้สะสม</span>
                     <span className="font-mono font-bold text-blue-700 text-sm">
-                      {formatMeters(matchedRoll ? matchedRoll.usedMeters : record.usedMeters)} ม.
+                      {formatMeters(displayUsedMeters)} ม.
                     </span>
                   </div>
                   <div className="p-2.5 bg-white rounded-xl border border-slate-200">
                     <span className="text-[10px] text-slate-400 block font-medium">NG สะสม</span>
                     <span className="font-mono font-bold text-rose-600 text-sm">
-                      {formatMeters(matchedRoll ? matchedRoll.ngMeters : record.ngMeters)} ม.
+                      {formatMeters(displayNgMeters)} ม.
                     </span>
                   </div>
                   <div className="p-2.5 bg-white rounded-xl border border-slate-200">
