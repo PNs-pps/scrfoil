@@ -30,6 +30,10 @@ import {
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { subscribeToRollCutHistory } from '../lib/firebase';
 import { auditRollSOHistory } from '../utils/soHistoryAudit';
+import {
+  findContaminatedRecordsForRoll,
+  isRecordSpecCompatibleWithRoll,
+} from '../utils/rollIdentity';
 import { FoilStatusTube } from './FoilStatusTube';
 
 interface RollUsageHistoryModalProps {
@@ -44,6 +48,7 @@ interface RollUsageHistoryModalProps {
     rollId: string,
     recordIds: string[]
   ) => Promise<{ updatedRecords?: StockCutRecord[] } | void>;
+  onSeparateCrossSpec?: (rollId: string) => Promise<void> | void;
   canEdit?: boolean;
   onOpenFullAudit?: (rollId?: string) => void;
 }
@@ -57,6 +62,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   onEditCutRecord,
   onFixRoll,
   onRealignChain,
+  onSeparateCrossSpec,
   canEdit = true,
   onOpenFullAudit,
 }) => {
@@ -65,7 +71,9 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   // Initialize with in-memory or embedded data first for instant render
   const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
     if (!roll) return [];
-    const rollCuts = records.filter((r) => r.foilId === roll.id);
+    const rollCuts = records.filter(
+      (r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r)
+    );
     if (rollCuts.length > 0) {
       return rollCuts.map((r) => ({
         id: r.id,
@@ -98,6 +106,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [indexWarning, setIndexWarning] = useState<string | null>(null);
   const [isFixingThisRoll, setIsFixingThisRoll] = useState(false);
+  const [isSeparatingCrossSpec, setIsSeparatingCrossSpec] = useState(false);
   const [showConfirmFix, setShowConfirmFix] = useState(false);
 
   // รวมประวัติจาก stock_cut_records (App state) + cut_history (Firestore)
@@ -109,15 +118,20 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     subItems: CutHistoryItem[] | null | undefined
   ): CutHistoryItem[] => {
     const map = new Map<string, CutHistoryItem>();
+    const contaminatedIds = new Set(
+      roll ? findContaminatedRecordsForRoll(roll, rootRecords).map((r) => r.id) : []
+    );
 
-    // 1) sub-collection ก่อน (ฐาน)
+    // 1) sub-collection ก่อน (ฐาน) — กันรายการข้ามหน้ากว้าง/ลายออกไม่ให้ปนในม้วนนี้
     (subItems || []).forEach((item) => {
+      if (contaminatedIds.has(item.id)) return;
+      if (roll && !isRecordSpecCompatibleWithRoll(roll, item)) return;
       map.set(item.id, item);
     });
 
     // 2) root records ทับทีหลัง — ยอด remainingBefore/After จาก App หลัง realign เป็นหลัก
     rootRecords
-      .filter((r) => r.foilId === rollId)
+      .filter((r) => r.foilId === rollId && (!roll || isRecordSpecCompatibleWithRoll(roll, r)))
       .forEach((r) => {
         const prev = map.get(r.id);
         map.set(r.id, {
@@ -630,25 +644,71 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                             ? 'text-rose-600'
                             : 'text-amber-600'
                       }`} />
-                      <div className="flex-1 leading-snug">
+                      <div className="flex-1 leading-snug space-y-1.5">
                         <span className="font-bold block">{iss.title}</span>
-                        <span className="text-[11px] opacity-80">{iss.description}</span>
+                        <span className="text-[11px] opacity-80 block">{iss.description}</span>
+                        {iss.type === 'SPEC_MISMATCH_CONTAMINATION' &&
+                          canEdit &&
+                          onSeparateCrossSpec && (
+                            <button
+                              type="button"
+                              disabled={isSeparatingCrossSpec}
+                              onClick={async () => {
+                                if (!roll || !onSeparateCrossSpec) return;
+                                setIsSeparatingCrossSpec(true);
+                                try {
+                                  await onSeparateCrossSpec(roll.id);
+                                } finally {
+                                  setIsSeparatingCrossSpec(false);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {isSeparatingCrossSpec ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Wrench className="w-3.5 h-3.5" />
+                              )}
+                              <span>
+                                {isSeparatingCrossSpec
+                                  ? 'กำลังแยกใบตัดกลับม้วนที่ถูกต้อง...'
+                                  : `แยกใบตัดต่างหน้ากว้าง/ลายกลับม้วนที่ถูกต้อง (${audit.contaminatedRecords?.length || 0} ใบ)`}
+                              </span>
+                            </button>
+                          )}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
+              {/* Zero-Lock protection notice */}
+              {audit.zeroLockBlocked && audit.zeroLockReason && !audit.isZeroedOut && (
+                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 text-xs font-medium flex items-start gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <span>{audit.zeroLockReason}</span>
+                </div>
+              )}
+
               {/* Accept button if chain jump detected */}
-              {canEdit && onRealignChain && audit.timeline.some((step) => !step.isChainValid) && (
+              {canEdit && onRealignChain && audit.timeline.some((step) => !step.isChainValid) && (() => {
+                const hasContamination = (audit.contaminatedRecords?.length ?? 0) > 0;
+                const realignLockedReason = hasContamination
+                  ? '🔒 ล็อกการปรับความต่อเนื่อง: พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ กรุณากดแยกใบตัดออกก่อน'
+                  : audit.zeroLockBlocked
+                    ? audit.zeroLockReason || '🔒 ล็อกการปรับความต่อเนื่อง: เพื่อป้องกันม้วนเหลือเศษถูกตัดเป็น 0 หรือติดลบ'
+                    : null;
+
+                return (
                 <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-2">
                   <div className="text-xs text-rose-800 font-medium">
-                    ⚠️ ตรวจพบยอดคงเหลือก่อนตัด-หลังตัดกระโดด ไม่ต่อเนื่องกัน ({audit.timeline.filter(t => !t.isChainValid).length} จุด)
+                    {realignLockedReason ||
+                      `⚠️ ตรวจพบยอดคงเหลือก่อนตัด-หลังตัดกระโดด ไม่ต่อเนื่องกัน (${audit.timeline.filter(t => !t.isChainValid).length} จุด)`}
                   </div>
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!onRealignChain || !roll || !audit) return;
+                      if (!onRealignChain || !roll || !audit || realignLockedReason) return;
                       setIsFixingThisRoll(true);
                       try {
                         const result = await onRealignChain(
@@ -663,7 +723,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                         // รวมกับ records อื่นของม้วนนี้ที่ไม่อยู่ใน realign
                         const byId = new Map(
                           records
-                            .filter((r) => r.foilId === roll.id)
+                            .filter((r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r))
                             .map((r) => [r.id, r])
                         );
                         if (result && typeof result === 'object' && result.updatedRecords) {
@@ -677,8 +737,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                         setIsFixingThisRoll(false);
                       }
                     }}
-                    disabled={isFixingThisRoll}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
+                    disabled={isFixingThisRoll || Boolean(realignLockedReason)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isFixingThisRoll ? (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -688,7 +748,8 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                     <span>⚡ Accept ปรับยอดความต่อเนื่อง SO</span>
                   </button>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Auto Fix / Consent Trigger if roll can be adjusted */}
               {canEdit && audit.canAutoAdjust && (
@@ -963,19 +1024,25 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                                 </div>
                               </div>
                             ) : (
-                              <>
-                                <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
-                                <span className="text-slate-300 mx-1">&rarr;</span>
-                                <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
-                                {Number(item.remainingAfter) <= 0 && (
-                                  <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
-                                    <span>🏁 หมดม้วน</span>
-                                    <span className="font-mono text-slate-500 font-normal">
-                                      ({formatThaiDate(item.cutDate || item.usageDate || item.recordedDate)})
-                                    </span>
-                                  </div>
-                                )}
-                              </>
+                                <>
+                                  <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
+                                  <span className="text-slate-300 mx-1">&rarr;</span>
+                                  <span className={`font-bold ${Number(item.remainingAfter) < -0.01 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                    {formatMeters(item.remainingAfter ?? 0)} ม.
+                                  </span>
+                                  {Number(item.remainingAfter) < -0.01 ? (
+                                    <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
+                                      <span>⚠️ ยอดติดลบผิดปกติ</span>
+                                    </div>
+                                  ) : Number(item.remainingAfter) <= 0 ? (
+                                    <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
+                                      <span>🏁 หมดม้วน</span>
+                                      <span className="font-mono text-slate-500 font-normal">
+                                        ({formatThaiDate(item.cutDate || item.usageDate || item.recordedDate)})
+                                      </span>
+                                    </div>
+                                  ) : null}
+                                </>
                             )}
                           </td>
                           <td className="py-2.5 px-3 whitespace-nowrap text-[11px]">

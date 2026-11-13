@@ -52,9 +52,10 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
     setLotNumber(roll.lotNumber || '');
     setRollNumber(roll.rollNumber || '');
 
-    const isStdWidth = STANDARD_WIDTHS.includes(roll.width as any);
+    const numericWidth = Number(roll.width);
+    const isStdWidth = STANDARD_WIDTHS.includes(numericWidth as any);
     if (isStdWidth) {
-      setWidth(roll.width);
+      setWidth(numericWidth as FoilWidth);
       setIsCustomWidth(false);
       setCustomWidthVal('');
     } else {

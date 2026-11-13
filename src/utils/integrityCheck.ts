@@ -15,6 +15,11 @@
 
 import { FoilRoll, StockCutRecord } from '../types';
 import { round2 } from './formatters';
+import {
+  buildStrictRollKey,
+  hasExplicitSpecConflict,
+  isRecordSpecCompatibleWithRoll,
+} from './rollIdentity';
 
 export interface IntegrityMismatch {
   rollId: string;
@@ -33,6 +38,8 @@ export interface IntegrityMismatch {
   isZeroedOut: boolean;
   canAutoAdjust: boolean;
   zeroedReason?: string;
+  contaminatedCount?: number;
+  zeroLockBlocked?: boolean;
 }
 
 // Small tolerance to absorb floating point rounding noise, not real discrepancies.
@@ -79,41 +86,55 @@ export function checkStockIntegrity(
   records: StockCutRecord[],
   options?: CheckStockIntegrityOptions
 ): IntegrityMismatch[] {
-  // Index rolls by ID and by lotNumber + rollNumber for robust matching
+  // Index rolls by ID and by STRICT composite key (lot + roll + width + normalizedPattern).
+  // Never index by lot + roll alone — rolls with the same lot & roll across different widths/patterns must stay isolated.
   const rollById = new Map<string, FoilRoll>();
-  const rollByLotAndNo = new Map<string, FoilRoll>();
+  const rollsByStrictKey = new Map<string, FoilRoll[]>();
 
   rolls.forEach((roll) => {
     rollById.set(roll.id, roll);
-    const key = `${(roll.lotNumber || '').trim().toUpperCase()}::${(roll.rollNumber || '').trim().toUpperCase()}`;
-    if (key !== '::') {
-      rollByLotAndNo.set(key, roll);
+    const strictKey = buildStrictRollKey(roll.lotNumber, roll.rollNumber, roll.width, roll.pattern);
+    if (roll.lotNumber && roll.rollNumber && roll.width && roll.pattern) {
+      const list = rollsByStrictKey.get(strictKey) || [];
+      list.push(roll);
+      rollsByStrictKey.set(strictKey, list);
     }
   });
 
   const deductionByRoll = new Map<string, { total: number; used: number; ng: number; count: number }>();
+  const contaminatedCountByRoll = new Map<string, number>();
 
   records.forEach((rec) => {
     // รายการจองรอตัด หรือยกเลิก จะยังไม่ถูกหักสต๊อกจริงจากม้วน
     if (rec.cutStatus === 'reserved' || rec.cutStatus === 'cancelled') return;
 
-    let targetRollId = rec.foilId;
-    if (!targetRollId || !rollById.has(targetRollId)) {
-      const key = `${(rec.lotNumber || '').trim().toUpperCase()}::${(rec.rollNumber || '').trim().toUpperCase()}`;
-      const found = rollByLotAndNo.get(key);
-      if (found) {
-        targetRollId = found.id;
+    let targetRoll: FoilRoll | undefined = rec.foilId ? rollById.get(rec.foilId) : undefined;
+
+    if (targetRoll) {
+      // If rec.foilId points to a roll whose width/pattern explicitly conflicts, quarantine it
+      // rather than deducting cross-spec meters onto this roll.
+      if (hasExplicitSpecConflict(targetRoll, rec)) {
+        contaminatedCountByRoll.set(
+          targetRoll.id,
+          (contaminatedCountByRoll.get(targetRoll.id) || 0) + 1
+        );
+        return;
+      }
+    } else if (!rec.foilId) {
+      // Fallback only when foilId is absent, and ONLY when lot + roll + width + pattern matches unambiguously.
+      const strictKey = buildStrictRollKey(rec.lotNumber, rec.rollNumber, rec.width, rec.pattern);
+      const candidates = rollsByStrictKey.get(strictKey) || [];
+      if (candidates.length === 1 && isRecordSpecCompatibleWithRoll(candidates[0], rec, { requireBothPresent: true })) {
+        targetRoll = candidates[0];
       }
     }
 
-    if (!targetRollId) return;
+    if (!targetRoll) return;
 
-    const existing = deductionByRoll.get(targetRollId) || { total: 0, used: 0, ng: 0, count: 0 };
+    const existing = deductionByRoll.get(targetRoll.id) || { total: 0, used: 0, ng: 0, count: 0 };
     // usedMeters / ngMeters are always non-negative (production cuts).
     // totalDeducted is SIGNED: positive = stock out, negative = stock in
     // (e.g. Cycle Count when physical count > system remaining).
-    // Using Math.abs on totalDeducted would turn stock-in adjustments into
-    // extra deductions and produce false integrity mismatches / system errors.
     const safeUsed = Math.abs(Number(rec.usedMeters || 0));
     const safeNg = Math.abs(Number(rec.ngMeters || 0));
     const rawTotal = Number(rec.totalDeducted);
@@ -125,13 +146,14 @@ export function checkStockIntegrity(
     existing.ng = round2(existing.ng + safeNg);
     existing.total = round2(existing.total + deducted);
     existing.count += 1;
-    deductionByRoll.set(targetRollId, existing);
+    deductionByRoll.set(targetRoll.id, existing);
   });
 
   const mismatches: IntegrityMismatch[] = [];
 
   rolls.forEach((roll) => {
     const deduction = deductionByRoll.get(roll.id) || { total: 0, used: 0, ng: 0, count: 0 };
+    const contaminatedCount = contaminatedCountByRoll.get(roll.id) || 0;
     // Do not clamp expected to >=0: signed adjustments (stock-in) can make
     // remaining legitimately higher than totalMeters until total is revised.
     const expectedRemaining = round2(Number(roll.totalMeters || 0) - deduction.total);
@@ -145,7 +167,19 @@ export function checkStockIntegrity(
       return;
     }
 
-    if (Math.abs(diff) > TOLERANCE_METERS) {
+    const wouldAutoZeroScrapRoll = !isZeroed && actualRemaining > 0 && expectedRemaining <= 0;
+    const hasContamination = contaminatedCount > 0;
+
+    if (Math.abs(diff) > TOLERANCE_METERS || hasContamination) {
+      let reason: string | undefined;
+      if (isZeroed) {
+        reason = 'ม้วนนี้ถูกตั้งค่าเป็น 0 (สามารถกดปรับยอดเพื่อคืนสต๊อกได้)';
+      } else if (hasContamination) {
+        reason = `พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วนนี้ ${contaminatedCount} ใบ — ล็อกการปรับยอดอัตโนมัติ กรุณากดแยกใบตัดกลับม้วนที่ถูกต้องก่อน`;
+      } else if (wouldAutoZeroScrapRoll) {
+        reason = `🔒 ล็อกห้ามปรับม้วนที่ยังเหลือเศษ (${actualRemaining} ม.) เป็น 0 อัตโนมัติ (คำนวณได้ ${expectedRemaining} ม.)`;
+      }
+
       mismatches.push({
         rollId: roll.id,
         lotNumber: roll.lotNumber,
@@ -161,8 +195,10 @@ export function checkStockIntegrity(
         sumNgMeters: deduction.ng,
         sumTotalDeducted: deduction.total,
         isZeroedOut: isZeroed,
-        canAutoAdjust: true, // Allow adjusting any mismatch to restore integrity
-        zeroedReason: isZeroed ? 'ม้วนนี้ถูกตั้งค่าเป็น 0 (สามารถกดปรับยอดเพื่อคืนสต๊อกได้)' : undefined,
+        canAutoAdjust: !hasContamination && !wouldAutoZeroScrapRoll,
+        zeroedReason: reason,
+        contaminatedCount,
+        zeroLockBlocked: wouldAutoZeroScrapRoll,
       });
     }
   });

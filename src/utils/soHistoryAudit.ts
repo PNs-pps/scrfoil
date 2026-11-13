@@ -2,19 +2,24 @@ import { FoilRoll, StockCutRecord } from '../types';
 import { round2, formatMeters } from './formatters';
 import { signedTotalDeducted } from './cutDeduction';
 import { isCountableCut, reservedMetersOf } from './rollAggregates';
+import {
+  findContaminatedRecordsForRoll,
+  isRecordSpecCompatibleWithRoll,
+} from './rollIdentity';
 
 export type SOBugType = 
-  | 'RESERVED_SO_QUEUE'       // มีคิวจอง SO รอดำเนินการตัดบนม้วนนี้ (รอตัดจริง)
-  | 'DUPLICATE_SO_EXACT'      // รหัส SO เดียวกันและยอดเมตรเท่ากันเป๊ะ (กรอกซ้ำเพราะประวัติไม่ขึ้น)
-  | 'SPLIT_PRODUCTION_BATCH'  // รหัส SO เดียวกันแต่เมตรต่างกัน (แบ่งรอบการผลิตปกติ)
-  | 'DUPLICATE_SO_MULTIPLE'   // รหัส SO เดียวกันถูกตัดมากกว่า 1 ครั้งในม้วนนี้
-  | 'METER_JUMP'              // ยอดคงเหลือโซ่ขาด ยอดก่อนตัดไม่ตรงกับยอดหลังตัดของใบก่อนหน้า
-  | 'MATH_DISCREPANCY'        // เลขในใบงานไม่ตรงกัน (used + ng != total หรือ before - total != after)
-  | 'NEGATIVE_VALUE'          // พบค่าติดลบหรือตัวเลขผิดรูป (NaN)
-  | 'ZERO_METER_CUT'          // บันทึกรายการตัดเป็น 0 เมตร
-  | 'MASTER_ROLL_MISMATCH'    // ยอดคงเหลือหน้าม้วนไม่ตรงกับผลรวมที่ตัดจริงในประวัติ SO
+  | 'RESERVED_SO_QUEUE'           // มีคิวจอง SO รอดำเนินการตัดบนม้วนนี้ (รอตัดจริง)
+  | 'SPEC_MISMATCH_CONTAMINATION' // พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วนเดียวกัน (ล็อต/เบอร์ซ้ำข้ามสเปก)
+  | 'DUPLICATE_SO_EXACT'          // รหัส SO เดียวกันและยอดเมตรเท่ากันเป๊ะ (กรอกซ้ำเพราะประวัติไม่ขึ้น)
+  | 'SPLIT_PRODUCTION_BATCH'      // รหัส SO เดียวกันแต่เมตรต่างกัน (แบ่งรอบการผลิตปกติ)
+  | 'DUPLICATE_SO_MULTIPLE'       // รหัส SO เดียวกันถูกตัดมากกว่า 1 ครั้งในม้วนนี้
+  | 'METER_JUMP'                  // ยอดคงเหลือโซ่ขาด ยอดก่อนตัดไม่ตรงกับยอดหลังตัดของใบก่อนหน้า
+  | 'MATH_DISCREPANCY'            // เลขในใบงานไม่ตรงกัน (used + ng != total หรือ before - total != after)
+  | 'NEGATIVE_VALUE'              // พบค่าติดลบหรือตัวเลขผิดรูป (NaN)
+  | 'ZERO_METER_CUT'              // บันทึกรายการตัดเป็น 0 เมตร
+  | 'MASTER_ROLL_MISMATCH'        // ยอดคงเหลือหน้าม้วนไม่ตรงกับผลรวมที่ตัดจริงในประวัติ SO
   | 'ACCUMULATED_MISMATCH'
-  | 'DUPLICATE_EXACT_CUT';   // ยอดใช้สะสม (usedMeters/ngMeters) ในม้วนไม่ตรงกับผลรวม
+  | 'DUPLICATE_EXACT_CUT';       // ยอดใช้สะสม (usedMeters/ngMeters) ในม้วนไม่ตรงกับผลรวม
 
 export interface SOBugIssue {
   id: string;
@@ -72,6 +77,9 @@ export interface RollSOAuditResult {
   hasWarnings: boolean;
   canAutoAdjust: boolean;
   timeline: TimelineStep[];
+  contaminatedRecords?: StockCutRecord[];
+  zeroLockBlocked?: boolean;
+  zeroLockReason?: string;
 }
 
 export interface SOAuditOverallSummary {
@@ -169,13 +177,38 @@ export function auditRollSOHistory(
   roll: FoilRoll,
   allRecords: StockCutRecord[]
 ): RollSOAuditResult {
-  // Filter all records belonging to this roll
-  const rollRecords = allRecords.filter((r) => r.foilId === roll.id);
+  // Detect any cross-spec contaminated records (same foilId, different width or pattern)
+  const contaminatedRecords = findContaminatedRecordsForRoll(roll, allRecords);
+
+  // Filter only spec-compatible records belonging to this roll
+  const rollRecords = allRecords.filter(
+    (r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r)
+  );
 
   // เรียงตามลำดับตัดจริงบนม้วน (Physical Cut Order) ให้สอดคล้องกับความต่อเนื่องของสต๊อกม้วน
   const sortedRecords = sortRollRecordsInCutOrder(rollRecords, Number(roll.totalMeters || 1000));
 
   const issues: SOBugIssue[] = [];
+
+  if (contaminatedRecords.length > 0) {
+    const sampleSpecs = contaminatedRecords
+      .slice(0, 4)
+      .map((r) => `${r.soNumber || '-'} (${r.width} มม. ลาย${r.pattern})`)
+      .join(', ');
+    const moreCount = contaminatedRecords.length > 4 ? ` และอีก ${contaminatedRecords.length - 4} ใบ` : '';
+    issues.push({
+      id: `spec-contamination-${roll.id}`,
+      type: 'SPEC_MISMATCH_CONTAMINATION',
+      severity: 'error',
+      title: `⚠️ พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วนนี้ (${contaminatedRecords.length} รายการ)`,
+      description: `ม้วนนี้คือ หน้า ${roll.width} มม. ลาย${roll.pattern} แต่มีใบตัด ${sampleSpecs}${moreCount} ถูกผูกเข้ามาด้วยรหัสม้วนเดียวกัน ระบบได้กันรายการเหล่านี้ออกจากการหักยอดแล้ว และล็อกห้ามปรับยอดอัตโนมัติ`,
+      recordId: contaminatedRecords.map((r) => r.id).join(','),
+      affectedMeters: round2(
+        contaminatedRecords.reduce((s, r) => s + Math.abs(signedTotalDeducted(r)), 0)
+      ),
+      suggestedAction: 'กดปุ่ม "แยกใบตัดข้ามหน้ากว้าง/ลายกลับม้วนที่ถูกต้อง" เพื่อย้ายใบตัดเหล่านี้ออกโดยปลอดภัย',
+    });
+  }
 
   // Group by SO Number to detect duplicate SO usage on this roll
   const soMap = new Map<string, StockCutRecord[]>();
@@ -337,6 +370,20 @@ export function auditRollSOHistory(
           soNumber: rec.soNumber,
           recordId: rec.id,
           suggestedAction: 'ตรวจสอบและแก้ไขตัวเลขให้เป็นค่าบวก หรือเป็นรายการนับสต๊อกที่ถูกต้อง',
+        });
+      } else if (
+        (rec.remainingBefore !== undefined && Number(rec.remainingBefore) < -0.01) ||
+        (rec.remainingAfter !== undefined && Number(rec.remainingAfter) < -0.01)
+      ) {
+        issues.push({
+          id: `neg-rem-${rec.id}`,
+          type: 'NEGATIVE_VALUE',
+          severity: 'error',
+          title: `พบยอดคงเหลือติดลบผิดปกติในรายการ SO ${rec.soNumber || '-'}`,
+          description: `ยอดก่อนตัด: ${formatMeters(rec.remainingBefore ?? 0)} ม. → หลังตัด: ${formatMeters(rec.remainingAfter ?? 0)} ม. (มักเกิดจากการตัดรวมข้ามหน้ากว้างหรือม้วน)`,
+          soNumber: rec.soNumber,
+          recordId: rec.id,
+          suggestedAction: 'ตรวจสอบใบตัดต่างหน้ากว้าง/ใบซ้ำ และแยกกลับม้วนที่ถูกต้องก่อนเรียงประวัติใหม่',
         });
       } else if (signedTotal === 0 && !isStockInAdjustment) {
         issues.push({
@@ -536,9 +583,19 @@ export function auditRollSOHistory(
     });
   }
 
+  const hasContamination = contaminatedRecords.length > 0;
+  const wouldAutoZeroScrapRoll = !isZeroedOut && currentRemaining > 0 && calculatedRemaining <= 0;
+  const hasNegativeCalculated = calculatedRemaining < -0.01;
+  const zeroLockBlocked = wouldAutoZeroScrapRoll || hasNegativeCalculated;
+  const zeroLockReason = wouldAutoZeroScrapRoll
+    ? `🔒 ล็อกป้องกันตัดเป็น 0 อัตโนมัติ: ม้วนนี้ยังเหลือเศษ ${formatMeters(currentRemaining)} ม. แต่ผลรวมคำนวณได้ ${formatMeters(calculatedRemaining)} ม. กรุณาตรวจสอบใบตัดซ้ำหรือใบตัดต่างหน้ากว้างก่อน`
+    : hasNegativeCalculated
+      ? `🔒 ล็อกความปลอดภัย: ผลรวมคำนวณติดลบ (${formatMeters(calculatedRemaining)} ม.) กรุณาตรวจสอบประวัติการตัด`
+      : undefined;
+
   const hasErrors = issues.some((i) => i.severity === 'error');
   const hasWarnings = issues.some((i) => i.severity === 'warning');
-  const canAutoAdjust = Math.abs(diff) > TOLERANCE;
+  const canAutoAdjust = Math.abs(diff) > TOLERANCE && !hasContamination && !zeroLockBlocked;
   const canRestoreZeroed = (isZeroedOut && calculatedRemaining > 0) || (currentRemaining === 0 && calculatedRemaining > 0);
 
   return {
@@ -564,6 +621,9 @@ export function auditRollSOHistory(
     canAutoAdjust,
     canRestoreZeroed,
     timeline,
+    contaminatedRecords,
+    zeroLockBlocked,
+    zeroLockReason,
   };
 }
 

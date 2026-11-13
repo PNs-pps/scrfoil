@@ -38,6 +38,7 @@ import {
   updateStockCutRecordInFirestore,
   reconcileRollsInFirestore,
   realignRollCutChainInFirestore,
+  separateCrossSpecRecordsInFirestore,
   recomputeAdjustmentsFromServer,
   uploadAllToFirestore,
   testFirestoreConnection,
@@ -88,6 +89,7 @@ import { SOBugInspectorModal } from './components/SOBugInspectorModal';
 import { CycleCountModal } from './components/CycleCountModal';
 import { CycleCountHistoryModal } from './components/CycleCountHistoryModal';
 import { auditAllRollsSOHistory } from './utils/soHistoryAudit';
+import { doesRecordBelongToRoll } from './utils/rollIdentity';
 import { getUserMode, setUserMode as saveUserMode, isStaffEmail, getStaffEmails, hasOperatorPassword, resetToVisitorMode, UserMode } from './utils/auth';
 import { confirmAction } from './utils/confirmAction';
 import { isSandboxActive } from './lib/sandbox';
@@ -2699,8 +2701,9 @@ const updated = [newRoll, ...rolls];
         // remainingBefore/remainingAfter. Re-chain every cut record for this
         // roll too, so ใบงานที่ 1's "หลังตัด" always equals ใบงานที่ 2's "ก่อนตัด", etc.
         if (!updated[0].isZeroedOut) {
+          const knownIds = new Set(rollsRef.current.map((r) => r.id));
           const rollRecordIds = recordsRef.current
-            .filter((r) => r.foilId === rollId || (r.lotNumber && r.rollNumber && r.lotNumber === updated[0].lotNumber && r.rollNumber === updated[0].rollNumber))
+            .filter((r) => doesRecordBelongToRoll(updated[0], r, knownIds))
             .map((r) => r.id);
           if (rollRecordIds.length > 0) {
             try {
@@ -2746,13 +2749,11 @@ const updated = [newRoll, ...rolls];
         const realignedRolls = new Map<string, FoilRoll>();
         const realignedRecords = new Map<string, StockCutRecord>();
 
-        // STRICT: same as the single-roll fix — also re-chain every roll's own
-        // cut records so ใบงานที่ 1, 2, 3... ก่อนตัด/หลังตัด stay continuous,
-        // not just the roll-level total.
+        const knownIds = new Set(rollsRef.current.map((r) => r.id));
         for (const roll of updated) {
           if (roll.isZeroedOut) continue;
           const rollRecordIds = recordsRef.current
-            .filter((r) => r.foilId === roll.id || (r.lotNumber && r.rollNumber && r.lotNumber === roll.lotNumber && r.rollNumber === roll.rollNumber))
+            .filter((r) => doesRecordBelongToRoll(roll, r, knownIds))
             .map((r) => r.id);
           if (rollRecordIds.length === 0) continue;
           try {
@@ -2839,6 +2840,46 @@ const updated = [newRoll, ...rolls];
           : `ไม่สามารถปรับยอดความต่อเนื่องได้: ${raw}`,
         'info'
       );
+      throw err;
+    }
+  };
+
+  // Recovery action: separate cross-spec contaminated cut records back to their true roll
+  const handleSeparateCrossSpecRecords = async (rollId: string) => {
+    try {
+      const allKnownRolls = [...rollsRef.current, ...archivedRolls];
+      const res = await separateCrossSpecRecordsInFirestore(rollId, allKnownRolls);
+
+      if (res.movedRecords.length > 0) {
+        const movedMap = new Map(res.movedRecords.map((r) => [r.id, r]));
+        commitRecords((prev) => prev.map((r) => movedMap.get(r.id) ?? r));
+      }
+
+      const nextRolls = rollsRef.current;
+      const nextRecords = recordsRef.current;
+      setStockIntegrityIssues(checkStockIntegrity(nextRolls, nextRecords));
+
+      if (res.separatedCount > 0 && res.unresolvedRecords.length === 0) {
+        showToast(
+          `แยกใบตัดต่างหน้ากว้าง/ลายกลับม้วนที่ถูกต้องสำเร็จ ${res.separatedCount} รายการ ✅`,
+          'success'
+        );
+      } else if (res.separatedCount > 0 && res.unresolvedRecords.length > 0) {
+        showToast(
+          `แยกกลับม้วนที่ถูกต้องได้ ${res.separatedCount} รายการ (คงเหลืออีก ${res.unresolvedRecords.length} รายการที่ยังไม่พบม้วนปลายทางในระบบ)`,
+          'info'
+        );
+      } else if (res.unresolvedRecords.length > 0) {
+        showToast(
+          `พบใบตัดต่างหน้ากว้าง/ลาย ${res.unresolvedRecords.length} รายการ แต่ยังไม่พบม้วนปลายทาง (อาจอยู่ในคลังข้อมูลเก่าหรือถูกลบไปแล้ว) — กรุณาโหลดคลังข้อมูลเก่าหรือใช้ "เปลี่ยนฟอยล์"`,
+          'info'
+        );
+      } else {
+        showToast('ไม่พบใบตัดต่างหน้ากว้าง/ลายที่ปนอยู่ในม้วนนี้', 'info');
+      }
+    } catch (err: any) {
+      console.error('Failed to separate cross-spec records:', err);
+      showToast(`ไม่สามารถแยกใบตัดข้ามหน้ากว้างได้: ${err?.message || err}`, 'error');
       throw err;
     }
   };
@@ -3313,6 +3354,7 @@ const updated = [newRoll, ...rolls];
             onReallocateRoll={(rec) => setReallocatingRecord(rec)}
             onCancelProduction={(rec) => setCancellingRecord(rec)}
             onFixRoll={handleFixRoll}
+            onSeparateCrossSpec={handleSeparateCrossSpecRecords}
             onNavigateToAuditHub={() => setActiveTab('audit')}
           />
         )}
@@ -3564,6 +3606,7 @@ const updated = [newRoll, ...rolls];
           onEditCutRecord={(rec) => requireEditorPermission(() => setEditingCutRecord(rec))}
           onFixRoll={handleFixRoll}
           onRealignChain={handleRealignChain}
+          onSeparateCrossSpec={handleSeparateCrossSpecRecords}
           canEdit={userMode === 'editor'}
           onOpenFullAudit={(rollId) => handleOpenSOAudit(rollId)}
         />
@@ -3699,6 +3742,7 @@ const updated = [newRoll, ...rolls];
         onFixRoll={handleFixRoll}
         onFixMultipleRolls={handleFixMultipleRolls}
         onRealignChain={handleRealignChain}
+        onSeparateCrossSpec={handleSeparateCrossSpecRecords}
         onDeleteRecord={handleDeleteRecord}
         canEdit={userMode === 'editor'}
       />
@@ -3749,6 +3793,7 @@ const updated = [newRoll, ...rolls];
           onReallocateRoll={(rec) => setReallocatingRecord(rec)}
           onCancelProduction={(rec) => setCancellingRecord(rec)}
           onFixRoll={handleFixRoll}
+          onSeparateCrossSpec={handleSeparateCrossSpecRecords}
           userMode={userMode}
           onRequestUnlock={() => requireEditorPermission(() => {})}
           auditLogs={soAuditLogs}

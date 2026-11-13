@@ -28,6 +28,13 @@ import {
 } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate, formatThaiDateTime, round2 } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
+import {
+  doesRecordBelongToRoll,
+  findContaminatedRecordsForRoll,
+  findMatchingRollForRecord,
+  hasExplicitSpecConflict,
+  isRecordSpecCompatibleWithRoll,
+} from '../utils/rollIdentity';
 import { UserMode } from '../utils/auth';
 import { FoilStatusTube } from './FoilStatusTube';
 
@@ -43,6 +50,7 @@ interface SODetailModalProps {
   onReallocateRoll?: (record: StockCutRecord) => void;
   onCancelProduction?: (record: StockCutRecord) => void;
   onFixRoll?: (rollId: string, expectedRemaining: number, sumUsed?: number, sumNg?: number) => Promise<void> | void;
+  onSeparateCrossSpec?: (rollId: string) => Promise<void> | void;
   userMode?: UserMode;
   onRequestUnlock?: () => void;
   auditLogs?: SOAuditLogItem[];
@@ -60,6 +68,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   onReallocateRoll,
   onCancelProduction,
   onFixRoll,
+  onSeparateCrossSpec,
   userMode = 'visitor',
   onRequestUnlock,
   auditLogs = [],
@@ -67,6 +76,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
   const [currentView, setCurrentView] = useState<'so' | 'roll'>('so');
   const [copied, setCopied] = useState(false);
   const [isFixingRoll, setIsFixingRoll] = useState(false);
+  const [isSeparating, setIsSeparating] = useState(false);
   const [fixSuccess, setFixSuccess] = useState(false);
 
   // Filter audit logs specifically for this SO cut record
@@ -89,27 +99,40 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
 
   if (!record) return null;
 
-  // Find the matching foil roll
-  const matchedRoll = rolls.find(
-    (r) => r.id === record.foilId || (r.lotNumber === record.lotNumber && r.rollNumber === record.rollNumber)
-  );
+  // Find the matching foil roll strictly (id + width/pattern verification; never mix different specs)
+  const matchedRoll = findMatchingRollForRecord(rolls, record);
+  const hasRecordRollSpecConflict = Boolean(matchedRoll && hasExplicitSpecConflict(matchedRoll, record));
 
   const patternStyle = getPatternStyle(record.pattern);
 
-  // All cuts for this roll: match by foilId OR by (lotNumber and rollNumber)
+  const knownRollIds = React.useMemo(() => new Set(rolls.map((r) => r.id)), [rolls]);
+
+  // All cuts for this roll: STRICTLY require same roll + same width + same pattern
   const rollCuts = React.useMemo(() => {
-    const list = records.filter(
-      (r) =>
-        r.foilId === (matchedRoll?.id || record.foilId) ||
-        (r.lotNumber === (matchedRoll?.lotNumber || record.lotNumber) &&
-          r.rollNumber === (matchedRoll?.rollNumber || record.rollNumber))
-    );
+    const list = matchedRoll
+      ? records.filter((r) => doesRecordBelongToRoll(matchedRoll, r, knownRollIds))
+      : records.filter(
+          (r) =>
+            (record.foilId ? r.foilId === record.foilId : true) &&
+            r.lotNumber === record.lotNumber &&
+            r.rollNumber === record.rollNumber &&
+            isRecordSpecCompatibleWithRoll(
+              { width: record.width, pattern: record.pattern },
+              r
+            )
+        );
     return list.sort((a, b) => {
       const da = a.usageDate || a.recordedDate || a.createdAt || '';
       const db = b.usageDate || b.recordedDate || b.createdAt || '';
       return String(db).localeCompare(String(da));
     });
-  }, [records, matchedRoll, record]);
+  }, [records, matchedRoll, record, knownRollIds]);
+
+  // Detect any cross-spec contaminated cuts that had their foilId rewritten onto matchedRoll
+  const contaminatedCuts = React.useMemo(() => {
+    if (!matchedRoll) return [];
+    return findContaminatedRecordsForRoll(matchedRoll, records);
+  }, [matchedRoll, records]);
 
   // Actual countable cuts (excluding reserved and cancelled)
   const actualRollCuts = React.useMemo(() => {
@@ -140,10 +163,39 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
     ? Number(matchedRoll.totalMeters || 1000)
     : (record.remainingBefore || record.remainingAfter + record.totalDeducted || 1000);
 
-  // Expected remaining based on all recorded cuts
-  const expectedRemaining = React.useMemo(() => {
-    return round2(Math.max(0, currentRollTotal - liveTotalDeducted));
+  // Raw and clamped expected remaining based on spec-matched cuts
+  const rawExpectedRemaining = React.useMemo(() => {
+    return round2(currentRollTotal - liveTotalDeducted);
   }, [currentRollTotal, liveTotalDeducted]);
+
+  const expectedRemaining = React.useMemo(() => {
+    return round2(Math.max(0, rawExpectedRemaining));
+  }, [rawExpectedRemaining]);
+
+  const hasNegativeBalance = React.useMemo(() => {
+    return (
+      rawExpectedRemaining < -0.01 ||
+      actualRollCuts.some(
+        (c) => Number(c.remainingBefore) < -0.01 || Number(c.remainingAfter) < -0.01
+      )
+    );
+  }, [rawExpectedRemaining, actualRollCuts]);
+
+  const wouldAutoZeroScrapRoll = Boolean(
+    matchedRoll &&
+      !matchedRoll.isZeroedOut &&
+      Number(matchedRoll.remainingMeters || 0) > 0 &&
+      rawExpectedRemaining <= 0
+  );
+
+  const syncLockedReason =
+    contaminatedCuts.length > 0
+      ? `พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วนนี้ ${contaminatedCuts.length} ใบ — ล็อกการอัปเดตอัตโนมัติจนกว่าจะแยกกลับม้วนที่ถูกต้อง`
+      : wouldAutoZeroScrapRoll
+        ? `🔒 ล็อกห้ามปรับม้วนที่ยังเหลือเศษ (${formatMeters(Number(matchedRoll?.remainingMeters || 0))} ม.) เป็น 0 อัตโนมัติ (คำนวณได้ ${formatMeters(rawExpectedRemaining)} ม.)`
+        : hasNegativeBalance
+          ? `🔒 พบยอดคำนวณหรือยอดหลังตัดติดลบ (${formatMeters(rawExpectedRemaining)} ม.) — ล็อกการอัปเดตอัตโนมัติ กรุณาตรวจสอบประวัติก่อน`
+          : null;
 
   // Check if roll inventory state has discrepancy with cut history
   const isMismatch = React.useMemo(() => {
@@ -153,10 +205,10 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
     return Math.abs(actualRem - expectedRemaining) > 0.05 || Math.abs(actualUsed - liveUsedMeters) > 0.05;
   }, [matchedRoll, actualRollCuts, expectedRemaining, liveUsedMeters]);
 
-  // If the roll is zeroed out, it is 0. Otherwise, if there are cuts, show the true live calculated remaining
+  // If the roll is zeroed out, it is 0. Otherwise, show live spec-matched remaining (unless locked by anomaly, then prefer roll's stored remaining if scrap > 0)
   const currentRollRemaining = matchedRoll?.isZeroedOut
     ? 0
-    : actualRollCuts.length > 0
+    : actualRollCuts.length > 0 && !syncLockedReason
       ? expectedRemaining
       : (matchedRoll ? Number(matchedRoll.remainingMeters || 0) : record.remainingAfter);
 
@@ -168,10 +220,19 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
     ? liveNgMeters
     : (matchedRoll ? Number(matchedRoll.ngMeters || 0) : record.ngMeters);
 
-  const rollPercentLeft = currentRollTotal > 0 ? Math.round((currentRollRemaining / currentRollTotal) * 100) : 0;
+  const rawPercentLeft = currentRollTotal > 0 ? (currentRollRemaining / currentRollTotal) * 100 : 0;
+  const roundedPercentLeft = Math.round(rawPercentLeft);
+  const rollPercentLeftLabel =
+    currentRollRemaining > 0 && roundedPercentLeft === 0
+      ? '<1'
+      : String(Math.max(0, Math.min(100, roundedPercentLeft)));
+  const rollPercentBarWidth =
+    currentRollRemaining > 0
+      ? Math.max(1, Math.min(100, roundedPercentLeft))
+      : 0;
 
   const handleSyncRoll = async () => {
-    if (!matchedRoll || !onFixRoll) return;
+    if (!matchedRoll || !onFixRoll || syncLockedReason) return;
     setIsFixingRoll(true);
     try {
       await onFixRoll(matchedRoll.id, expectedRemaining, liveUsedMeters, liveNgMeters);
@@ -179,6 +240,16 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
       setTimeout(() => setFixSuccess(false), 3000);
     } finally {
       setIsFixingRoll(false);
+    }
+  };
+
+  const handleSeparateContaminated = async () => {
+    if (!matchedRoll || !onSeparateCrossSpec) return;
+    setIsSeparating(true);
+    try {
+      await onSeparateCrossSpec(matchedRoll.id);
+    } finally {
+      setIsSeparating(false);
     }
   };
 
@@ -679,11 +750,11 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 {/* Specs row */}
                 <div className="flex flex-wrap items-center gap-2 text-xs pt-1 border-t border-slate-200/80">
                   <span className="font-mono bg-white px-2 py-1 rounded-lg border border-slate-200 font-bold text-slate-800">
-                    หน้า {record.width} มม. {WIDTH_SPECIFICATIONS[record.width] ? `(${WIDTH_SPECIFICATIONS[record.width]})` : ''}
+                    หน้า {matchedRoll?.width ?? record.width} มม. {WIDTH_SPECIFICATIONS[Number(matchedRoll?.width ?? record.width)] ? `(${WIDTH_SPECIFICATIONS[Number(matchedRoll?.width ?? record.width)]})` : ''}
                   </span>
-                  <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg border-2 ${patternStyle.highlightClass}`}>
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-white/70 ${patternStyle.dotClass}`} />
-                    <span>ลาย{record.pattern}</span>
+                  <span className={`inline-flex items-center gap-1.5 font-bold px-2.5 py-1 rounded-lg border-2 ${getPatternStyle(matchedRoll?.pattern ?? record.pattern).highlightClass}`}>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-white/70 ${getPatternStyle(matchedRoll?.pattern ?? record.pattern).dotClass}`} />
+                    <span>ลาย{matchedRoll?.pattern ?? record.pattern}</span>
                   </span>
                   {record.isSilverSide && (
                     <span className="inline-flex items-center gap-1.5 font-bold text-slate-900 bg-gradient-to-r from-slate-200 via-zinc-100 to-slate-200 px-2.5 py-1 rounded-lg border border-slate-400 shadow-2xs">
@@ -704,16 +775,62 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                   )}
                 </div>
 
-                {/* Alert banner if roll inventory diverges from cut history */}
-                {isMismatch && matchedRoll && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                {/* Spec conflict warning when record was contaminated onto wrong roll */}
+                {hasRecordRollSpecConflict && matchedRoll && (
+                  <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 text-xs flex flex-col gap-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                       <span>
-                        ยอดในฐานข้อมูล ({formatMeters(Number(matchedRoll.remainingMeters || 0))} ม.) ไม่ตรงกับประวัติการตัด ({formatMeters(expectedRemaining)} ม.)
+                        <strong>พบใบตัดผูกผิดสเปกม้วน:</strong> ใบตัดนี้ระบุ <strong>หน้า {record.width} มม. ลาย{record.pattern}</strong> แต่รหัสม้วนไปผูกอยู่กับ <strong>หน้า {matchedRoll.width} มม. ลาย{matchedRoll.pattern}</strong>
                       </span>
                     </div>
-                    {onFixRoll && (
+                  </div>
+                )}
+
+                {/* Cross-spec contamination quarantine alert + recovery button */}
+                {contaminatedCuts.length > 0 && matchedRoll && (
+                  <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-950 text-xs space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <span className="font-bold block">
+                          ตรวจพบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วนนี้ ({contaminatedCuts.length} รายการ) — กันออกจากการคำนวณแล้ว
+                        </span>
+                        <span className="text-[11px] text-rose-800 block mt-0.5">
+                          ตัวอย่าง: {contaminatedCuts.slice(0, 3).map((c) => `${c.soNumber} (${c.width} มม. ${c.pattern})`).join(', ')}
+                        </span>
+                      </div>
+                    </div>
+                    {onSeparateCrossSpec && (
+                      <button
+                        type="button"
+                        disabled={isSeparating}
+                        onClick={handleSeparateContaminated}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSeparating ? 'animate-spin' : ''}`} />
+                        <span>{isSeparating ? 'กำลังแยกใบตัด...' : 'แยกใบตัดต่างหน้ากว้างกลับม้วนที่ถูกต้อง'}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Alert banner if roll inventory diverges from cut history (respects Zero-Lock) */}
+                {(isMismatch || syncLockedReason) && matchedRoll && (
+                  <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 rounded-xl text-xs border ${
+                    syncLockedReason
+                      ? 'bg-rose-50 border-rose-300 text-rose-950'
+                      : 'bg-amber-50 border-amber-300 text-amber-900'
+                  }`}>
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${syncLockedReason ? 'text-rose-600' : 'text-amber-600'}`} />
+                      <span>
+                        {syncLockedReason
+                          ? syncLockedReason
+                          : `ยอดในฐานข้อมูล (${formatMeters(Number(matchedRoll.remainingMeters || 0))} ม.) ไม่ตรงกับประวัติการตัด (${formatMeters(expectedRemaining)} ม.)`}
+                      </span>
+                    </div>
+                    {onFixRoll && !syncLockedReason && (
                       <button
                         type="button"
                         disabled={isFixingRoll}
@@ -765,7 +882,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                 <div className="space-y-1 pt-1">
                   <div className="flex justify-between text-[11px] font-mono text-slate-500">
                     <span>คงเหลือในม้วน</span>
-                    <span className="font-bold text-slate-800">{rollPercentLeft}%</span>
+                    <span className="font-bold text-slate-800">{rollPercentLeftLabel}%</span>
                   </div>
                   <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                     <div
@@ -776,7 +893,7 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                           ? 'bg-amber-500'
                           : 'bg-emerald-500'
                       }`}
-                      style={{ width: `${rollPercentLeft}%` }}
+                      style={{ width: `${rollPercentBarWidth}%` }}
                     />
                   </div>
                 </div>
@@ -846,14 +963,18 @@ export const SODetailModal: React.FC<SODetailModalProps> = ({
                             <span className="font-bold text-slate-900 block">
                               -{formatMeters(cut.totalDeducted)} ม.
                             </span>
-                            <span className="text-[10px] text-slate-400">
+                            <span className={`text-[10px] ${Number(cut.remainingAfter) < 0 ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
                               เหลือ {formatMeters(cut.remainingAfter)} ม.
                             </span>
-                            {Number(cut.remainingAfter) <= 0 && (
+                            {Number(cut.remainingAfter) < 0 ? (
+                              <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-300 block mt-0.5">
+                                ⚠️ ยอดติดลบผิดปกติ
+                              </span>
+                            ) : Number(cut.remainingAfter) === 0 ? (
                               <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200 block mt-0.5">
                                 🏁 หมดม้วน
                               </span>
-                            )}
+                            ) : null}
                           </div>
                         </div>
                       );
