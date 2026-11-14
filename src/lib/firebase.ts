@@ -47,13 +47,6 @@ import { normalizePattern } from '../utils/soFormatter';
 import { isCycleCountRecord, signedTotalDeducted } from '../utils/cutDeduction';
 import { summarizeRollDeduction } from '../utils/integrityCheck';
 import { sortRollRecordsInCutOrder } from '../utils/soHistoryAudit';
-import {
-  findTargetRollForContaminatedRecord,
-  hasExplicitSpecConflict,
-  isRecordSpecCompatibleWithRoll,
-  normalizeLotRollPart,
-  normalizePatternForMatch,
-} from '../utils/rollIdentity';
 
 // User's custom configuration as requested
 export const USER_FIREBASE_CONFIG = {
@@ -1102,110 +1095,40 @@ export async function revertCutRecordInFirestore(
 }
 
 /** Every cut record of one roll, read from the server (never from cache). */
-export async function fetchCutRecordsForRollFromServer(
-  rollId: string,
-  rollMeta?: { lotNumber?: string; rollNumber?: string; width?: number | string; pattern?: string }
-): Promise<StockCutRecord[]> {
-  const recordsMap = new Map<string, StockCutRecord>();
-
-  // 1. Query by foilId
-  try {
-    const snap = await getDocsFromServer(
-      query(collection(db, RECORDS_COLLECTION), where('foilId', '==', rollId))
-    );
-    snap.docs.forEach((d) => {
-      recordsMap.set(d.id, { ...(d.data() as StockCutRecord), id: d.id });
-    });
-  } catch (err) {
-    console.warn('Query by foilId failed:', err);
-  }
-
-  // 2. Also query by lotNumber & rollNumber if provided, ONLY to recover orphan cuts
-  // whose width & pattern match this roll's spec AND whose foilId is not already pointing
-  // to another roll. Never mix cuts across different widths or patterns.
-  if (rollMeta?.lotNumber && rollMeta?.rollNumber) {
-    try {
-      const snapLot = await getDocsFromServer(
-        query(
-          collection(db, RECORDS_COLLECTION),
-          where('lotNumber', '==', rollMeta.lotNumber),
-          where('rollNumber', '==', rollMeta.rollNumber)
-        )
-      );
-      const targetWidth = Number(rollMeta.width);
-      const hasTargetWidth = Number.isFinite(targetWidth) && targetWidth > 0;
-      const targetPattern = normalizePatternForMatch(rollMeta.pattern);
-
-      snapLot.docs.forEach((d) => {
-        const rec = { ...(d.data() as StockCutRecord), id: d.id };
-        // Never steal a cut that already belongs to a different foilId
-        if (rec.foilId && rec.foilId !== rollId) return;
-
-        // Require width & pattern compatibility whenever specs are present
-        if (hasTargetWidth && rec.width !== undefined && rec.width !== null && Number(rec.width) > 0) {
-          if (Number(rec.width) !== targetWidth) return;
-        }
-        const recPattern = normalizePatternForMatch(rec.pattern);
-        if (targetPattern && recPattern && recPattern !== targetPattern) return;
-
-        recordsMap.set(d.id, rec);
-      });
-    } catch (err) {
-      console.warn('Query by lot/roll failed:', err);
-    }
-  }
-
-  return Array.from(recordsMap.values());
+export async function fetchCutRecordsForRollFromServer(rollId: string): Promise<StockCutRecord[]> {
+  const snap = await getDocsFromServer(
+    query(collection(db, RECORDS_COLLECTION), where('foilId', '==', rollId))
+  );
+  return snap.docs.map((d) => ({ ...(d.data() as StockCutRecord), id: d.id }));
 }
 
 /**
  * Recompute each adjustment's expected remaining / used / ng from the roll's
  * complete record set on the server.
  *
- * Enforces strict spec isolation and Zero-Lock: never lets cross-spec cuts or
- * negative/corrupted calculations auto-zero a roll with remaining scrap.
+ * The integrity screen derives its proposal from records cached in the browser,
+ * which can be a partial window (history is loaded on demand). Applying a proposal
+ * built from a partial set sets the roll's remaining meters too high — the
+ * missing cuts are never subtracted. Throws if Cloud cannot be read, so a repair
+ * is never applied blind.
  */
 export async function recomputeAdjustmentsFromServer(
   adjustments: RollAdjustmentItem[]
 ): Promise<RollAdjustmentItem[]> {
   const out: RollAdjustmentItem[] = [];
   for (const adj of adjustments) {
-    const rollSnap = await getDocFromServer(doc(db, ROLLS_COLLECTION, adj.rollId));
+    const [rollSnap, records] = await Promise.all([
+      getDocFromServer(doc(db, ROLLS_COLLECTION, adj.rollId)),
+      fetchCutRecordsForRollFromServer(adj.rollId),
+    ]);
     if (!rollSnap.exists()) {
       throw new Error(`ไม่พบม้วน ${adj.rollId} บน Cloud — ยกเลิกการปรับยอด`);
     }
     const server = rollSnap.data() as FoilRoll;
-    const records = await fetchCutRecordsForRollFromServer(adj.rollId, {
-      lotNumber: server.lotNumber,
-      rollNumber: server.rollNumber,
-      width: server.width,
-      pattern: server.pattern,
-    });
-
-    const contaminated = records.filter(
-      (r) => r.foilId === adj.rollId && hasExplicitSpecConflict(server, r)
-    );
-    if (contaminated.length > 0) {
-      throw new Error(
-        `พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วน ${server.lotNumber} #${server.rollNumber} จำนวน ${contaminated.length} ใบ — กรุณากดแยกใบตัดกลับม้วนที่ถูกต้องก่อนปรับยอด`
-      );
-    }
-
-    const compatibleRecords = records.filter((r) => isRecordSpecCompatibleWithRoll(server, r));
-    const d = summarizeRollDeduction(compatibleRecords);
-    const nextExpected = round2(Number(server.totalMeters || 0) - d.total);
-    const currentRemaining = Number(server.remainingMeters || 0);
-
-    // Zero-Lock Guard: refuse auto-zeroing a roll that still has positive scrap
-    if (!server.isZeroedOut && currentRemaining > 0 && nextExpected <= 0 && !adj.force) {
-      throw new Error(
-        `🔒 ล็อกป้องกันตัดเป็น 0 อัตโนมัติ: ม้วน ${server.lotNumber} #${server.rollNumber} ยังเหลือเศษ ${currentRemaining} ม. แต่ผลคำนวณได้ ${nextExpected} ม. — กรุณาตรวจสอบประวัติการตัดก่อน`
-      );
-    }
-
+    const d = summarizeRollDeduction(records);
     out.push({
       ...adj,
-      expectedRemaining: nextExpected,
+      expectedRemaining: round2(Number(server.totalMeters || 0) - d.total),
       sumUsed: d.used,
       sumNg: d.ng,
     });
@@ -1252,17 +1175,7 @@ export async function reconcileRollsInFirestore(
         return;
       }
 
-      const currentRemaining = Number(serverRoll.remainingMeters || 0);
-      const rawExpected = round2(Number(adj.expectedRemaining ?? 0));
-
-      // Zero-Lock Guard inside transaction: never automatically zero out a scrap roll (> 0 -> <= 0)
-      if (!isExplicitZeroed && currentRemaining > 0 && rawExpected <= 0 && !adj.force) {
-        throw new Error(
-          `🔒 ล็อกความปลอดภัย: ม้วน ${serverRoll.lotNumber} #${serverRoll.rollNumber} ยังเหลือเศษ ${currentRemaining} ม. ระบบไม่อนุญาตให้อัปเดตเป็น 0 ม. อัตโนมัติ`
-        );
-      }
-
-      const safeExpected = round2(Math.max(0, rawExpected));
+      const safeExpected = round2(Math.max(0, Number(adj.expectedRemaining ?? 0)));
       const safeUsed = adj.sumUsed !== undefined ? round2(Math.max(0, adj.sumUsed)) : serverRoll.usedMeters;
       const safeNg = adj.sumNg !== undefined ? round2(Math.max(0, adj.sumNg)) : serverRoll.ngMeters;
 
@@ -1272,8 +1185,7 @@ export async function reconcileRollsInFirestore(
         usedMeters: safeUsed,
         ngMeters: safeNg,
         status: safeExpected > 0 ? ('active' as const) : ('depleted' as const),
-        // Never set isZeroedOut = true automatically
-        isZeroedOut: safeExpected > 0 ? false : Boolean(serverRoll.isZeroedOut),
+        isZeroedOut: safeExpected > 0 ? false : (serverRoll.isZeroedOut ?? false),
         manualZeroedOriginalMeters: safeExpected > 0 ? undefined : serverRoll.manualZeroedOriginalMeters,
         // อัปเดตธง "ม้วนใหม่" ให้ตรงกับยอดจริง ไม่งั้นธงจะค้างเก่าหลังปรับยอด
         isUnused:
@@ -1297,11 +1209,6 @@ export async function reconcileRollsInFirestore(
  * Realign and continuous-chain recalculation for all cut records of a specific roll:
  * Sets remainingBefore and remainingAfter for each cut record in chronological order,
  * eliminating all jumps, and updates the parent roll's remainingMeters (unless zeroed out).
- *
- * Enforces Width-Lock & Zero-Lock guards:
- * - Never pulls in records belonging to another foilId or conflicting width/pattern
- * - Never changes roll width/pattern or sets isZeroedOut = true automatically
- * - Refuses to overwrite a roll with leftover scrap (> 0) to 0 or negative balance
  */
 export async function realignRollCutChainInFirestore(
   rollId: string,
@@ -1313,14 +1220,11 @@ export async function realignRollCutChainInFirestore(
 
   const rollRef = doc(db, ROLLS_COLLECTION, rollId);
 
-  const rollSnapEarly = await getDocFromServer(rollRef);
-  const rollMetaEarly = rollSnapEarly.exists() ? (rollSnapEarly.data() as FoilRoll) : undefined;
-  const serverRecords = await fetchCutRecordsForRollFromServer(rollId, {
-    lotNumber: rollMetaEarly?.lotNumber,
-    rollNumber: rollMetaEarly?.rollNumber,
-    width: rollMetaEarly?.width,
-    pattern: rollMetaEarly?.pattern,
-  });
+  // The caller's id list comes from the browser cache and can be incomplete. The
+  // chain sets the roll's remaining to totalMeters minus everything IN the chain,
+  // so a missing record means a wrong final remaining. Ask the server for the
+  // roll's full record set (a transaction cannot run a query) and merge it in.
+  const serverRecords = await fetchCutRecordsForRollFromServer(rollId);
   const allIds = Array.from(new Set([...recordIds, ...serverRecords.map((r) => r.id)]));
   const recordRefs = allIds.map((id) => doc(db, RECORDS_COLLECTION, id));
 
@@ -1336,49 +1240,26 @@ export async function realignRollCutChainInFirestore(
     }
 
     const serverRoll = rollSnap.data() as FoilRoll;
-    const rawRecords: StockCutRecord[] = [];
+    const records: StockCutRecord[] = [];
 
     recordSnaps.forEach((snap) => {
       if (snap.exists()) {
-        rawRecords.push({ ...(snap.data() as StockCutRecord), id: snap.id });
+        records.push(snap.data() as StockCutRecord);
       }
-    });
-
-    if (rawRecords.length === 0) {
-      throw new Error('ไม่พบรายการตัดในระบบที่สามารถปรับความต่อเนื่องได้');
-    }
-
-    // Refuse if cross-spec records are directly attached to this rollId
-    const attachedContaminated = rawRecords.filter(
-      (r) => r.foilId === rollId && hasExplicitSpecConflict(serverRoll, r)
-    );
-    if (attachedContaminated.length > 0) {
-      throw new Error(
-        `🔒 พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วน ${serverRoll.lotNumber} #${serverRoll.rollNumber} (${attachedContaminated.length} ใบ) — ล็อกการเรียงประวัติอัตโนมัติ กรุณากดแยกใบตัดกลับม้วนที่ถูกต้องก่อน`
-      );
-    }
-
-    // Width-Lock & Identity-Lock: only include records owned by this rollId (or foilId-less matching full spec)
-    const records = rawRecords.filter((r) => {
-      if (r.foilId && r.foilId !== rollId) return false;
-      if (!r.foilId) {
-        return (
-          normalizeLotRollPart(r.lotNumber) === normalizeLotRollPart(serverRoll.lotNumber) &&
-          normalizeLotRollPart(r.rollNumber) === normalizeLotRollPart(serverRoll.rollNumber) &&
-          isRecordSpecCompatibleWithRoll(serverRoll, r, { requireBothPresent: true })
-        );
-      }
-      return isRecordSpecCompatibleWithRoll(serverRoll, r);
     });
 
     if (records.length === 0) {
-      throw new Error('ไม่พบรายการตัดที่ตรงหน้ากว้างและลายของม้วนนี้');
+      throw new Error('ไม่พบรายการตัดในระบบที่สามารถปรับความต่อเนื่องได้');
     }
 
+    // Reserved / cancelled records never deducted stock (the integrity check skips
+    // them too). Chaining them subtracted reserved meters from the roll and
+    // re-wrote cut_history rows for cancelled cuts, so leave them untouched.
     const chainRecords = records.filter(
       (r) => r.cutStatus !== 'reserved' && r.cutStatus !== 'cancelled'
     );
 
+    // เรียงตามลำดับตัดจริงบนม้วน (Physical Cut Order) ให้สอดคล้องกับความต่อเนื่องของสต๊อก
     const sortedRecords = sortRollRecordsInCutOrder(
       chainRecords,
       Number(serverRoll.totalMeters || 1000)
@@ -1390,6 +1271,8 @@ export async function realignRollCutChainInFirestore(
     const updatedRecords: StockCutRecord[] = [];
 
     sortedRecords.forEach((rec) => {
+      // used/ng ไม่ติดลบ; totalDeducted เป็น SIGNED (บวก=ตัดออก, ลบ=คืนสต๊อก)
+      // ห้าม Math.abs(totalDeducted) — จะทำลายรายการนับสต๊อกคืนยอด
       const safeUsed = Math.abs(Number(rec.usedMeters || 0));
       const safeNg = Math.abs(Number(rec.ngMeters || 0));
       const rawTotal = Number(rec.totalDeducted);
@@ -1405,12 +1288,6 @@ export async function realignRollCutChainInFirestore(
 
       const updatedRec: StockCutRecord = {
         ...rec,
-        foilId: rollId,
-        lotNumber: serverRoll.lotNumber,
-        rollNumber: serverRoll.rollNumber,
-        // Never overwrite record's own spec if already present
-        width: rec.width ?? serverRoll.width,
-        pattern: rec.pattern || serverRoll.pattern,
         usedMeters: isStockIn ? 0 : safeUsed,
         ngMeters: isStockIn ? 0 : safeNg,
         totalDeducted: signedTotal,
@@ -1418,46 +1295,31 @@ export async function realignRollCutChainInFirestore(
         remainingAfter: stepAfter,
       };
       updatedRecords.push(updatedRec);
-    });
 
-    const currentRemaining = Number(serverRoll.remainingMeters || 0);
-    // Zero-Lock Guard: never automatically set a scrap roll (> 0) to 0 or negative
-    if (!serverRoll.isZeroedOut && currentRemaining > 0 && runningBalance <= 0) {
-      throw new Error(
-        `🔒 ล็อกความปลอดภัย: การเรียงประวัติจะทำให้ม้วน ${serverRoll.lotNumber} #${serverRoll.rollNumber} ลดจาก ${currentRemaining} ม. เป็น ${round2(runningBalance)} ม. — ห้ามตัดเป็น 0 อัตโนมัติ กรุณาตรวจสอบใบตัดซ้ำหรือใบตัดข้ามหน้ากว้าง`
-      );
-    }
-    if (runningBalance < -0.05) {
-      throw new Error(
-        `🔒 ล็อกความปลอดภัย: ผลรวมการตัดเกินความยาวม้วน (คงเหลือติดลบ ${round2(runningBalance)} ม.) — ยกเลิกการบันทึก กรุณาตรวจสอบใบตัดซ้ำหรือใบตัดผิดม้วน`
-      );
-    }
-
-    // Commit writes only after all safety checks pass
-    updatedRecords.forEach((updatedRec) => {
-      const recRef = doc(db, RECORDS_COLLECTION, updatedRec.id);
+      // เขียนทั้งเอกสาร (ไม่ merge บางฟิลด์) เพื่อให้ remainingBefore/After ติดแน่นอน
+      const recRef = doc(db, RECORDS_COLLECTION, rec.id);
       tx.set(recRef, sanitizeForFirestore(updatedRec));
 
-      const isStockIn = updatedRec.totalDeducted < 0 && updatedRec.usedMeters === 0 && updatedRec.ngMeters === 0;
+      // Write to subcollection cut_history and cuts
       const historyItem: CutHistoryItem = {
-        id: updatedRec.id,
-        soNumber: updatedRec.soNumber || '',
-        cutMeters: isStockIn ? updatedRec.totalDeducted : updatedRec.usedMeters,
-        usedMeters: updatedRec.usedMeters,
-        ngMeters: updatedRec.ngMeters,
-        totalDeducted: updatedRec.totalDeducted,
-        remainingBefore: updatedRec.remainingBefore,
-        remainingAfter: updatedRec.remainingAfter,
-        cutDate: updatedRec.usageDate || updatedRec.recordedDate || todayLocalISO(),
-        usageDate: updatedRec.usageDate || updatedRec.recordedDate || todayLocalISO(),
-        recordedDate: updatedRec.recordedDate || todayLocalISO(),
-        recordedBy: updatedRec.recordedBy || 'ช่างคุมเครื่อง',
-        notes: updatedRec.notes || '',
-        createdAt: updatedRec.createdAt || new Date().toISOString(),
-        cutType: updatedRec.cutType || 'so',
-        nonSoReason: updatedRec.nonSoReason || '',
-        productionRound: updatedRec.productionRound || '',
-        roundNumber: updatedRec.roundNumber,
+        id: rec.id,
+        soNumber: rec.soNumber || '',
+        cutMeters: isStockIn ? signedTotal : safeUsed,
+        usedMeters: isStockIn ? 0 : safeUsed,
+        ngMeters: isStockIn ? 0 : safeNg,
+        totalDeducted: signedTotal,
+        remainingBefore: stepBefore,
+        remainingAfter: stepAfter,
+        cutDate: rec.usageDate || rec.recordedDate || todayLocalISO(),
+        usageDate: rec.usageDate || rec.recordedDate || todayLocalISO(),
+        recordedDate: rec.recordedDate || todayLocalISO(),
+        recordedBy: rec.recordedBy || 'ช่างคุมเครื่อง',
+        notes: rec.notes || '',
+        createdAt: rec.createdAt || new Date().toISOString(),
+        cutType: rec.cutType || 'so',
+        nonSoReason: rec.nonSoReason || '',
+        productionRound: rec.productionRound || '',
+        roundNumber: rec.roundNumber,
         rollId: serverRoll.id,
         lotNumber: serverRoll.lotNumber,
         rollNumber: serverRoll.rollNumber,
@@ -1465,21 +1327,23 @@ export async function realignRollCutChainInFirestore(
         pattern: serverRoll.pattern,
       };
 
-      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', updatedRec.id), sanitizeForFirestore(historyItem));
-      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', updatedRec.id), sanitizeForFirestore(historyItem));
+      // เขียนทับประวัติม้วนทั้งก้อน (ยอดก่อนตัด–หลังตัด)
+      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', rec.id), sanitizeForFirestore(historyItem));
+      tx.set(doc(db, ROLLS_COLLECTION, rollId, 'cuts', rec.id), sanitizeForFirestore(historyItem));
     });
 
+    // อนุญาต remaining > totalMeters (กรณีคืนสต๊อกจากนับสต๊อก); แค่กันค่าติดลบจาก floating point
     const finalRemaining = round2(Math.max(0, runningBalance));
 
     const updatedRoll: FoilRoll = {
       ...serverRoll,
-      remainingMeters: serverRoll.isZeroedOut ? 0 : finalRemaining,
+      remainingMeters: finalRemaining,
       usedMeters: totalUsed,
       ngMeters: totalNg,
-      // Never auto-set isZeroedOut to true
-      isZeroedOut: serverRoll.isZeroedOut ? true : false,
-      manualZeroedOriginalMeters: serverRoll.isZeroedOut ? serverRoll.manualZeroedOriginalMeters : undefined,
-      status: serverRoll.isZeroedOut || finalRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+      isZeroedOut: finalRemaining > 0 ? false : (serverRoll.isZeroedOut ?? false),
+      manualZeroedOriginalMeters: finalRemaining > 0 ? undefined : serverRoll.manualZeroedOriginalMeters,
+      status: finalRemaining <= 0 ? ('depleted' as const) : ('active' as const),
+      // อัปเดตธง "ม้วนใหม่" ให้ตรงกับยอดจริงหลังจัดเรียงโซ่การตัด
       isUnused:
         totalUsed <= 0 &&
         totalNg <= 0 &&
@@ -1506,237 +1370,9 @@ export async function realignRollCutChainInFirestore(
     return { updatedRoll, updatedRecords };
   });
 
+  // กัน realtime/cache ทับยอดใหม่ ~45 วินาที
   markLocalWrite([rollId, ...allIds, ...result.updatedRecords.map((r) => r.id)]);
   return result;
-}
-
-/**
- * Recovery action: Separates cross-spec cut records currently attached to `sourceRollId`
- * (e.g. an 850mm white record accidentally hijacked into an 830mm lotus roll) and moves
- * them back to the rightful roll matching lotNumber + rollNumber + width + pattern.
- * Never changes any roll's width/pattern or auto-zeros any roll.
- */
-export async function separateCrossSpecRecordsInFirestore(
-  sourceRollId: string,
-  allRolls: FoilRoll[]
-): Promise<{
-  separatedCount: number;
-  unresolvedRecords: StockCutRecord[];
-  movedRecords: StockCutRecord[];
-  targetRollIds: string[];
-}> {
-  if (!sourceRollId) {
-    throw new Error('ไม่พบรหัสม้วนต้นทาง');
-  }
-
-  const sourceRollRef = doc(db, ROLLS_COLLECTION, sourceRollId);
-  const sourceSnapEarly = await getDocFromServer(sourceRollRef);
-  if (!sourceSnapEarly.exists()) {
-    throw new Error('ไม่พบข้อมูลม้วนต้นทางในฐานข้อมูล');
-  }
-  const sourceRollEarly = sourceSnapEarly.data() as FoilRoll;
-
-  const attachedSnap = await getDocsFromServer(
-    query(collection(db, RECORDS_COLLECTION), where('foilId', '==', sourceRollId))
-  );
-  const attachedRecords = attachedSnap.docs.map((d) => ({
-    ...(d.data() as StockCutRecord),
-    id: d.id,
-  }));
-
-  const contaminated = attachedRecords.filter((r) =>
-    hasExplicitSpecConflict(sourceRollEarly, r)
-  );
-
-  if (contaminated.length === 0) {
-    return {
-      separatedCount: 0,
-      unresolvedRecords: [],
-      movedRecords: [],
-      targetRollIds: [],
-    };
-  }
-
-  const plan: Array<{ rec: StockCutRecord; targetRoll: FoilRoll }> = [];
-  const unresolvedRecords: StockCutRecord[] = [];
-
-  for (const rec of contaminated) {
-    const target = findTargetRollForContaminatedRecord(allRolls, sourceRollId, rec);
-    if (target) {
-      plan.push({ rec, targetRoll: target });
-    } else {
-      unresolvedRecords.push(rec);
-    }
-  }
-
-  if (plan.length === 0) {
-    return {
-      separatedCount: 0,
-      unresolvedRecords,
-      movedRecords: [],
-      targetRollIds: [],
-    };
-  }
-
-  const uniqueTargetRollIds = Array.from(new Set(plan.map((p) => p.targetRoll.id)));
-  const nowIso = new Date().toISOString();
-
-  const movedRecords = await runTransaction(db, async (tx) => {
-    const targetRefs = uniqueTargetRollIds.map((id) => doc(db, ROLLS_COLLECTION, id));
-    const recRefs = plan.map((p) => doc(db, RECORDS_COLLECTION, p.rec.id));
-
-    const [freshSourceSnap, targetSnaps, recSnaps] = await Promise.all([
-      tx.get(sourceRollRef),
-      Promise.all(targetRefs.map((ref) => tx.get(ref))),
-      Promise.all(recRefs.map((ref) => tx.get(ref))),
-    ]);
-
-    if (!freshSourceSnap.exists()) {
-      throw new Error('ไม่พบม้วนต้นทางในระบบ');
-    }
-    const freshSourceRoll = freshSourceSnap.data() as FoilRoll;
-
-    const targetMap = new Map<string, FoilRoll>();
-    targetSnaps.forEach((snap) => {
-      if (snap.exists()) {
-        targetMap.set(snap.id, snap.data() as FoilRoll);
-      }
-    });
-
-    const moved: StockCutRecord[] = [];
-    const movedIds = new Set<string>();
-    const targetRecentAdditions = new Map<string, NonNullable<FoilRoll['recentCuts']>>();
-
-    plan.forEach((item, idx) => {
-      const recSnap = recSnaps[idx];
-      if (!recSnap.exists()) return;
-      const freshRec = { ...(recSnap.data() as StockCutRecord), id: recSnap.id };
-      if (freshRec.foilId !== sourceRollId) return;
-      if (!hasExplicitSpecConflict(freshSourceRoll, freshRec)) return;
-
-      const targetRoll = targetMap.get(item.targetRoll.id);
-      if (!targetRoll) return;
-
-      const updatedRec: StockCutRecord = {
-        ...freshRec,
-        foilId: targetRoll.id,
-        lotNumber: targetRoll.lotNumber,
-        rollNumber: targetRoll.rollNumber,
-        reallocatedFromRollId: sourceRollId,
-        reallocatedAt: nowIso,
-      };
-
-      tx.set(doc(db, RECORDS_COLLECTION, freshRec.id), sanitizeForFirestore(updatedRec), {
-        merge: true,
-      });
-
-      // Remove from source roll subcollections
-      tx.delete(doc(db, ROLLS_COLLECTION, sourceRollId, 'cut_history', freshRec.id));
-      tx.delete(doc(db, ROLLS_COLLECTION, sourceRollId, 'cuts', freshRec.id));
-
-      // Write to target roll subcollections with targetRoll's true width/pattern
-      const historyItem: CutHistoryItem = {
-        id: updatedRec.id,
-        soNumber: updatedRec.soNumber || '',
-        cutMeters: updatedRec.usedMeters,
-        usedMeters: updatedRec.usedMeters,
-        ngMeters: updatedRec.ngMeters,
-        totalDeducted: updatedRec.totalDeducted,
-        remainingBefore: updatedRec.remainingBefore,
-        remainingAfter: updatedRec.remainingAfter,
-        cutDate: updatedRec.usageDate || updatedRec.recordedDate || todayLocalISO(),
-        usageDate: updatedRec.usageDate || updatedRec.recordedDate || todayLocalISO(),
-        recordedDate: updatedRec.recordedDate || todayLocalISO(),
-        recordedBy: updatedRec.recordedBy || 'ช่างคุมเครื่อง',
-        notes: updatedRec.notes || '',
-        createdAt: updatedRec.createdAt || nowIso,
-        cutType: updatedRec.cutType || 'so',
-        nonSoReason: updatedRec.nonSoReason || '',
-        productionRound: updatedRec.productionRound || '',
-        roundNumber: updatedRec.roundNumber,
-        cutStatus: updatedRec.cutStatus || 'completed',
-        rollId: targetRoll.id,
-        lotNumber: targetRoll.lotNumber,
-        rollNumber: targetRoll.rollNumber,
-        width: targetRoll.width,
-        pattern: targetRoll.pattern,
-        isSilverSide: updatedRec.isSilverSide,
-        isWhiteSide: updatedRec.isWhiteSide,
-      };
-      tx.set(
-        doc(db, ROLLS_COLLECTION, targetRoll.id, 'cut_history', updatedRec.id),
-        sanitizeForFirestore(historyItem)
-      );
-      tx.set(
-        doc(db, ROLLS_COLLECTION, targetRoll.id, 'cuts', updatedRec.id),
-        sanitizeForFirestore(historyItem)
-      );
-
-      moved.push(updatedRec);
-      movedIds.add(updatedRec.id);
-
-      const list = targetRecentAdditions.get(targetRoll.id) || [];
-      list.push({
-        id: updatedRec.id,
-        soNumber: updatedRec.soNumber || '',
-        cutType: updatedRec.cutType || 'so',
-        productionRound: updatedRec.productionRound || '',
-        roundNumber: updatedRec.roundNumber,
-        usedMeters: updatedRec.usedMeters,
-        ngMeters: updatedRec.ngMeters,
-        totalDeducted: updatedRec.totalDeducted,
-        remainingAfter: updatedRec.remainingAfter ?? 0,
-        usageDate: updatedRec.usageDate,
-        recordedDate: updatedRec.recordedDate,
-        recordedBy: updatedRec.recordedBy,
-        notes: updatedRec.notes,
-      });
-      targetRecentAdditions.set(targetRoll.id, list);
-    });
-
-    if (movedIds.size > 0) {
-      tx.set(
-        sourceRollRef,
-        sanitizeForFirestore({
-          recentCuts: (freshSourceRoll.recentCuts || []).filter((c) => !movedIds.has(c.id)),
-        }),
-        { merge: true }
-      );
-
-      targetRecentAdditions.forEach((additions, tId) => {
-        const tRoll = targetMap.get(tId);
-        if (!tRoll) return;
-        const existingIds = new Set((tRoll.recentCuts || []).map((c) => c.id));
-        const mergedRecent = [
-          ...additions.filter((a) => !existingIds.has(a.id)),
-          ...(tRoll.recentCuts || []),
-        ].slice(0, 50);
-        tx.set(
-          doc(db, ROLLS_COLLECTION, tId),
-          sanitizeForFirestore({
-            recentCuts: mergedRecent,
-            isUnused: false,
-          }),
-          { merge: true }
-        );
-      });
-    }
-
-    return moved;
-  });
-
-  markLocalWrite([
-    sourceRollId,
-    ...uniqueTargetRollIds,
-    ...movedRecords.map((r) => r.id),
-  ]);
-
-  return {
-    separatedCount: movedRecords.length,
-    unresolvedRecords,
-    movedRecords,
-    targetRollIds: uniqueTargetRollIds,
-  };
 }
 
 /**
@@ -1952,8 +1588,8 @@ export function subscribeToRollCutHistory(
         usedMeters: cutMeters,
         ngMeters: ngMeters,
         totalDeducted: totalDeducted,
-        remainingBefore: Number(data.remainingBefore ?? 0),
-        remainingAfter: Number(data.remainingAfter ?? 0),
+        remainingBefore: Math.max(0, Number(data.remainingBefore ?? 0)),
+        remainingAfter: Math.max(0, Number(data.remainingAfter ?? 0)),
         cutDate: data.cutDate || data.usageDate || data.recordedDate || '',
         usageDate: data.usageDate || data.cutDate || data.recordedDate || '',
         recordedDate: data.recordedDate || data.cutDate || '',
@@ -2438,7 +2074,7 @@ export async function deleteCycleCountSession(
               Math.round(((Number(serverRoll.usedMeters) || 0) - sumUsed) * 100) / 100
             ),
             status: restoredRemaining > 0 ? ('active' as const) : ('depleted' as const),
-            isZeroedOut: restoredRemaining > 0 ? false : Boolean(serverRoll.isZeroedOut),
+            isZeroedOut: restoredRemaining <= 0,
             // ลบเฉพาะใบตัดที่กำลังย้อน ไม่แตะรายการนับสต๊อกของงวดอื่น
             recentCuts: (serverRoll.recentCuts || []).filter((c) => !ids.includes(c.id)),
           };

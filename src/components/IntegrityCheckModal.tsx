@@ -44,9 +44,8 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
   canEdit,
   onOpenSOAudit,
 }) => {
-  // Filter eligible rolls vs safety-locked rolls vs excluded zeroed-out rolls
+  // Filter eligible rolls vs excluded zeroed-out rolls
   const eligibleRolls = mismatches.filter((m) => m.canAutoAdjust && !m.isZeroedOut);
-  const lockedRolls = mismatches.filter((m) => !m.isZeroedOut && !m.canAutoAdjust);
   const zeroedOutRolls = mismatches.filter((m) => m.isZeroedOut);
 
   // Selected roll IDs for auto-adjustment
@@ -201,11 +200,7 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
                     <span className="font-bold text-rose-700 bg-rose-100/70 px-1 py-0.5 rounded">
                       ยกเว้นม้วนที่กดตัดเป็น 0 แล้ว (isZeroedOut)
                     </span>{' '}
-                    และ{' '}
-                    <span className="font-bold text-amber-800 bg-amber-100 px-1 py-0.5 rounded">
-                      ล็อกม้วนที่ยังเหลือเศษไม่ให้ถูกตัดเป็น 0 อัตโนมัติ
-                    </span>{' '}
-                    เพื่อความปลอดภัยของข้อมูล
+                    โดยอัตโนมัติ เพื่อคงสถานะจบม้วนตามที่ผู้ใช้งานได้ระบุไว้
                   </p>
                 </div>
               </div>
@@ -350,47 +345,6 @@ export const IntegrityCheckModal: React.FC<IntegrityCheckModalProps> = ({
                   </div>
                 </div>
               ) : null}
-
-              {/* Safety-Locked Rolls (Zero-Lock or Cross-Spec Contamination) */}
-              {lockedRolls.length > 0 && (
-                <div className="pt-2 space-y-2">
-                  <div className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-amber-600" />
-                    <span>ม้วนที่ถูกล็อกความปลอดภัย — ห้ามปรับยอดอัตโนมัติ ({lockedRolls.length} ม้วน)</span>
-                  </div>
-                  <div className="space-y-2">
-                    {lockedRolls.map((m) => (
-                      <div key={m.rollId} className="border border-amber-300 bg-amber-50/70 rounded-xl p-3 text-xs space-y-1.5">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="font-mono font-bold text-slate-900">
-                            ล็อต {m.lotNumber} · #{m.rollNumber} · ลาย {m.pattern} ({m.width} มม.)
-                          </div>
-                          {onOpenSOAudit && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onClose();
-                                onOpenSOAudit(m.rollId);
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                            >
-                              <Bug className="w-3 h-3" />
-                              <span>ตรวจประวัติ SO ม้วนนี้</span>
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-amber-950 font-medium leading-relaxed">
-                          {m.zeroedReason || 'ถูกล็อกห้ามปรับยอดอัตโนมัติเพื่อความปลอดภัย'}
-                        </p>
-                        <div className="text-[11px] text-slate-600 font-mono">
-                          ในระบบ: {formatMeters(m.actualRemaining)} ม. · คำนวณจาก SO: {formatMeters(m.expectedRemaining)} ม.
-                          {m.contaminatedCount ? ` · พบใบตัดข้ามสเปก ${m.contaminatedCount} ใบ` : ''}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* Zeroed-out Rolls (Excluded by Rule) */}
               {zeroedOutRolls.length > 0 && (

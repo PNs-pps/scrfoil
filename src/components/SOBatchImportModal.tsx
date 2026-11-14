@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
-import { isRecordSpecCompatibleWithRoll, normalizeLotRollPart } from '../utils/rollIdentity';
 
 interface ParsedCutRow {
   index: number;
@@ -30,7 +29,7 @@ interface ParsedCutRow {
   recordedBy: string;
   notes: string;
   matchedRoll?: FoilRoll;
-  status: 'valid' | 'roll_not_found' | 'ambiguous_roll' | 'insufficient_meters' | 'invalid_meters';
+  status: 'valid' | 'roll_not_found' | 'insufficient_meters' | 'invalid_meters';
   statusMessage: string;
 }
 
@@ -113,33 +112,11 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
       const totalDeducted = round2(usedMeters + ngMeters);
 
-      const optionalWidth = cols[8] ? Number(cols[8]) : undefined;
-      const optionalPattern = cols[9] || undefined;
-
-      // Find all rolls sharing lotNumber + rollNumber
-      const lotKey = normalizeLotRollPart(lotNumber);
-      const rollKey = normalizeLotRollPart(rollNumber);
-      const lotRollMatches =
-        lotKey && rollKey
-          ? rolls.filter(
-              (r) =>
-                normalizeLotRollPart(r.lotNumber) === lotKey &&
-                normalizeLotRollPart(r.rollNumber) === rollKey
-            )
-          : [];
-
-      const specNarrowedMatches =
-        lotRollMatches.length > 1 && (optionalWidth || optionalPattern)
-          ? lotRollMatches.filter((r) =>
-              isRecordSpecCompatibleWithRoll(
-                r,
-                { width: optionalWidth as any, pattern: optionalPattern as any },
-                { requireBothPresent: Boolean(optionalWidth && optionalPattern) }
-              )
-            )
-          : lotRollMatches;
-
-      const matched = specNarrowedMatches.length === 1 ? specNarrowedMatches[0] : undefined;
+      // Find roll
+      const matched = rolls.find((r) => 
+        r.lotNumber.toLowerCase().trim() === lotNumber.toLowerCase().trim() &&
+        r.rollNumber.toLowerCase().trim() === rollNumber.toLowerCase().trim()
+      );
 
       let status: ParsedCutRow['status'] = 'valid';
       let statusMessage = 'พร้อมตัดสต๊อก';
@@ -147,16 +124,9 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
       if (usedMeters <= 0 && ngMeters <= 0) {
         status = 'invalid_meters';
         statusMessage = 'จำนวนเมตรที่ใช้ต้องมากกว่า 0';
-      } else if (lotRollMatches.length === 0) {
-        status = 'roll_not_found';
-        statusMessage = `ไม่พบม้วนฟอยล์ ล็อต ${lotNumber} เบอร์ ${rollNumber} ในระบบ`;
-      } else if (specNarrowedMatches.length > 1) {
-        status = 'ambiguous_roll';
-        const specsList = specNarrowedMatches.map((r) => `${r.width}มม.${r.pattern}`).join(' / ');
-        statusMessage = `พบม้วน ${lotNumber} #${rollNumber} หลายหน้ากว้าง/ลาย (${specsList}) — กรุณาตัดผ่านหน้าฟอร์มหรือระบุหน้ากว้าง/ลายให้ชัด`;
       } else if (!matched) {
         status = 'roll_not_found';
-        statusMessage = `ไม่พบม้วนล็อต ${lotNumber} เบอร์ ${rollNumber} ที่ตรงหน้ากว้าง/ลายที่ระบุ`;
+        statusMessage = `ไม่พบม้วนฟอยล์ ล็อต ${lotNumber} เบอร์ ${rollNumber} ในระบบ`;
       } else {
         const key = matched.id;
         const currentDeductedSoFar = cumulativeDeductions.get(key) || 0;
