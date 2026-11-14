@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { FoilRoll, FoilPattern, FoilWidth, StockCutRecord } from '../types';
-import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
+import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern, resolveStandardPattern } from '../utils/soFormatter';
 import { round2, formatMeters, todayLocalISO } from '../utils/formatters';
 import { getRestorableZeroedMeters } from '../utils/rollZeroRestore';
 import { X, Edit2, Save, Layers, Calendar, Hash, FileText, CheckCircle2, RotateCcw } from 'lucide-react';
@@ -55,9 +55,10 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
     setLotNumber(roll.lotNumber || '');
     setRollNumber(roll.rollNumber || '');
 
-    const isStdWidth = STANDARD_WIDTHS.includes(roll.width as any);
+    const numericWidth = Number(roll.width);
+    const isStdWidth = STANDARD_WIDTHS.includes(numericWidth as any);
     if (isStdWidth) {
-      setWidth(roll.width);
+      setWidth(numericWidth as FoilWidth);
       setIsCustomWidth(false);
       setCustomWidthVal('');
     } else {
@@ -65,19 +66,22 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
       setCustomWidthVal(String(roll.width || ''));
     }
 
-    // Normalize pattern to the 6 allowed patterns
-    let initialPattern: FoilPattern = 'ขาว';
-    const rawP = (roll.pattern || '').trim();
-    if (rawP === 'ดำ') initialPattern = 'ดำ';
-    else if (rawP === 'ไม้อ่อน') initialPattern = 'ไม้อ่อน';
-    else if (rawP === 'ไม้เข้ม') initialPattern = 'ไม้เข้ม';
-    else if (rawP === 'เทา') initialPattern = 'เทา';
-    else if (rawP === 'กลีบบัว') initialPattern = 'กลีบบัว';
-    else initialPattern = 'ขาว';
-
-    setPattern(initialPattern);
-    setIsCustomPattern(false);
-    setCustomPatternVal('');
+    // Resolve standard pattern while preserving custom patterns instead of overwriting them to ขาว
+    const resolvedStd = resolveStandardPattern(roll.pattern || '');
+    const normalizedRawP = normalizePattern((roll.pattern || '').trim());
+    if (resolvedStd) {
+      setPattern(resolvedStd as FoilPattern);
+      setIsCustomPattern(false);
+      setCustomPatternVal('');
+    } else if (normalizedRawP) {
+      setPattern('ขาว');
+      setIsCustomPattern(true);
+      setCustomPatternVal(normalizedRawP);
+    } else {
+      setPattern('ขาว');
+      setIsCustomPattern(false);
+      setCustomPatternVal('');
+    }
 
     setTotalMeters(roll.totalMeters);
     setRemainingMeters(roll.remainingMeters);
@@ -290,8 +294,15 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
                 ลายท้องฟอยล์ <span className="text-rose-500">*</span>
               </label>
               <select
-                value={pattern}
-                onChange={(e) => setPattern(e.target.value as FoilPattern)}
+                value={isCustomPattern ? 'custom' : pattern}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') {
+                    setIsCustomPattern(true);
+                  } else {
+                    setIsCustomPattern(false);
+                    setPattern(e.target.value as FoilPattern);
+                  }
+                }}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-semibold text-slate-800 text-xs sm:text-sm focus:border-blue-500 cursor-pointer"
               >
                 {STANDARD_PATTERNS.map((p) => (
@@ -299,10 +310,21 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
                     {p.label}
                   </option>
                 ))}
+                <option value="custom">ลายอื่น / กำหนดเอง...</option>
               </select>
-              <p className="text-[11px] text-slate-400 mt-1">
-                (กำหนดเฉพาะ 6 ชนิด: ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว)
-              </p>
+              {isCustomPattern ? (
+                <input
+                  type="text"
+                  value={customPatternVal}
+                  onChange={(e) => setCustomPatternVal(e.target.value)}
+                  placeholder="ระบุลายฟอยล์..."
+                  className="w-full mt-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-medium focus:border-blue-500"
+                />
+              ) : (
+                <p className="text-[11px] text-slate-400 mt-1">
+                  (ลายมาตรฐาน 6 ชนิด: ขาว, ดำ, ไม้อ่อน, ไม้เข้ม, เทา, กลีบบัว)
+                </p>
+              )}
             </div>
           </div>
 

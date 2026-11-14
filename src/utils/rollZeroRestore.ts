@@ -1,6 +1,7 @@
 import { FoilRoll, StockCutRecord } from '../types';
 import { round2 } from './formatters';
 import { auditRollSOHistory } from './soHistoryAudit';
+import { isRecordSpecCompatibleWithRoll } from './rollIdentity';
 
 /**
  * คำนวณยอดเมตรคงเหลือเดิมที่สามารถคืนค่าได้ สำหรับม้วนฟอยล์ที่ถูกกด "ตัดสล็อตเป็น 0" (isZeroedOut)
@@ -22,7 +23,9 @@ export function getRestorableZeroedMeters(
   }
 
   if (records && records.length > 0) {
-    const rollRecords = records.filter((r) => r.foilId === roll.id);
+    const rollRecords = records.filter(
+      (r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r)
+    );
     if (rollRecords.length > 0) {
       const audit = auditRollSOHistory(roll, rollRecords);
       if (audit.calculatedRemaining > 0) {

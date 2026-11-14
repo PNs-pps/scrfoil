@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { getRestorableZeroedMeters } from '../utils/rollZeroRestore';
+import { isRecordSpecCompatibleWithRoll } from '../utils/rollIdentity';
 import { subscribeToRollCutHistory } from '../lib/firebase';
 import { auditRollSOHistory } from '../utils/soHistoryAudit';
 import { FoilStatusTube } from './FoilStatusTube';
@@ -46,6 +47,7 @@ interface RollUsageHistoryModalProps {
     rollId: string,
     recordIds: string[]
   ) => Promise<{ updatedRecords?: StockCutRecord[] } | void>;
+  onSeparateCrossSpec?: (rollId: string) => Promise<void> | void;
   onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
   canEdit?: boolean;
   onOpenFullAudit?: (rollId?: string) => void;
@@ -60,16 +62,17 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   onEditCutRecord,
   onFixRoll,
   onRealignChain,
+  onSeparateCrossSpec,
   onToggleZeroOut,
   canEdit = true,
   onOpenFullAudit,
 }) => {
   const panelRef = useModalA11y(Boolean(roll), onClose, 'ประวัติการใช้งานม้วนฟอยล์');
 
-  // Initialize with in-memory or embedded data first for instant render
+  // Initialize with in-memory or embedded data first for instant render (excluding cross-spec contaminated records)
   const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
     if (!roll) return [];
-    const rollCuts = records.filter((r) => r.foilId === roll.id);
+    const rollCuts = records.filter((r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r));
     if (rollCuts.length > 0) {
       return rollCuts.map((r) => ({
         id: r.id,
@@ -102,6 +105,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [indexWarning, setIndexWarning] = useState<string | null>(null);
   const [isFixingThisRoll, setIsFixingThisRoll] = useState(false);
+  const [isSeparatingThisRoll, setIsSeparatingThisRoll] = useState(false);
   const [showConfirmFix, setShowConfirmFix] = useState(false);
 
   // รวมประวัติจาก stock_cut_records (App state) + cut_history (Firestore)
@@ -114,14 +118,16 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   ): CutHistoryItem[] => {
     const map = new Map<string, CutHistoryItem>();
 
-    // 1) sub-collection ก่อน (ฐาน)
+    // 1) sub-collection ก่อน (ฐาน) — กันรายการที่สเปกขัดแย้งกับม้วนนี้ออก
     (subItems || []).forEach((item) => {
-      map.set(item.id, item);
+      if (!roll || isRecordSpecCompatibleWithRoll(roll, item)) {
+        map.set(item.id, item);
+      }
     });
 
     // 2) root records ทับทีหลัง — ยอด remainingBefore/After จาก App หลัง realign เป็นหลัก
     rootRecords
-      .filter((r) => r.foilId === rollId)
+      .filter((r) => r.foilId === rollId && (!roll || isRecordSpecCompatibleWithRoll(roll, r)))
       .forEach((r) => {
         const prev = map.get(r.id);
         map.set(r.id, {
@@ -655,6 +661,40 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                 </div>
               )}
 
+              {/* Cross-spec contamination recovery trigger */}
+              {canEdit && onSeparateCrossSpec && (audit.contaminatedRecords?.length ?? 0) > 0 && (
+                <div className="pt-2 border-t border-rose-200/80 flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-xs text-rose-800 font-semibold">
+                    🔒 พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ในม้วนนี้ ({audit.contaminatedRecords!.length} รายการ) — กันออกจากการคำนวณแล้ว
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isSeparatingThisRoll}
+                    onClick={async () => {
+                      if (!onSeparateCrossSpec || !roll) return;
+                      setIsSeparatingThisRoll(true);
+                      try {
+                        await onSeparateCrossSpec(roll.id);
+                      } finally {
+                        setIsSeparatingThisRoll(false);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
+                  >
+                    {isSeparatingThisRoll ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wrench className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {isSeparatingThisRoll
+                        ? 'กำลังแยกใบตัดกลับม้วนที่ถูกต้อง...'
+                        : 'แยกใบตัดข้ามหน้ากว้าง/ลายกลับม้วนที่ถูกต้อง'}
+                    </span>
+                  </button>
+                </div>
+              )}
+
               {/* Accept button if chain jump detected */}
               {canEdit && onRealignChain && audit.timeline.some((step) => !step.isChainValid) && (
                 <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between flex-wrap gap-2">
@@ -679,7 +719,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                         // รวมกับ records อื่นของม้วนนี้ที่ไม่อยู่ใน realign
                         const byId = new Map(
                           records
-                            .filter((r) => r.foilId === roll.id)
+                            .filter((r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r))
                             .map((r) => [r.id, r])
                         );
                         if (result && typeof result === 'object' && result.updatedRecords) {

@@ -305,6 +305,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const recentOperators = getRecentOperators();
 
   const prevIsOpenRef = useRef(false);
+  const isSubmittingRef = useRef(false);
 
   // Reset or initialize on open - ensure background availableRolls updates do NOT reset user typing or jump rolls
   useEffect(() => {
@@ -318,6 +319,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       setError(null);
       setShowConfirmSummary(false);
       setCutResult(null);
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
       setDuplicatePromptModal(null);
       setStockSyncNote(null);
@@ -576,7 +578,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   }, [pendingForCurrentRoll]);
 
   const executeCutSubmission = async () => {
-    if (!currentRoll) return;
+    if (!currentRoll || isSubmittingRef.current) return;
 
     if (!isStaff) {
       setCutResult({
@@ -587,6 +589,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       return;
     }
 
+    isSubmittingRef.current = true;
     // Save operator to recent list
     saveRecentOperator(recordedBy.trim());
 
@@ -706,13 +709,14 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       });
       setError(err?.message || 'บันทึกไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อ');
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return; // hard guard against double-submit on flaky network / double-tap
+    if (isSubmitting || isSubmittingRef.current) return; // hard guard against double-submit on flaky network / double-tap
     setError(null);
 
     if (!isStaff) {
@@ -743,7 +747,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
 
     // Validate each order line
     for (let i = 0; i < candidateOrders.length; i++) {
-      const ord = orders[i];
+      const ord = candidateOrders[i];
       const calc = orderCalculations[i];
 
       if (ord.cutType === 'so' && !ord.soNumber.trim()) {
@@ -755,6 +759,10 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณาระบุจำนวนเมตรที่ใช้ หรือ NG ที่เสีย`);
         return;
       }
+    }
+
+    if (candidateOrders.length !== orders.length) {
+      setOrders(candidateOrders);
     }
 
     if (totalDeductedAll <= 0) {

@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
 import { round2, formatMeters, todayLocalISO } from '../utils/formatters';
+import { buildStrictRollKey } from '../utils/rollIdentity';
 import { 
   X, 
   PlusCircle, 
@@ -26,6 +27,7 @@ interface BatchRollItem {
 interface AddFoilModalProps {
   isOpen: boolean;
   onClose: () => void;
+  existingRolls?: FoilRoll[];
   onAddFoil: (newRoll: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>) => void;
   onAddMultipleFoils?: (rollsData: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>[]) => Promise<void>;
 }
@@ -33,6 +35,7 @@ interface AddFoilModalProps {
 export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   isOpen,
   onClose,
+  existingRolls = [],
   onAddFoil,
   onAddMultipleFoils,
 }) => {
@@ -55,6 +58,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
   const [reverseSideReason, setReverseSideReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   // Single roll mode fields
   const [singleRollNumber, setSingleRollNumber] = useState('01');
@@ -168,6 +172,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current || isSubmitting) return;
     setError(null);
 
     if (!lotNumber.trim()) {
@@ -188,6 +193,9 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
     }
 
     const trimmedLot = lotNumber.trim().toUpperCase();
+    const existingStrictKeys = new Set(
+      existingRolls.map((r) => buildStrictRollKey(r.lotNumber, r.rollNumber, r.width, r.pattern))
+    );
 
     if (entryMode === 'single') {
       // Single roll submit
@@ -202,6 +210,15 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
         return;
       }
 
+      const strictKey = buildStrictRollKey(trimmedLot, singleRollNumber.trim(), finalWidth, finalPattern);
+      if (existingStrictKeys.has(strictKey)) {
+        setError(
+          `พบม้วนฟอยล์ ล็อต ${trimmedLot} เบอร์ #${singleRollNumber.trim()} (${finalWidth} มม. · ${finalPattern}) อยู่ในระบบแล้ว — ป้องกันการสร้างม้วนซ้ำ`
+        );
+        return;
+      }
+
+      submittingRef.current = true;
       setIsSubmitting(true);
       try {
         onAddFoil({
@@ -220,6 +237,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
       } catch (err: any) {
         setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึก');
       } finally {
+        submittingRef.current = false;
         setIsSubmitting(false);
       }
     } else {
@@ -243,6 +261,14 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
         }
         rollNumbersSeen.add(rNum);
 
+        const strictKey = buildStrictRollKey(trimmedLot, rNum, finalWidth, finalPattern);
+        if (existingStrictKeys.has(strictKey)) {
+          setError(
+            `พบม้วนฟอยล์ ล็อต ${trimmedLot} เบอร์ #${rNum} (${finalWidth} มม. · ${finalPattern}) อยู่ในระบบแล้ว — กรุณานำเบอร์นี้ออกจากชุดเพื่อป้องกันม้วนซ้ำ`
+          );
+          return;
+        }
+
         const m = Number(item.totalMeters);
         if (isNaN(m) || m <= 0) {
           setError(`ม้วนเบอร์ #${rNum} มีความยาวเมตรไม่ถูกต้อง (ต้องมากกว่า 0)`);
@@ -262,6 +288,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
         reverseSideReason: isReverseSideOnly ? reverseSideReason.trim() : '',
       }));
 
+      submittingRef.current = true;
       setIsSubmitting(true);
       try {
         if (onAddMultipleFoils) {
@@ -277,6 +304,7 @@ export const AddFoilModal: React.FC<AddFoilModalProps> = ({
       } catch (err: any) {
         setError(err?.message || 'เกิดข้อผิดพลาดในการบันทึกชุดม้วนฟอยล์');
       } finally {
+        submittingRef.current = false;
         setIsSubmitting(false);
       }
     }

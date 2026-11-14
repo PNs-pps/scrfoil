@@ -1,16 +1,33 @@
 import { FoilRoll, StockCutRecord } from '../types';
-import { normalizePattern } from './soFormatter';
+import { normalizePattern, resolveStandardPattern } from './soFormatter';
 
-export function normalizeLotRollPart(value?: string | number | null): string {
-  return String(value ?? '').trim().toUpperCase();
+export interface SpecLike {
+  width?: number | string | null;
+  pattern?: string | null;
 }
 
+/**
+ * Normalizes a lotNumber or rollNumber fragment for case-insensitive, whitespace-trimmed comparison.
+ */
+export function normalizeLotRollPart(value?: string | number | null): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+/**
+ * Normalizes a foil pattern string so legacy aliases (e.g. "ท้องขาว", "กลับบัว") match
+ * their canonical names while preserving custom pattern strings (e.g. "201").
+ */
 export function normalizePatternForMatch(pattern?: string | null): string {
   const trimmed = String(pattern ?? '').trim();
-  if (!trimmed || trimmed === '-' || trimmed === 'ไม่ระบุ') return '';
-  return normalizePattern(trimmed).trim().toLowerCase();
+  if (!trimmed) return '';
+  const canonical = normalizePattern(trimmed).trim();
+  return resolveStandardPattern(canonical) ?? canonical.toLowerCase();
 }
 
+/**
+ * Builds a strict 4-part composite identity key combining lot + roll + width + pattern.
+ * Never collapse two rolls that share lot+roll across different widths or patterns.
+ */
 export function buildStrictRollKey(
   lotNumber?: string | null,
   rollNumber?: string | null,
@@ -19,169 +36,160 @@ export function buildStrictRollKey(
 ): string {
   const lot = normalizeLotRollPart(lotNumber);
   const roll = normalizeLotRollPart(rollNumber);
-  const w = Number(width);
-  const widthPart = Number.isFinite(w) && w > 0 ? String(w) : '';
+  const numericWidth = Number(width);
+  const widthPart = Number.isFinite(numericWidth) && numericWidth > 0 ? String(numericWidth) : '';
   const patternPart = normalizePatternForMatch(pattern);
   return `${lot}::${roll}::${widthPart}::${patternPart}`;
 }
 
 /**
- * Checks whether a cut record's width and pattern are compatible with a given foil roll.
- * Missing/empty spec fields on legacy records are treated as non-conflicting unless
- * strict=true is requested.
+ * Checks whether a cut record's width and pattern are compatible with a roll's spec.
+ * - With `requireBothPresent: true`, both width and pattern must be present on both sides and match.
+ * - Otherwise, only fields explicitly present on both sides are required to agree.
  */
 export function isRecordSpecCompatibleWithRoll(
-  roll: Pick<FoilRoll, 'width' | 'pattern'>,
-  record: Partial<Pick<StockCutRecord, 'width' | 'pattern'>>,
+  roll: SpecLike,
+  rec: SpecLike,
   options?: { requireBothPresent?: boolean }
 ): boolean {
-  const rollWidth = Number(roll.width);
-  const recWidth = Number(record.width);
-  const hasRollWidth = Number.isFinite(rollWidth) && rollWidth > 0;
-  const hasRecWidth =
-    record.width !== undefined &&
-    record.width !== null &&
-    String(record.width).trim() !== '' &&
-    Number.isFinite(recWidth) &&
-    recWidth > 0;
+  const rollW = Number(roll.width);
+  const recW = Number(rec.width);
+  const hasRollW = Number.isFinite(rollW) && rollW > 0;
+  const hasRecW = Number.isFinite(recW) && recW > 0;
 
-  const rollPattern = normalizePatternForMatch(roll.pattern);
-  const recPattern = normalizePatternForMatch(record.pattern);
+  const rollP = normalizePatternForMatch(roll.pattern);
+  const recP = normalizePatternForMatch(rec.pattern);
 
   if (options?.requireBothPresent) {
-    if (!hasRollWidth || !hasRecWidth || rollWidth !== recWidth) return false;
-    if (!rollPattern || !recPattern || rollPattern !== recPattern) return false;
-    return true;
+    return (
+      hasRollW &&
+      hasRecW &&
+      rollW === recW &&
+      Boolean(rollP) &&
+      Boolean(recP) &&
+      rollP === recP
+    );
   }
 
-  if (hasRollWidth && hasRecWidth && rollWidth !== recWidth) {
+  if (hasRollW && hasRecW && rollW !== recW) {
     return false;
   }
-  if (rollPattern && recPattern && rollPattern !== recPattern) {
+  if (rollP && recP && rollP !== recP) {
     return false;
   }
   return true;
 }
 
 /**
- * True when a cut record explicitly carries a different width or pattern than the roll.
+ * Returns true strictly when a record carries explicit width or pattern metadata
+ * that conflicts with the roll's width or pattern.
  */
-export function hasExplicitSpecConflict(
-  roll: Pick<FoilRoll, 'width' | 'pattern'>,
-  record: Partial<Pick<StockCutRecord, 'width' | 'pattern'>>
-): boolean {
-  return !isRecordSpecCompatibleWithRoll(roll, record);
+export function hasExplicitSpecConflict(roll: SpecLike, rec: SpecLike): boolean {
+  return !isRecordSpecCompatibleWithRoll(roll, rec, { requireBothPresent: false });
 }
 
 /**
- * Finds the rightful roll for a cut record.
- * - Prefers exact foilId match ONLY if width & pattern are compatible.
- * - If foilId points to a roll whose width/pattern disagrees (cross-spec contamination)
- *   or foilId is missing, checks if there is a unique roll matching lotNumber + rollNumber + width + pattern.
- * - Never matches across different widths or patterns by lot+roll alone.
- */
-export function findMatchingRollForRecord(
-  rolls: FoilRoll[],
-  record: Pick<StockCutRecord, 'foilId' | 'lotNumber' | 'rollNumber' | 'width' | 'pattern'>
-): FoilRoll | undefined {
-  const byId = record.foilId ? rolls.find((r) => r.id === record.foilId) : undefined;
-  if (byId && isRecordSpecCompatibleWithRoll(byId, record)) {
-    return byId;
-  }
-
-  const targetLot = normalizeLotRollPart(record.lotNumber);
-  const targetRollNo = normalizeLotRollPart(record.rollNumber);
-  if (targetLot && targetRollNo) {
-    const strictMatches = rolls.filter(
-      (r) =>
-        normalizeLotRollPart(r.lotNumber) === targetLot &&
-        normalizeLotRollPart(r.rollNumber) === targetRollNo &&
-        isRecordSpecCompatibleWithRoll(r, record, { requireBothPresent: true })
-    );
-    if (strictMatches.length === 1) {
-      return strictMatches[0];
-    }
-
-    // Legacy record missing width/pattern: only match if there is a single non-conflicting roll with that lot+roll
-    const compatMatches = rolls.filter(
-      (r) =>
-        normalizeLotRollPart(r.lotNumber) === targetLot &&
-        normalizeLotRollPart(r.rollNumber) === targetRollNo &&
-        isRecordSpecCompatibleWithRoll(r, record)
-    );
-    if (compatMatches.length === 1) {
-      return compatMatches[0];
-    }
-  }
-
-  // Fallback to byId only when no spec-matching roll exists (so caller can still surface contamination warning)
-  return byId;
-}
-
-/**
- * Strict check determining whether a cut record legitimately belongs to `roll`.
- * Prevents cross-width / cross-pattern mixing and prevents stealing records whose
- * `foilId` belongs to another live roll.
- */
-export function doesRecordBelongToRoll(
-  roll: FoilRoll,
-  record: StockCutRecord,
-  knownRollIds?: Set<string>
-): boolean {
-  if (record.foilId) {
-    if (record.foilId === roll.id) {
-      return isRecordSpecCompatibleWithRoll(roll, record);
-    }
-    // If record's foilId belongs to another live roll, never pull it in via lot+roll fallback
-    if (!knownRollIds || knownRollIds.has(record.foilId)) {
-      return false;
-    }
-  }
-
-  // Fallback only for orphan / foilId-less records: must match lot + roll + width + pattern
-  const sameLot =
-    normalizeLotRollPart(record.lotNumber) !== '' &&
-    normalizeLotRollPart(record.lotNumber) === normalizeLotRollPart(roll.lotNumber);
-  const sameRoll =
-    normalizeLotRollPart(record.rollNumber) !== '' &&
-    normalizeLotRollPart(record.rollNumber) === normalizeLotRollPart(roll.rollNumber);
-
-  if (!sameLot || !sameRoll) return false;
-  return isRecordSpecCompatibleWithRoll(roll, record, { requireBothPresent: true });
-}
-
-/**
- * Returns records currently attached to `roll.id` whose width or pattern contradicts `roll`.
- * These are quarantined from deductions and offered for one-click recovery back to their true roll.
+ * Finds records currently attached to `roll.id` whose explicit width or pattern
+ * conflicts with `roll` (cross-spec contamination from earlier lot+roll matching bugs).
  */
 export function findContaminatedRecordsForRoll(
   roll: FoilRoll,
   records: StockCutRecord[]
 ): StockCutRecord[] {
-  return records.filter(
-    (r) => r.foilId === roll.id && hasExplicitSpecConflict(roll, r)
+  return records.filter((r) => r.foilId === roll.id && hasExplicitSpecConflict(roll, r));
+}
+
+/**
+ * Determines whether a cut record legitimately belongs to `roll`.
+ * - Primary binding: `rec.foilId === roll.id` AND spec is compatible (quarantining conflicts).
+ * - Never steals a record whose `foilId` points to another live roll in `knownRollIds`.
+ * - Orphan/foilId-less fallback: only when `lotNumber + rollNumber + width + pattern` all match.
+ */
+export function doesRecordBelongToRoll(
+  roll: FoilRoll,
+  rec: StockCutRecord,
+  knownRollIds?: Set<string>
+): boolean {
+  if (rec.foilId) {
+    if (rec.foilId === roll.id) {
+      return isRecordSpecCompatibleWithRoll(roll, rec);
+    }
+    if (!knownRollIds || knownRollIds.has(rec.foilId)) {
+      return false;
+    }
+  }
+
+  const lotMatches =
+    normalizeLotRollPart(rec.lotNumber) !== '' &&
+    normalizeLotRollPart(rec.lotNumber) === normalizeLotRollPart(roll.lotNumber);
+  const rollMatches =
+    normalizeLotRollPart(rec.rollNumber) !== '' &&
+    normalizeLotRollPart(rec.rollNumber) === normalizeLotRollPart(roll.rollNumber);
+
+  return (
+    lotMatches &&
+    rollMatches &&
+    isRecordSpecCompatibleWithRoll(roll, rec, { requireBothPresent: true })
   );
 }
 
 /**
- * Given a cross-spec contaminated record attached to `sourceRollId`, finds the rightful
- * target roll (excluding `sourceRollId`) matching lotNumber + rollNumber + width + pattern.
+ * Finds the matching roll for a cut record:
+ * 1. Exact `rec.foilId` match first (so callers can still inspect and quarantine explicit spec conflicts).
+ * 2. Otherwise unambiguous 4-part composite match (`lotNumber + rollNumber + width + pattern`).
+ */
+export function findMatchingRollForRecord(
+  rolls: FoilRoll[],
+  rec: StockCutRecord
+): FoilRoll | undefined {
+  if (rec.foilId) {
+    const byId = rolls.find((r) => r.id === rec.foilId);
+    if (byId) return byId;
+  }
+
+  const lotKey = normalizeLotRollPart(rec.lotNumber);
+  const rollKey = normalizeLotRollPart(rec.rollNumber);
+  if (!lotKey || !rollKey) return undefined;
+
+  const candidates = rolls.filter(
+    (r) =>
+      normalizeLotRollPart(r.lotNumber) === lotKey &&
+      normalizeLotRollPart(r.rollNumber) === rollKey &&
+      isRecordSpecCompatibleWithRoll(r, rec, { requireBothPresent: true })
+  );
+
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/**
+ * Finds the rightful target roll for a contaminated cut record currently attached to `sourceRollId`.
+ * Requires an exact lotNumber + rollNumber + width + pattern match (and returns undefined if ambiguous).
  */
 export function findTargetRollForContaminatedRecord(
-  rolls: FoilRoll[],
+  allRolls: FoilRoll[],
   sourceRollId: string,
-  record: StockCutRecord
+  rec: StockCutRecord
 ): FoilRoll | undefined {
-  const lot = normalizeLotRollPart(record.lotNumber);
-  const rollNo = normalizeLotRollPart(record.rollNumber);
-  if (!lot || !rollNo) return undefined;
+  const lotKey = normalizeLotRollPart(rec.lotNumber);
+  const rollKey = normalizeLotRollPart(rec.rollNumber);
+  if (!lotKey || !rollKey) return undefined;
 
-  const matches = rolls.filter(
+  const candidates = allRolls.filter(
     (r) =>
       r.id !== sourceRollId &&
-      normalizeLotRollPart(r.lotNumber) === lot &&
-      normalizeLotRollPart(r.rollNumber) === rollNo &&
-      isRecordSpecCompatibleWithRoll(r, record, { requireBothPresent: true })
+      normalizeLotRollPart(r.lotNumber) === lotKey &&
+      normalizeLotRollPart(r.rollNumber) === rollKey &&
+      isRecordSpecCompatibleWithRoll(r, rec, { requireBothPresent: true })
   );
-  return matches.length === 1 ? matches[0] : matches[0];
+
+  if (candidates.length === 1) return candidates[0];
+
+  if (candidates.length > 1) {
+    const activeCandidates = candidates.filter(
+      (r) => r.status !== 'depleted' && !r.isZeroedOut && Number(r.remainingMeters) > 0
+    );
+    if (activeCandidates.length === 1) return activeCandidates[0];
+  }
+
+  return undefined;
 }

@@ -1,5 +1,6 @@
 import { FoilRoll, StockCutRecord } from '../types';
 import { round2 } from './formatters';
+import { isRecordSpecCompatibleWithRoll } from './rollIdentity';
 
 export interface RollReservationMetrics {
   totalMeters: number;
@@ -23,9 +24,12 @@ export const calculateRollReservationMetrics = (
   const total = Number(roll.totalMeters) || 0;
   const remaining = Number(roll.remainingMeters) || 0;
 
-  // ค้นหารายการที่รอตัด (reserved) ของม้วนนี้
+  // ค้นหารายการที่รอตัด (reserved) ของม้วนนี้ (ต้องตรงหน้ากว้าง/ลายของม้วนด้วย)
   const rollReservations = records.filter(
-    (r) => r.foilId === roll.id && r.cutStatus === 'reserved'
+    (r) =>
+      r.foilId === roll.id &&
+      r.cutStatus === 'reserved' &&
+      isRecordSpecCompatibleWithRoll(roll, r)
   );
 
   const reservedCount = rollReservations.length;

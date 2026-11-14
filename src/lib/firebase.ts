@@ -2974,6 +2974,16 @@ export async function confirmProductionInFirestore(
     }
 
     const serverRoll = rollSnap.data() as FoilRoll;
+    if (hasExplicitSpecConflict(serverRoll, record)) {
+      throw new Error(
+        `🔒 สเปกม้วนไม่ตรงกับใบงาน (${record.width} มม. · ${record.pattern} ≠ ${serverRoll.width} มม. · ${serverRoll.pattern}) กรุณาย้ายใบงานกลับม้วนที่ถูกต้องก่อนยืนยันผลิต`
+      );
+    }
+    if (serverRoll.isZeroedOut) {
+      throw new Error(
+        `ม้วน ${serverRoll.lotNumber} #${serverRoll.rollNumber} ถูกตัดเป็น 0 อยู่ กรุณากด "คืนค่าฟอยล์" ก่อนยืนยันผลิตจริง`
+      );
+    }
     const totalDeduct = Math.abs(Number(record.totalDeducted) || (Number(record.usedMeters || 0) + Number(record.ngMeters || 0)));
     const freshRemaining = Math.max(0, Number(serverRoll.remainingMeters || 0));
 

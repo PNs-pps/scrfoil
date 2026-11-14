@@ -200,26 +200,43 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
     <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 shadow-2xs select-none">
       {/* Background action tray revealed upon sliding left (4 menu actions) */}
       <div className="absolute inset-y-0 right-0 w-[224px] flex items-stretch bg-slate-900 text-white z-0">
-        {/* 1. ตัดสต๊อก */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setTranslateX(0);
-            setIsSwiped(false);
-            onOpenCut(roll.id);
-          }}
-          disabled={isDepleted || isZeroed}
-          className={`flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold transition-colors cursor-pointer ${
-            isDepleted || isZeroed
-              ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-              : 'bg-amber-500 hover:bg-amber-400 text-slate-950 active:bg-amber-600'
-          }`}
-          title="ตัดสต๊อกฟอยล์"
-        >
-          <Scissors className="w-4 h-4 mb-0.5" />
-          <span className="leading-tight">ตัดสต๊อก</span>
-        </button>
+        {/* 1. ตัดสต๊อก หรือ คืนค่า (เมื่อถูกตัดเป็น 0) */}
+        {isZeroed && onToggleZeroOut ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setTranslateX(0);
+              setIsSwiped(false);
+              onToggleZeroOut(roll.id, false);
+            }}
+            className="flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white active:bg-emerald-700 transition-colors cursor-pointer"
+            title="คืนค่าฟอยล์จากตัดสต๊อกเป็น 0 กลับมาใช้งานต่อ (กรณี กดผิด)"
+          >
+            <RotateCcw className="w-4 h-4 mb-0.5" />
+            <span className="leading-tight">คืนค่า</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setTranslateX(0);
+              setIsSwiped(false);
+              onOpenCut(roll.id);
+            }}
+            disabled={isDepleted || isZeroed}
+            className={`flex-1 flex flex-col items-center justify-center py-2 px-1 text-[10px] font-bold transition-colors cursor-pointer ${
+              isDepleted || isZeroed
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                : 'bg-amber-500 hover:bg-amber-400 text-slate-950 active:bg-amber-600'
+            }`}
+            title="ตัดสต๊อกฟอยล์"
+          >
+            <Scissors className="w-4 h-4 mb-0.5" />
+            <span className="leading-tight">ตัดสต๊อก</span>
+          </button>
+        )}
 
         {/* 2. ดูไทม์ไลน์ */}
         <button

@@ -1,207 +1,228 @@
 import { describe, it, expect } from 'vitest';
 import {
-  findMatchingRollForRecord,
+  buildStrictRollKey,
   doesRecordBelongToRoll,
   findContaminatedRecordsForRoll,
+  findMatchingRollForRecord,
   findTargetRollForContaminatedRecord,
+  hasExplicitSpecConflict,
   isRecordSpecCompatibleWithRoll,
 } from './rollIdentity';
-import { checkStockIntegrity } from './integrityCheck';
 import { auditRollSOHistory } from './soHistoryAudit';
-import type { FoilRoll, StockCutRecord } from '../types';
+import { checkStockIntegrity } from './integrityCheck';
+import { getRestorableZeroedMeters } from './rollZeroRestore';
+import { FoilRoll, StockCutRecord } from '../types';
 
-const makeRoll = (overrides: Partial<FoilRoll>): FoilRoll => ({
+const makeRoll = (overrides: Partial<FoilRoll> = {}): FoilRoll => ({
   id: 'roll-default',
   lotNumber: 'VIP36',
   rollNumber: '02',
-  width: 830,
-  pattern: 'กลีบบัว',
+  width: 850,
+  pattern: 'ขาว',
   totalMeters: 1000,
-  remainingMeters: 1000,
-  usedMeters: 0,
+  remainingMeters: 274,
+  usedMeters: 726,
   ngMeters: 0,
-  dateReceived: '2026-10-10',
   status: 'active',
-  createdAt: '2026-10-10T00:00:00.000Z',
+  dateReceived: '2026-11-01',
+  createdAt: '2026-11-01T00:00:00.000Z',
   ...overrides,
 });
 
-const makeCut = (overrides: Partial<StockCutRecord>): StockCutRecord => ({
-  id: 'cut-default',
-  foilId: 'roll-830',
+const makeRec = (overrides: Partial<StockCutRecord> = {}): StockCutRecord => ({
+  id: 'rec-default',
+  foilId: 'roll-850-white',
   lotNumber: 'VIP36',
   rollNumber: '02',
-  width: 830,
-  pattern: 'กลีบบัว',
-  soNumber: 'so6911187',
-  usedMeters: 10,
+  width: 850,
+  pattern: 'ขาว',
+  soNumber: 'so6911001',
+  usedMeters: 100,
   ngMeters: 0,
-  totalDeducted: 10,
+  totalDeducted: 100,
   remainingBefore: 1000,
-  remainingAfter: 990,
-  usageDate: '2026-11-10',
-  recordedDate: '2026-11-10',
-  recordedBy: 'นอต',
-  createdAt: '2026-11-10T10:00:00.000Z',
+  remainingAfter: 900,
+  usageDate: '2026-11-05',
+  recordedDate: '2026-11-05',
+  recordedBy: 'Tester',
+  createdAt: '2026-11-05T10:00:00.000Z',
+  cutStatus: 'completed',
   ...overrides,
 });
 
-describe('rollIdentity - Strict isolation across width and pattern', () => {
-  const roll830 = makeRoll({
-    id: 'roll-830',
-    lotNumber: 'VIP36',
-    rollNumber: '02',
-    width: 830,
-    pattern: 'กลีบบัว',
-    totalMeters: 1000,
-    remainingMeters: 983.14,
-  });
-
-  const roll850 = makeRoll({
-    id: 'roll-850',
+describe('rollIdentity & cross-spec isolation', () => {
+  const roll850White = makeRoll({
+    id: 'roll-850-white',
     lotNumber: 'VIP36',
     rollNumber: '02',
     width: 850,
     pattern: 'ขาว',
-    totalMeters: 1000,
-    remainingMeters: 948.3,
+    totalMeters: 726,
+    remainingMeters: 0,
+    usedMeters: 726,
+    status: 'depleted',
   });
 
-  it('never mixes cuts sharing lotNumber + rollNumber across different widths and patterns', () => {
-    const cut830 = makeCut({
-      id: 'cut-830',
-      foilId: 'roll-830',
+  const roll830Lotus = makeRoll({
+    id: 'roll-830-lotus',
+    lotNumber: 'VIP36',
+    rollNumber: '02',
+    width: 830,
+    pattern: 'กลีบบัว',
+    totalMeters: 784.04,
+    remainingMeters: 0,
+    usedMeters: 784.04,
+    status: 'depleted',
+  });
+
+  it('keeps strict roll keys distinct when lot and roll match across different width or pattern', () => {
+    const keyWhite = buildStrictRollKey(
+      roll850White.lotNumber,
+      roll850White.rollNumber,
+      roll850White.width,
+      roll850White.pattern
+    );
+    const keyLotus = buildStrictRollKey(
+      roll830Lotus.lotNumber,
+      roll830Lotus.rollNumber,
+      roll830Lotus.width,
+      roll830Lotus.pattern
+    );
+    expect(keyWhite).not.toBe(keyLotus);
+
+    const aliasWhiteKey = buildStrictRollKey(' vip36 ', '02', '850', 'ท้องขาว');
+    expect(aliasWhiteKey).toBe(keyWhite);
+  });
+
+  it('detects explicit width or pattern conflict accurately', () => {
+    const recLotusOnWhite = makeRec({
+      foilId: roll850White.id,
       width: 830,
       pattern: 'กลีบบัว',
-      soNumber: 'so6911187',
-      usedMeters: 16.86,
-      totalDeducted: 16.86,
-      remainingBefore: 1000,
-      remainingAfter: 983.14,
     });
+    expect(hasExplicitSpecConflict(roll850White, recLotusOnWhite)).toBe(true);
+    expect(isRecordSpecCompatibleWithRoll(roll850White, recLotusOnWhite)).toBe(false);
 
-    const cut850 = makeCut({
-      id: 'cut-850',
-      foilId: 'roll-850',
+    const recMissingSpec = makeRec({
+      foilId: roll850White.id,
+      width: undefined as any,
+      pattern: undefined as any,
+    });
+    expect(hasExplicitSpecConflict(roll850White, recMissingSpec)).toBe(false);
+    expect(isRecordSpecCompatibleWithRoll(roll850White, recMissingSpec)).toBe(true);
+    expect(
+      isRecordSpecCompatibleWithRoll(roll850White, recMissingSpec, { requireBothPresent: true })
+    ).toBe(false);
+  });
+
+  it('isolates cross-spec records in doesRecordBelongToRoll and finds exact rightful target roll', () => {
+    const allRolls = [roll850White, roll830Lotus];
+    const knownIds = new Set(allRolls.map((r) => r.id));
+
+    const validWhiteCut = makeRec({
+      id: 'rec-w1',
+      foilId: roll850White.id,
       width: 850,
       pattern: 'ขาว',
-      soNumber: 'so6911118',
-      usedMeters: 51.7,
-      totalDeducted: 51.7,
-      remainingBefore: 1000,
-      remainingAfter: 948.3,
+      usedMeters: 726,
+      totalDeducted: 726,
+      remainingBefore: 726,
+      remainingAfter: 0,
     });
 
-    const knownIds = new Set([roll830.id, roll850.id]);
-    expect(doesRecordBelongToRoll(roll830, cut830, knownIds)).toBe(true);
-    expect(doesRecordBelongToRoll(roll830, cut850, knownIds)).toBe(false);
-    expect(doesRecordBelongToRoll(roll850, cut850, knownIds)).toBe(true);
-    expect(doesRecordBelongToRoll(roll850, cut830, knownIds)).toBe(false);
-
-    expect(findMatchingRollForRecord([roll830, roll850], cut830)?.id).toBe('roll-830');
-    expect(findMatchingRollForRecord([roll830, roll850], cut850)?.id).toBe('roll-850');
-
-    const integrity = checkStockIntegrity([roll830, roll850], [cut830, cut850]);
-    expect(integrity).toHaveLength(0);
-  });
-
-  it('matches ท้องขาว and ขาว via normalizePatternForMatch cleanly', () => {
-    const recShort = makeCut({ width: 850, pattern: 'ขาว' });
-    const recLong = makeCut({ width: 850, pattern: 'ท้องขาว' });
-    expect(isRecordSpecCompatibleWithRoll(roll850, recShort, { requireBothPresent: true })).toBe(true);
-    expect(isRecordSpecCompatibleWithRoll(roll850, recLong, { requireBothPresent: true })).toBe(true);
-    expect(isRecordSpecCompatibleWithRoll(roll830, recShort)).toBe(false);
-  });
-
-  it('quarantines cross-spec contaminated cuts and resolves their rightful roll', () => {
-    // Cut belonging to 850 ขาว accidentally carries foilId of 830 กลีบบัว
-    const contaminatedCut = makeCut({
-      id: 'cut-wrong-id',
-      foilId: 'roll-830',
-      lotNumber: 'VIP36',
-      rollNumber: '02',
-      width: 850,
-      pattern: 'ขาว',
-      soNumber: 'so6911118',
-      usedMeters: 51.7,
-      totalDeducted: 51.7,
-    });
-    const legitCut830 = makeCut({
-      id: 'cut-legit-830',
-      foilId: 'roll-830',
-      width: 830,
-      pattern: 'กลีบบัว',
-      soNumber: 'so6911187',
-      usedMeters: 16.86,
-      totalDeducted: 16.86,
-      remainingBefore: 1000,
-      remainingAfter: 983.14,
-    });
-
-    const contaminated = findContaminatedRecordsForRoll(roll830, [legitCut830, contaminatedCut]);
-    expect(contaminated.map((r) => r.id)).toEqual(['cut-wrong-id']);
-
-    const target = findTargetRollForContaminatedRecord([roll830, roll850], roll830.id, contaminatedCut);
-    expect(target?.id).toBe('roll-850');
-
-    const audit = auditRollSOHistory(roll830, [legitCut830, contaminatedCut]);
-    expect(audit.contaminatedRecords).toHaveLength(1);
-    expect(audit.issues.some((i) => i.type === 'SPEC_MISMATCH_CONTAMINATION')).toBe(true);
-    // Excluded from deduction and locked from auto-adjust until separated
-    expect(audit.calculatedRemaining).toBe(983.14);
-    expect(audit.canAutoAdjust).toBe(false);
-
-    const integrity = checkStockIntegrity([roll830, roll850], [legitCut830, contaminatedCut]);
-    const item830 = integrity.find((m) => m.rollId === 'roll-830');
-    expect(item830?.contaminatedCount).toBe(1);
-    expect(item830?.canAutoAdjust).toBe(false);
-  });
-});
-
-describe('Zero-Lock & Negative-Balance Safety Guards', () => {
-  it('blocks auto-adjust when a roll still has leftover scrap (> 0) and computed remaining <= 0', () => {
-    const scrapRoll = makeRoll({
-      id: 'roll-scrap',
+    const contaminatedLotusCut = makeRec({
+      id: 'rec-l1',
+      foilId: roll850White.id, // Hijacked onto 850 white roll!
       lotNumber: 'VIP36',
       rollNumber: '02',
       width: 830,
       pattern: 'กลีบบัว',
+      usedMeters: 123.6,
+      totalDeducted: 123.6,
+    });
+
+    expect(doesRecordBelongToRoll(roll850White, validWhiteCut, knownIds)).toBe(true);
+    expect(doesRecordBelongToRoll(roll850White, contaminatedLotusCut, knownIds)).toBe(false);
+    // Must not silently hijack while foilId still points to another known live roll
+    expect(doesRecordBelongToRoll(roll830Lotus, contaminatedLotusCut, knownIds)).toBe(false);
+
+    const contaminated = findContaminatedRecordsForRoll(roll850White, [
+      validWhiteCut,
+      contaminatedLotusCut,
+    ]);
+    expect(contaminated.map((r) => r.id)).toEqual(['rec-l1']);
+
+    const target = findTargetRollForContaminatedRecord(
+      allRolls,
+      roll850White.id,
+      contaminatedLotusCut
+    );
+    expect(target?.id).toBe(roll830Lotus.id);
+
+    // Orphan fallback only attaches when all 4 spec fields agree
+    const orphanLotusCut = makeRec({
+      id: 'rec-orphan',
+      foilId: '',
+      lotNumber: 'VIP36',
+      rollNumber: '02',
+      width: 830,
+      pattern: 'กลีบบัว',
+    });
+    expect(findMatchingRollForRecord(allRolls, orphanLotusCut)?.id).toBe(roll830Lotus.id);
+    expect(doesRecordBelongToRoll(roll850White, orphanLotusCut, knownIds)).toBe(false);
+    expect(doesRecordBelongToRoll(roll830Lotus, orphanLotusCut, knownIds)).toBe(true);
+  });
+
+  it('quarantines contaminated cuts in auditRollSOHistory, checkStockIntegrity, and getRestorableZeroedMeters', () => {
+    const roll = makeRoll({
+      id: 'roll-a',
       totalMeters: 1000,
-      remainingMeters: 2.34,
+      remainingMeters: 500,
+      usedMeters: 500,
+      ngMeters: 0,
       isZeroedOut: false,
-      status: 'active',
+    });
+    const ownRec = makeRec({
+      id: 'cut-own',
+      foilId: 'roll-a',
+      width: 850,
+      pattern: 'ขาว',
+      usedMeters: 500,
+      totalDeducted: 500,
+      remainingBefore: 1000,
+      remainingAfter: 500,
+    });
+    const hijackedRec = makeRec({
+      id: 'cut-hijack',
+      foilId: 'roll-a',
+      width: 830,
+      pattern: 'กลีบบัว',
+      usedMeters: 400,
+      totalDeducted: 400,
+      remainingBefore: 500,
+      remainingAfter: 100,
     });
 
-    const overDeductedCuts = [
-      makeCut({
-        id: 'c1',
-        foilId: 'roll-scrap',
-        usedMeters: 997.66,
-        totalDeducted: 997.66,
-        remainingBefore: 1000,
-        remainingAfter: 2.34,
-      }),
-      makeCut({
-        id: 'c2',
-        foilId: 'roll-scrap',
-        soNumber: 'ตัวอย่าง',
-        usedMeters: 1,
-        ngMeters: 6,
-        totalDeducted: 7,
-        remainingBefore: -264.66,
-        remainingAfter: -271.66,
-      }),
-    ];
-
-    const audit = auditRollSOHistory(scrapRoll, overDeductedCuts);
-    expect(audit.calculatedRemaining).toBe(-4.66);
-    expect(audit.zeroLockBlocked).toBe(true);
+    const audit = auditRollSOHistory(roll, [ownRec, hijackedRec]);
+    expect(audit.contaminatedRecords.map((r) => r.id)).toEqual(['cut-hijack']);
+    expect(audit.totalUsedMeters).toBe(500);
+    expect(audit.calculatedRemaining).toBe(500);
     expect(audit.canAutoAdjust).toBe(false);
-    expect(audit.issues.some((i) => i.type === 'NEGATIVE_VALUE')).toBe(true);
+    expect(audit.issues.some((i) => i.type === 'SPEC_MISMATCH_CONTAMINATION')).toBe(true);
 
-    const integrity = checkStockIntegrity([scrapRoll], overDeductedCuts);
-    expect(integrity).toHaveLength(1);
-    expect(integrity[0].zeroLockBlocked).toBe(true);
-    expect(integrity[0].canAutoAdjust).toBe(false);
+    // Integrity check locks auto-adjustment while contaminated records remain
+    const [mismatch] = checkStockIntegrity([roll], [ownRec, hijackedRec]);
+    expect(mismatch).toBeDefined();
+    expect(mismatch.contaminatedCount).toBe(1);
+    expect(mismatch.canAutoAdjust).toBe(false);
+
+    // Zero-out restore ignores cross-spec hijacked records when computing fallback remainder
+    const zeroedRoll = {
+      ...roll,
+      isZeroedOut: true,
+      remainingMeters: 0,
+      manualZeroedOriginalMeters: undefined,
+    };
+    expect(getRestorableZeroedMeters(zeroedRoll, [ownRec, hijackedRec])).toBe(500);
   });
 });

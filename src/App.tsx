@@ -39,6 +39,7 @@ import {
   reconcileRollsInFirestore,
   realignRollCutChainInFirestore,
   recomputeAdjustmentsFromServer,
+  separateCrossSpecRecordsInFirestore,
   uploadAllToFirestore,
   testFirestoreConnection,
   fetchAllCutRecordsFromFirestore,
@@ -121,6 +122,7 @@ import { SOReservationHubView } from './components/SOReservationHubView';
 import { ReallocateRollModal } from './components/ReallocateRollModal';
 import { CancelProductionModal } from './components/CancelProductionModal';
 import { getRestorableZeroedMeters } from './utils/rollZeroRestore';
+import { buildStrictRollKey, hasExplicitSpecConflict } from './utils/rollIdentity';
 import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X, Workflow, RotateCcw } from 'lucide-react';
 
 type AppTab = 'dashboard' | 'rolls' | 'history' | 'audit' | 'settings';
@@ -251,10 +253,29 @@ export default function App() {
   const [isSOBugInspectorOpen, setIsSOBugInspectorOpen] = useState(false);
   const [soBugAuditTargetRollId, setSoBugAuditTargetRollId] = useState<string | null>(null);
 
-  // Real-time calculation of SO bugs across all rolls
+  // Include active rolls plus any archived rolls currently targeted by Bug Inspector
+  // or showing explicit cross-spec record contamination (without triggering false
+  // 200-record-window MASTER_ROLL_MISMATCH warnings on normal old archived rolls).
+  const inspectorRolls = React.useMemo(() => {
+    const byId = new Map<string, FoilRoll>();
+    rolls.forEach((r) => byId.set(r.id, r));
+    archivedRolls.forEach((r) => {
+      if (byId.has(r.id)) return;
+      const isTarget = soBugAuditTargetRollId === r.id;
+      const hasSpecConflictInRecords = records.some(
+        (rec) => rec.foilId === r.id && hasExplicitSpecConflict(r, rec)
+      );
+      if (isTarget || hasSpecConflictInRecords) {
+        byId.set(r.id, r);
+      }
+    });
+    return Array.from(byId.values());
+  }, [rolls, archivedRolls, records, soBugAuditTargetRollId]);
+
+  // Real-time calculation of SO bugs across all inspected rolls
   const soAuditResults = React.useMemo(() => {
-    return auditAllRollsSOHistory(rolls, records);
-  }, [rolls, records]);
+    return auditAllRollsSOHistory(inspectorRolls, records);
+  }, [inspectorRolls, records]);
 
   // ไม่นับ SPLIT_PRODUCTION_BATCH (แบ่งรอบปกติ) เป็นบัคที่ต้องแจ้งเตือนบน badge
   const soBugCount = React.useMemo(() => {
@@ -266,6 +287,33 @@ export default function App() {
   const handleOpenSOAudit = (rollId?: string) => {
     setSoBugAuditTargetRollId(rollId || null);
     setIsSOBugInspectorOpen(true);
+    if (rollId && typeof navigator !== 'undefined' && navigator.onLine) {
+      const targetRoll =
+        rollsRef.current.find((r) => r.id === rollId) ??
+        archivedRollsRef.current.find((r) => r.id === rollId);
+      void fetchCutRecordsForRollFromServer(
+        rollId,
+        targetRoll
+          ? {
+              lotNumber: targetRoll.lotNumber,
+              rollNumber: targetRoll.rollNumber,
+              width: targetRoll.width,
+              pattern: targetRoll.pattern,
+            }
+          : undefined
+      )
+        .then((serverRecs) => {
+          if (!serverRecs || serverRecs.length === 0) return;
+          commitRecords((prev) => {
+            const map = new Map(prev.map((r) => [r.id, r]));
+            serverRecs.forEach((r) => map.set(r.id, r));
+            return Array.from(map.values()).sort((a, b) =>
+              (b.createdAt || '').localeCompare(a.createdAt || '')
+            );
+          });
+        })
+        .catch(() => {});
+    }
   };
 
   const runIntegrityCheck = (isManual: boolean = false) => {
@@ -399,13 +447,15 @@ export default function App() {
         const pendingEditedRollIds = getPendingRecordEditRollIds();
         setRolls((prev: FoilRoll[]) => {
           const prevMap = new Map<string, FoilRoll>(prev.map((r: FoilRoll) => [r.id, r]));
-          // เพิ่ง realign/ตัดยอด หรือมีคิวค้าง — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ
+          // เพิ่ง realign/ตัดยอด/คืนค่า หรือมีคิวค้าง — เก็บยอด local ไว้ ไม่ให้ cache เก่าเด้งกลับ (รวมถึง archived rolls ด้วย)
           const mergedServer = firestoreRolls.map((r: FoilRoll) => {
+            const local =
+              prevMap.get(r.id) ??
+              archivedRollsRef.current.find((a) => a.id === r.id);
             if (
               (isRecentLocalWrite(r.id) || pendingRollIds.has(r.id) || pendingEditedRollIds.has(r.id)) &&
-              prevMap.has(r.id)
+              local
             ) {
-              const local = prevMap.get(r.id)!;
               return {
                 ...r,
                 remainingMeters: local.remainingMeters,
@@ -413,7 +463,9 @@ export default function App() {
                 ngMeters: local.ngMeters,
                 recentCuts: local.recentCuts ?? r.recentCuts,
                 isZeroedOut: local.isZeroedOut,
+                manualZeroedOriginalMeters: local.manualZeroedOriginalMeters,
                 status: local.status,
+                depletedAt: local.depletedAt,
               };
             }
             return r;
@@ -509,6 +561,11 @@ export default function App() {
             if (isRecentLocalWrite(r.id) && local) {
               map.set(r.id, {
                 ...r,
+                foilId: local.foilId,
+                lotNumber: local.lotNumber,
+                rollNumber: local.rollNumber,
+                reallocatedFromRollId: local.reallocatedFromRollId,
+                reallocatedAt: local.reallocatedAt,
                 remainingBefore: local.remainingBefore,
                 remainingAfter: local.remainingAfter,
                 usedMeters: local.usedMeters,
@@ -1030,9 +1087,27 @@ export default function App() {
   const handleAddFoil = (
     newRollData: Omit<FoilRoll, 'id' | 'createdAt' | 'remainingMeters' | 'usedMeters' | 'ngMeters' | 'status'>
   ) => {
+    const incomingKey = buildStrictRollKey(
+      newRollData.lotNumber,
+      newRollData.rollNumber,
+      newRollData.width,
+      newRollData.pattern
+    );
+    const allKnownRolls = [...rollsRef.current, ...archivedRollsRef.current];
+    const duplicateRoll = allKnownRolls.find(
+      (r) => buildStrictRollKey(r.lotNumber, r.rollNumber, r.width, r.pattern) === incomingKey
+    );
+    if (duplicateRoll) {
+      showToast(
+        `พบม้วนฟอยล์ซ้ำในระบบแล้ว: ล็อต ${duplicateRoll.lotNumber} #${duplicateRoll.rollNumber} (${duplicateRoll.width} มม. · ${duplicateRoll.pattern})`,
+        'error'
+      );
+      return;
+    }
+
     const newRoll: FoilRoll = {
       ...newRollData,
-      id: `foil-${Date.now()}`,
+      id: `foil-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       remainingMeters: newRollData.totalMeters,
       usedMeters: 0,
       ngMeters: 0,
@@ -1041,8 +1116,7 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-const updated = [newRoll, ...rolls];
-    updateRollsState(updated);
+    commitRolls((prev) => (prev.some((r) => r.id === newRoll.id) ? prev : [newRoll, ...prev]));
 
     // Save to Firestore Realtime
     void trackCloudWrite(saveFoilRollToFirestore(newRoll), undefined, (late) => {
@@ -1205,7 +1279,11 @@ const updated = [newRoll, ...rolls];
       createdAt: now,
     }));
 
-    updateRollsState([...newRolls, ...rolls]);
+    commitRolls((prev) => {
+      const existingIds = new Set(prev.map((r) => r.id));
+      const uniqueNew = newRolls.filter((r) => !existingIds.has(r.id));
+      return [...uniqueNew, ...prev];
+    });
 
     // Save all new rolls to Firestore one at a time, so a mid-batch failure can be
     // reported precisely and attributed to specific rolls. Firestore has no
@@ -1900,24 +1978,36 @@ const updated = [newRoll, ...rolls];
     await handleConfirmCutBatch([cutData]);
   };
 
+  const confirmingProductionIdsRef = useRef<Set<string>>(new Set());
+
   /** ยืนยันว่าผลิตจริงแล้ว (หักสต๊อกม้วนฟอยล์และเปลี่ยนสถานะเป็น completed) */
   const handleConfirmProduction = async (recordId: string, soNumber: string) => {
+    if (confirmingProductionIdsRef.current.has(recordId)) return;
+    confirmingProductionIdsRef.current.add(recordId);
     try {
       const result = await confirmProductionInFirestore(recordId, currentUserEmail || 'ผู้ควบคุมงาน');
-      
-      // Update local rolls
-      setRolls((prev) => {
-        const next = prev.map((r) => (r.id === result.roll.id ? result.roll : r));
-        saveStoredRolls(next);
-        return next;
-      });
+
+      const isActiveItem =
+        result.roll.status !== 'depleted' &&
+        !result.roll.isZeroedOut &&
+        Number(result.roll.remainingMeters) > 0;
+
+      if (isActiveItem) {
+        commitRolls((prev) => {
+          const exists = prev.some((r) => r.id === result.roll.id);
+          return exists ? prev.map((r) => (r.id === result.roll.id ? result.roll : r)) : [result.roll, ...prev];
+        });
+        updateArchivedRollsState((prev) => prev.filter((r) => r.id !== result.roll.id));
+      } else {
+        commitRolls((prev) => prev.filter((r) => r.id !== result.roll.id));
+        updateArchivedRollsState((prev) => {
+          const exists = prev.some((r) => r.id === result.roll.id);
+          return exists ? prev.map((r) => (r.id === result.roll.id ? result.roll : r)) : [result.roll, ...prev];
+        });
+      }
 
       // Update local records
-      setRecords((prev) => {
-        const next = prev.map((r) => (r.id === result.record.id ? result.record : r));
-        saveStoredCutRecords(next);
-        return next;
-      });
+      commitRecords((prev) => prev.map((r) => (r.id === result.record.id ? result.record : r)));
 
       if (selectedSODetailRecord && selectedSODetailRecord.id === recordId) {
         setSelectedSODetailRecord(result.record);
@@ -1927,6 +2017,8 @@ const updated = [newRoll, ...rolls];
     } catch (err: any) {
       console.error('handleConfirmProduction failed:', err);
       showToast(`ยืนยันการผลิตไม่สำเร็จ: ${err?.message || 'เกิดข้อผิดพลาด'}`, 'error');
+    } finally {
+      confirmingProductionIdsRef.current.delete(recordId);
     }
   };
 
@@ -2397,7 +2489,9 @@ const updated = [newRoll, ...rolls];
       throw new Error('PERMISSION_DENIED_NOT_STAFF');
     }
 
-    const matchingRoll = rolls.find((r) => r.id === updatedRecord.foilId);
+    const matchingRoll =
+      rollsRef.current.find((r) => r.id === updatedRecord.foilId) ??
+      archivedRollsRef.current.find((r) => r.id === updatedRecord.foilId);
 
     try {
       const { updatedRoll, updatedRecord: finalRec } =
@@ -2408,9 +2502,7 @@ const updated = [newRoll, ...rolls];
           oldRecord
         );
 
-      let nextRolls = rolls.map((r) =>
-        r.id === updatedRoll.id ? updatedRoll : r
-      );
+      let resolvedUpdatedRoll = updatedRoll;
       let nextRecords = records.map((r) =>
         r.id === finalRec.id ? finalRec : r
       );
@@ -2419,13 +2511,11 @@ const updated = [newRoll, ...rolls];
       const rollRecordIds = nextRecords
         .filter((r) => r.foilId === finalRec.foilId)
         .map((r) => r.id);
-      if (rollRecordIds.length > 0) {
+      if (rollRecordIds.length > 0 && !updatedRoll.isZeroedOut) {
         try {
           const { updatedRoll: realignedRoll, updatedRecords: realignedRecs } =
             await realignRollCutChainInFirestore(finalRec.foilId, rollRecordIds);
-          nextRolls = nextRolls.map((r) =>
-            r.id === realignedRoll.id ? realignedRoll : r
-          );
+          resolvedUpdatedRoll = realignedRoll;
           const byId = new Map(realignedRecs.map((r) => [r.id, r]));
           nextRecords = nextRecords.map((r) => byId.get(r.id) || r);
         } catch (alignErr: any) {
@@ -2437,7 +2527,27 @@ const updated = [newRoll, ...rolls];
       }
 
       updateRecordsState(nextRecords);
-      updateRollsState(nextRolls);
+      const isUpdatedRollActive =
+        resolvedUpdatedRoll.status !== 'depleted' &&
+        !resolvedUpdatedRoll.isZeroedOut &&
+        Number(resolvedUpdatedRoll.remainingMeters) > 0;
+      if (isUpdatedRollActive) {
+        commitRolls((prev) => {
+          const exists = prev.some((r) => r.id === resolvedUpdatedRoll.id);
+          return exists
+            ? prev.map((r) => (r.id === resolvedUpdatedRoll.id ? resolvedUpdatedRoll : r))
+            : [resolvedUpdatedRoll, ...prev];
+        });
+        updateArchivedRollsState((prev) => prev.filter((r) => r.id !== resolvedUpdatedRoll.id));
+      } else {
+        commitRolls((prev) => prev.filter((r) => r.id !== resolvedUpdatedRoll.id));
+        updateArchivedRollsState((prev) => {
+          const exists = prev.some((r) => r.id === resolvedUpdatedRoll.id);
+          return exists
+            ? prev.map((r) => (r.id === resolvedUpdatedRoll.id ? resolvedUpdatedRoll : r))
+            : [resolvedUpdatedRoll, ...prev];
+        });
+      }
 
       // SO Audit Trail: Record Diff (no delete logging per user specification)
       const diffs = computeCutRecordDiff(oldRecord, updatedRecord);
@@ -2465,7 +2575,7 @@ const updated = [newRoll, ...rolls];
       }
 
       setEditingCutRecord(null);
-      const finalRoll = nextRolls.find((r) => r.id === finalRec.foilId) || updatedRoll;
+      const finalRoll = resolvedUpdatedRoll;
       showToast(
         `แก้ไขใบ SO ${finalRec.soNumber} สำเร็จ (ใช้ ${formatMeters(finalRec.usedMeters)} ม. + NG ${formatMeters(finalRec.ngMeters)} ม.) คงเหลือม้วน ${formatMeters(finalRoll.remainingMeters)} ม. · จัดห่วงโซ่ประวัติแล้ว [Cloud]`,
         'success'
@@ -2802,21 +2912,161 @@ const updated = [newRoll, ...rolls];
         // Functional commits so anything the listener delivered during the awaits
         // above is not clobbered by the render-time snapshot.
         const finalRoll = realignedRoll || updated[0];
-        commitRolls((prev) => prev.map((r) => (r.id === rollId ? finalRoll : r)));
+        const isFinalRollActive =
+          finalRoll.status !== 'depleted' &&
+          !finalRoll.isZeroedOut &&
+          Number(finalRoll.remainingMeters) > 0;
+        if (isFinalRollActive) {
+          commitRolls((prev) => {
+            const exists = prev.some((r) => r.id === rollId);
+            return exists ? prev.map((r) => (r.id === rollId ? finalRoll : r)) : [finalRoll, ...prev];
+          });
+          updateArchivedRollsState((prev) => prev.filter((r) => r.id !== rollId));
+        } else {
+          commitRolls((prev) => prev.filter((r) => r.id !== rollId));
+          updateArchivedRollsState((prev) => {
+            const exists = prev.some((r) => r.id === rollId);
+            return exists ? prev.map((r) => (r.id === rollId ? finalRoll : r)) : [finalRoll, ...prev];
+          });
+        }
+        setDetailRoll((prevDetail) => (prevDetail && prevDetail.id === rollId ? finalRoll : prevDetail));
+
         if (realignedById.size > 0) {
           commitRecords((prev) => prev.map((r) => realignedById.get(r.id) ?? r));
         }
 
         const nextRolls = rollsRef.current;
         const nextRecords = recordsRef.current;
-        const fixedRoll = nextRolls.find((r) => r.id === rollId) || updated[0];
-        showToast(`ปรับปรุงยอดคงเหลือม้วนล็อต ${fixedRoll.lotNumber} #${fixedRoll.rollNumber} เป็น ${formatMeters(fixedRoll.remainingMeters)} ม. สำเร็จ ✅`);
+        showToast(`ปรับปรุงยอดคงเหลือม้วนล็อต ${finalRoll.lotNumber} #${finalRoll.rollNumber} เป็น ${formatMeters(finalRoll.remainingMeters)} ม. สำเร็จ ✅`);
         const newIssues = checkStockIntegrity(nextRolls, nextRecords);
         setStockIntegrityIssues(newIssues);
       }
     } catch (err: any) {
       console.error('Failed to reconcile roll:', err);
       showToast(`ไม่สามารถปรับปรุงยอดได้: ${err?.message || err}`, 'info');
+    }
+  };
+
+  // Separate cross-spec records attached to a roll back to their rightful matching rolls
+  const handleSeparateCrossSpec = async (rollId: string) => {
+    try {
+      const combinedMap = new Map<string, FoilRoll>();
+      [...rollsRef.current, ...archivedRollsRef.current].forEach((r) => {
+        if (!combinedMap.has(r.id)) combinedMap.set(r.id, r);
+      });
+      const allKnownRolls = Array.from(combinedMap.values());
+
+      const result = await separateCrossSpecRecordsInFirestore(rollId, allKnownRolls);
+
+      if (result.separatedCount === 0) {
+        if (result.unresolvedRecords.length > 0) {
+          showToast(
+            `พบใบตัดต่างหน้ากว้าง/ลาย ${result.unresolvedRecords.length} รายการ แต่ยังไม่พบม้วนปลายทางที่ตรงกัน (ล็อต + เบอร์ + หน้ากว้าง + ลาย)`,
+            'error'
+          );
+        } else {
+          showToast('ไม่พบใบตัดต่างหน้ากว้าง/ลายที่ปนอยู่ในม้วนนี้', 'info');
+        }
+        return;
+      }
+
+      const movedById = new Map(result.movedRecords.map((r) => [r.id, r]));
+      if (movedById.size > 0) {
+        commitRecords((prev) => prev.map((r) => movedById.get(r.id) ?? r));
+      }
+
+      const affectedIds = Array.from(new Set([rollId, ...result.targetRollIds]));
+      for (const affectedId of affectedIds) {
+        try {
+          const serverRoll = await fetchFoilRollFromServer(affectedId);
+          if (!serverRoll) continue;
+
+          const serverRecs = await fetchCutRecordsForRollFromServer(affectedId, {
+            lotNumber: serverRoll.lotNumber,
+            rollNumber: serverRoll.rollNumber,
+            width: serverRoll.width,
+            pattern: serverRoll.pattern,
+          });
+          if (serverRecs.length > 0) {
+            commitRecords((prev) => {
+              const map = new Map(prev.map((r) => [r.id, r]));
+              serverRecs.forEach((r) => map.set(r.id, r));
+              return Array.from(map.values()).sort((a, b) =>
+                (b.createdAt || '').localeCompare(a.createdAt || '')
+              );
+            });
+          }
+
+          if (!serverRoll.isZeroedOut) {
+            try {
+              const verified = await recomputeAdjustmentsFromServer([
+                {
+                  rollId: affectedId,
+                  expectedRemaining: Number(serverRoll.remainingMeters || 0),
+                  force: serverRoll.status === 'depleted' || Number(serverRoll.remainingMeters || 0) <= 0,
+                },
+              ]);
+              await reconcileRollsInFirestore(verified);
+            } catch (recErr) {
+              console.warn(`Reconcile after cross-spec separation skipped for roll ${affectedId}:`, recErr);
+            }
+
+            if (serverRecs.length > 0) {
+              try {
+                const { updatedRecords } = await realignRollCutChainInFirestore(
+                  affectedId,
+                  serverRecs.map((r) => r.id)
+                );
+                if (updatedRecords.length > 0) {
+                  const recMap = new Map(updatedRecords.map((r) => [r.id, r]));
+                  commitRecords((prev) => prev.map((r) => recMap.get(r.id) ?? r));
+                }
+              } catch (chainErr) {
+                console.warn(`Chain realign after cross-spec separation skipped for roll ${affectedId}:`, chainErr);
+              }
+            }
+          }
+
+          const freshAfter = (await fetchFoilRollFromServer(affectedId)) || serverRoll;
+          const isActiveItem =
+            freshAfter.status !== 'depleted' &&
+            !freshAfter.isZeroedOut &&
+            Number(freshAfter.remainingMeters) > 0;
+          if (isActiveItem) {
+            commitRolls((prev) => {
+              const exists = prev.some((r) => r.id === affectedId);
+              return exists ? prev.map((r) => (r.id === affectedId ? freshAfter : r)) : [freshAfter, ...prev];
+            });
+            updateArchivedRollsState((prev) => prev.filter((r) => r.id !== affectedId));
+          } else {
+            commitRolls((prev) => prev.filter((r) => r.id !== affectedId));
+            updateArchivedRollsState((prev) => {
+              const exists = prev.some((r) => r.id === affectedId);
+              return exists ? prev.map((r) => (r.id === affectedId ? freshAfter : r)) : [freshAfter, ...prev];
+            });
+          }
+          setDetailRoll((prevDetail) => (prevDetail && prevDetail.id === affectedId ? freshAfter : prevDetail));
+        } catch (affectedErr) {
+          console.warn(`Post-separation refresh error for roll ${affectedId}:`, affectedErr);
+        }
+      }
+
+      if (selectedSODetailRecord && movedById.has(selectedSODetailRecord.id)) {
+        setSelectedSODetailRecord(movedById.get(selectedSODetailRecord.id)!);
+      }
+
+      setStockIntegrityIssues(checkStockIntegrity(rollsRef.current, recordsRef.current));
+      const unresolvedNote =
+        result.unresolvedRecords.length > 0
+          ? ` (ยังเหลือที่ไม่พบม้วนปลายทาง ${result.unresolvedRecords.length} รายการ)`
+          : '';
+      showToast(
+        `แยกใบตัดข้ามหน้ากว้าง/ลาย ${result.separatedCount} รายการกลับม้วนที่ถูกต้องเรียบร้อยแล้ว ✅${unresolvedNote}`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('handleSeparateCrossSpec failed:', err);
+      showToast(`ไม่สามารถแยกใบตัดข้ามสเปกได้: ${err?.message || err}`, 'error');
     }
   };
 
@@ -3418,6 +3668,8 @@ const updated = [newRoll, ...rolls];
             onConfirmProduction={handleConfirmProduction}
             onReallocateRoll={(rec) => setReallocatingRecord(rec)}
             onCancelProduction={(rec) => setCancellingRecord(rec)}
+            onFixRoll={handleFixRoll}
+            onSeparateCrossSpec={handleSeparateCrossSpec}
             onNavigateToAuditHub={() => setActiveTab('audit')}
           />
         )}
@@ -3550,6 +3802,7 @@ const updated = [newRoll, ...rolls];
         onClose={() => setIsAddModalOpen(false)}
         onAddFoil={handleAddFoil}
         onAddMultipleFoils={handleAddMultipleFoils}
+        existingRolls={[...rolls, ...archivedRolls]}
       />
 
       <PuSandwichModal
@@ -3652,7 +3905,7 @@ const updated = [newRoll, ...rolls];
         record={editingCutRecord}
         roll={
           editingCutRecord
-            ? rolls.find((r) => r.id === editingCutRecord.foilId) || null
+            ? [...rolls, ...archivedRolls].find((r) => r.id === editingCutRecord.foilId) || null
             : null
         }
         onSave={handleUpdateCutRecord}
@@ -3669,6 +3922,7 @@ const updated = [newRoll, ...rolls];
           onEditCutRecord={(rec) => requireEditorPermission(() => setEditingCutRecord(rec))}
           onFixRoll={handleFixRoll}
           onRealignChain={handleRealignChain}
+          onSeparateCrossSpec={handleSeparateCrossSpec}
           onToggleZeroOut={(rollId, zeroOut) => requireEditorPermission(() => handleToggleZeroOut(rollId, zeroOut))}
           canEdit={userMode === 'editor'}
           onOpenFullAudit={(rollId) => handleOpenSOAudit(rollId)}
@@ -3800,12 +4054,13 @@ const updated = [newRoll, ...rolls];
           setIsSOBugInspectorOpen(false);
           setSoBugAuditTargetRollId(null);
         }}
-        rolls={rolls}
+        rolls={inspectorRolls}
         records={records}
         initialRollId={soBugAuditTargetRollId}
         onFixRoll={handleFixRoll}
         onFixMultipleRolls={handleFixMultipleRolls}
         onRealignChain={handleRealignChain}
+        onSeparateCrossSpec={handleSeparateCrossSpec}
         onDeleteRecord={handleDeleteRecord}
         canEdit={userMode === 'editor'}
       />
@@ -3855,6 +4110,8 @@ const updated = [newRoll, ...rolls];
           onConfirmProduction={handleConfirmProduction}
           onReallocateRoll={(rec) => setReallocatingRecord(rec)}
           onCancelProduction={(rec) => setCancellingRecord(rec)}
+          onFixRoll={handleFixRoll}
+          onSeparateCrossSpec={handleSeparateCrossSpec}
           userMode={userMode}
           onRequestUnlock={() => requireEditorPermission(() => {})}
           auditLogs={soAuditLogs}
