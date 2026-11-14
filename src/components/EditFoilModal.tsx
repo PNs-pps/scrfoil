@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
-import { FoilRoll, FoilPattern, FoilWidth } from '../types';
+import { FoilRoll, FoilPattern, FoilWidth, StockCutRecord } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS } from '../utils/soFormatter';
 import { round2, formatMeters, todayLocalISO } from '../utils/formatters';
-import { X, Edit2, Save, Layers, Calendar, Hash, FileText, CheckCircle2 } from 'lucide-react';
+import { getRestorableZeroedMeters } from '../utils/rollZeroRestore';
+import { X, Edit2, Save, Layers, Calendar, Hash, FileText, CheckCircle2, RotateCcw } from 'lucide-react';
 
 interface EditFoilModalProps {
   isOpen: boolean;
   onClose: () => void;
   roll: FoilRoll | null;
+  records?: StockCutRecord[];
   onSave: (updatedRoll: FoilRoll) => void;
 }
 
@@ -16,6 +18,7 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
   isOpen,
   onClose,
   roll,
+  records,
   onSave,
 }) => {
   const panelRef = useModalA11y(Boolean(isOpen && roll), onClose, 'แก้ไขข้อมูลม้วนฟอยล์');
@@ -137,7 +140,8 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
       isZeroedOut,
       manualZeroedOriginalMeters: isZeroedOut
         ? roll.manualZeroedOriginalMeters || finalRemaining
-        : undefined,
+        : 0,
+      depletedAt: status === 'active' ? '' : roll.depletedAt,
       isReverseSideOnly,
       reverseSideReason: isReverseSideOnly ? reverseSideReason.trim() : '',
       dateReceived,
@@ -338,22 +342,46 @@ export const EditFoilModal: React.FC<EditFoilModalProps> = ({
             </div>
           </div>
 
-          {/* Zero-out toggle checkbox */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-            <div>
+          {/* Zero-out toggle checkbox & restore helper */}
+          <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${isZeroedOut ? 'bg-rose-50/70 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="space-y-0.5">
               <span className="text-xs font-bold text-slate-800 block">ตัดสล็อตเป็น 0 (เศษเหลือน้อย)</span>
-              <span className="text-[11px] text-slate-500">
-                หากติ๊กถูก ม้วนนี้จะถูกตัดยอดคงเหลือเป็น 0 เมตรทันที (สถานะหมดแล้ว)
+              <span className="text-[11px] text-slate-500 block">
+                {isZeroedOut
+                  ? `ม้วนนี้ถูกตัดเป็น 0 อยู่ (ยอดเดิมก่อนตัดเป็น 0: ${formatMeters(getRestorableZeroedMeters(roll, records))} ม.) — ติ๊กออกหรือกดคืนค่าเพื่อกลับมาใช้งาน`
+                  : 'หากติ๊กถูก ม้วนนี้จะถูกตัดยอดคงเหลือเป็น 0 เมตรทันที (สถานะหมดแล้ว)'}
               </span>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isZeroedOut}
-                onChange={(e) => setIsZeroedOut(e.target.checked)}
-                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 accent-blue-600 cursor-pointer"
-              />
-            </label>
+            <div className="flex items-center gap-2 shrink-0">
+              {isZeroedOut && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const restored = getRestorableZeroedMeters(roll, records);
+                    setIsZeroedOut(false);
+                    setRemainingMeters(restored);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-2xs cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>คืนค่ายอดเดิม</span>
+                </button>
+              )}
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isZeroedOut}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsZeroedOut(checked);
+                    if (!checked && (Number(remainingMeters) <= 0 || remainingMeters === '')) {
+                      setRemainingMeters(getRestorableZeroedMeters(roll, records));
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                />
+              </label>
+            </div>
           </div>
 
           {/* Reverse side only checkbox (ฟอยล์เก่า / มีปัญหา หน้าหลักใช้ไม่ได้) */}

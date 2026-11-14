@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { FoilRoll, FoilPattern, FoilWidth, WIDTH_SPECIFICATIONS, isRollUnused, StockCutRecord } from '../types';
 import { STANDARD_PATTERNS, STANDARD_WIDTHS, normalizePattern } from '../utils/soFormatter';
 import { formatMeters, compareFoilRolls, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
+import { getRestorableZeroedMeters } from '../utils/rollZeroRestore';
 import { reservedMetersOfRoll } from '../utils/rollAggregates';
 import { getPatternStyle } from '../utils/patternStyles';
 import { FoilStatusTube } from './FoilStatusTube';
@@ -449,20 +450,31 @@ const SwipeableRollCard: React.FC<SwipeableRollCardProps> = ({
               </label>
             )}
 
-            {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (
+            {onToggleZeroOut && isZeroed && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleZeroOut(roll.id, false);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-700 shadow-2xs cursor-pointer active:scale-95 transition-all min-h-[24px]"
+                title={`คืนค่ายอดคงเหลือเดิม ${formatMeters(getRestorableZeroedMeters(roll, records))} ม. (กรณีกดตัดเป็น 0 ผิด)`}
+              >
+                <RotateCcw className="w-3 h-3 shrink-0" />
+                <span>คืนค่า {formatMeters(getRestorableZeroedMeters(roll, records))} ม.</span>
+              </button>
+            )}
+
+            {highlightLevel === 'red' && !isZeroed && onToggleZeroOut && (
               <label
                 onClick={(e) => e.stopPropagation()}
                 htmlFor={`zero-toggle-mob-${roll.id}`}
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold border cursor-pointer ${
-                  isZeroed
-                    ? 'bg-rose-600 text-white border-rose-700'
-                    : 'bg-white text-rose-700 border-rose-300'
-                }`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold border cursor-pointer bg-white text-rose-700 border-rose-300"
               >
                 <input
                   id={`zero-toggle-mob-${roll.id}`}
                   type="checkbox"
-                  checked={isZeroed}
+                  checked={false}
                   onChange={(e) => onToggleZeroOut(roll.id, e.target.checked)}
                   className="w-2.5 h-2.5 accent-rose-600 rounded"
                 />
@@ -541,6 +553,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   }, [isAdvancedDropdownOpen]);
   // เปิดแท็บ "ใช้งาน" เป็นค่าเริ่มต้น — แสดงเฉพาะม้วนที่มีการตัดแล้ว ลดงานเรนเดอร์
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_use' | 'unused' | 'reverse_only' | 'depleted'>('in_use');
+  const [onlyZeroedInDepleted, setOnlyZeroedInDepleted] = useState(false);
   const [groupBy, setGroupBy] = useState<GroupByCategory>('width');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [collapsedSubGroups, setCollapsedSubGroups] = useState<Record<string, boolean>>({});
@@ -598,6 +611,14 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   );
   const activeCount = inUseCount + unusedCount;
 
+  const zeroedArchivedCount = useMemo(() => {
+    const byId = new Map<string, FoilRoll>();
+    [...archivedRolls, ...rolls].forEach((r) => {
+      if (r.isZeroedOut) byId.set(r.id, r);
+    });
+    return byId.size;
+  }, [archivedRolls, rolls]);
+
   // Source list: แยกม้วนเต็มที่ยังไม่มีการใช้งาน กับม้วนที่มีการใช้งานแล้ว ม้วนใช้ได้เฉพาะอีกด้าน และม้วนที่หมดแล้ว
   const sourceRolls = useMemo(() => {
     if (statusFilter === 'depleted') {
@@ -606,7 +627,8 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
       );
       const byId = new Map<string, FoilRoll>();
       [...archivedRolls, ...localDepleted].forEach((r) => byId.set(r.id, r));
-      return Array.from(byId.values());
+      const allDepleted = Array.from(byId.values());
+      return onlyZeroedInDepleted ? allDepleted.filter((r) => Boolean(r.isZeroedOut)) : allDepleted;
     }
     if (statusFilter === 'reverse_only') {
       return rolls.filter(
@@ -635,7 +657,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
     const byId = new Map<string, FoilRoll>();
     [...rolls, ...archivedRolls].forEach((r) => byId.set(r.id, r));
     return Array.from(byId.values());
-  }, [rolls, archivedRolls, statusFilter, records]);
+  }, [rolls, archivedRolls, statusFilter, records, onlyZeroedInDepleted]);
 
   // Unique lots for quick 1-click filter chips
   const uniqueLots = useMemo(() => {
@@ -1151,9 +1173,9 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             </div>
           )}
 
-          {isZeroed && roll.manualZeroedOriginalMeters !== undefined && (
+          {isZeroed && (
             <div className="text-[10px] text-rose-700 font-bold font-mono">
-              ตัดเป็น 0 แล้ว (เดิม {formatMeters(roll.manualZeroedOriginalMeters)} ม.)
+              ตัดเป็น 0 แล้ว (เดิม {formatMeters(getRestorableZeroedMeters(roll, records))} ม.)
             </div>
           )}
 
@@ -1168,29 +1190,37 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
             <FoilStatusTube roll={roll} records={records} size="sm" showStats={true} />
           </div>
 
-          {/* Checkbox to zero-out roll (for rolls highlighted in red <= 50m, or currently zeroed) */}
-          {(highlightLevel === 'red' || isZeroed) && onToggleZeroOut && (
+          {/* ปุ่มคืนค่าฟอยล์ (เมื่อถูกตัดเป็น 0) หรือ ติ๊กตัดสล็อตเป็น 0 (สำหรับม้วนแดง <= 50 ม.) */}
+          {isZeroed && onToggleZeroOut ? (
+            <div className="mt-1.5 flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => onToggleZeroOut(roll.id, false)}
+                title="คืนค่าฟอยล์จากตัดสต๊อกเป็น 0 กลับมาใช้งานต่อ (กรณี กดผิด)"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-700 shadow-xs cursor-pointer active:scale-95 transition-all select-none"
+              >
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                <span>คืนค่าฟอยล์ ({formatMeters(getRestorableZeroedMeters(roll, records))} ม.)</span>
+              </button>
+            </div>
+          ) : highlightLevel === 'red' && onToggleZeroOut ? (
             <div className="mt-1.5 flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
               <label 
                 htmlFor={`zero-toggle-${roll.id}`}
-                title={isZeroed ? "คลิกเพื่อติ๊กออกและคืนค่ายอดเดิม" : "ติ๊กเพื่อตัดยอดคงเหลือสล็อตนี้เป็น 0 เมตร"}
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all border shadow-2xs select-none ${
-                  isZeroed 
-                    ? 'bg-rose-600 text-white border-rose-700 hover:bg-rose-700' 
-                    : 'bg-white text-rose-700 border-rose-400 hover:bg-rose-50'
-                }`}
+                title="ติ๊กเพื่อตัดยอดคงเหลือสล็อตนี้เป็น 0 เมตร"
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all border shadow-2xs select-none bg-white text-rose-700 border-rose-400 hover:bg-rose-50"
               >
                 <input
                   id={`zero-toggle-${roll.id}`}
                   type="checkbox"
-                  checked={isZeroed}
+                  checked={false}
                   onChange={(e) => onToggleZeroOut(roll.id, e.target.checked)}
                   className="w-3.5 h-3.5 accent-rose-600 rounded cursor-pointer"
                 />
-                <span>{isZeroed ? 'ตัดสล็อตเป็น 0 (คืนค่า)' : 'ตัดสล็อตเป็น 0'}</span>
+                <span>ตัดสล็อตเป็น 0</span>
               </label>
             </div>
-          )}
+          ) : null}
         </td>
 
         {/* Used Meters */}
@@ -1838,6 +1868,25 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
 
           {statusFilter === 'depleted' && (
             <div className="w-full mt-2 flex flex-wrap items-center gap-2">
+              {zeroedArchivedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOnlyZeroedInDepleted((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                    onlyZeroedInDepleted
+                      ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                  }`}
+                  title="แสดงเฉพาะม้วนที่ถูกกดตัดเป็น 0 เพื่อกดคืนค่า"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {onlyZeroedInDepleted
+                      ? `กำลังกรองเฉพาะม้วนตัดเป็น 0 (${zeroedArchivedCount}) — คลิกเพื่อดูทั้งหมด`
+                      : `เฉพาะม้วนที่กดตัดเป็น 0 (${zeroedArchivedCount} ม้วน · กดคืนค่าได้)`}
+                  </span>
+                </button>
+              )}
               {!archiveLoaded && onLoadArchive && (
                 <button
                   type="button"
@@ -2372,8 +2421,34 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               </div>
             )}
 
-            {/* 4 Action Menu Options */}
+            {/* Action Menu Options */}
             <div className="space-y-2">
+              {/* 0. คืนค่าฟอยล์จากตัดสต๊อกเป็น 0 (กรณีกดผิด) */}
+              {actionMenuRoll.isZeroedOut && onToggleZeroOut && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rollId = actionMenuRoll.id;
+                    setActionMenuRoll(null);
+                    onToggleZeroOut(rollId, false);
+                  }}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-400 text-emerald-950 font-bold text-xs sm:text-sm transition-all cursor-pointer group shadow-xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                      <RotateCcw className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <div>คืนค่าฟอยล์จากตัดเป็น 0 (กรณีกดผิด)</div>
+                      <div className="text-[11px] font-medium text-emerald-800">
+                        คืนยอดคงเหลือเดิม {formatMeters(getRestorableZeroedMeters(actionMenuRoll, records))} ม. กลับมาใช้งานต่อทันที
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-emerald-600 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              )}
+
               {/* 1. ตัดสต๊อกฟอยล์ */}
               <button
                 type="button"

@@ -25,9 +25,11 @@ import {
   Sparkles,
   ShieldCheck,
   Info,
-  ArrowLeft
+  ArrowLeft,
+  RotateCcw
 } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
+import { getRestorableZeroedMeters } from '../utils/rollZeroRestore';
 import { subscribeToRollCutHistory } from '../lib/firebase';
 import { auditRollSOHistory } from '../utils/soHistoryAudit';
 import { FoilStatusTube } from './FoilStatusTube';
@@ -44,6 +46,7 @@ interface RollUsageHistoryModalProps {
     rollId: string,
     recordIds: string[]
   ) => Promise<{ updatedRecords?: StockCutRecord[] } | void>;
+  onToggleZeroOut?: (rollId: string, zeroOut: boolean) => void;
   canEdit?: boolean;
   onOpenFullAudit?: (rollId?: string) => void;
 }
@@ -57,6 +60,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
   onEditCutRecord,
   onFixRoll,
   onRealignChain,
+  onToggleZeroOut,
   canEdit = true,
   onOpenFullAudit,
 }) => {
@@ -490,6 +494,18 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                   <span>ส่งออก CSV ลูกนี้</span>
                 </button>
 
+                {roll.isZeroedOut && onToggleZeroOut && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleZeroOut(roll.id, false)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                    title="คืนค่าฟอยล์จากตัดสต๊อกเป็น 0 กลับมาใช้งานต่อ (กรณี กดผิด)"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>คืนค่าฟอยล์ ({formatMeters(getRestorableZeroedMeters(roll, records))} ม.)</span>
+                  </button>
+                )}
+
                 {effectiveRemaining > 0 && !roll.isZeroedOut && (
                   <button
                     type="button"
@@ -798,8 +814,21 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                     </div>
                   </div>
                 </div>
-                <div className="text-right text-xs text-slate-300 font-mono">
-                  ตัดใช้รวม {formatMeters(totalUsed)} ม. · NG {formatMeters(totalNg)} ม.
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="text-right text-xs text-slate-300 font-mono">
+                    ตัดใช้รวม {formatMeters(totalUsed)} ม. · NG {formatMeters(totalNg)} ม.
+                  </div>
+                  {roll.isZeroedOut && onToggleZeroOut && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleZeroOut(roll.id, false)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                      title="คืนค่าฟอยล์จากตัดสต๊อกเป็น 0 กลับมาใช้งานต่อ (กรณี กดผิด)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>คืนค่า ({formatMeters(getRestorableZeroedMeters(roll, records))} ม.)</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}

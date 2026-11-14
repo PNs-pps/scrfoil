@@ -120,7 +120,8 @@ import { SOAuditHubView } from './components/SOAuditHubView';
 import { SOReservationHubView } from './components/SOReservationHubView';
 import { ReallocateRollModal } from './components/ReallocateRollModal';
 import { CancelProductionModal } from './components/CancelProductionModal';
-import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X, Workflow } from 'lucide-react';
+import { getRestorableZeroedMeters } from './utils/rollZeroRestore';
+import { CheckCircle2, AlertCircle, AlertTriangle, Sparkles, X, Workflow, RotateCcw } from 'lucide-react';
 
 type AppTab = 'dashboard' | 'rolls' | 'history' | 'audit' | 'settings';
 
@@ -137,6 +138,18 @@ export default function App() {
     } catch {}
     return [];
   });
+  const archivedRollsRef = useRef<FoilRoll[]>(archivedRolls);
+  useEffect(() => {
+    archivedRollsRef.current = archivedRolls;
+  }, [archivedRolls]);
+  const updateArchivedRollsState = (updater: (prev: FoilRoll[]) => FoilRoll[]) => {
+    const next = updater(archivedRollsRef.current);
+    archivedRollsRef.current = next;
+    setArchivedRolls(next);
+    try {
+      localStorage.setItem(archivedRollsCacheKey(), JSON.stringify(next));
+    } catch {}
+  };
   const [archiveLoaded, setArchiveLoaded] = useState<boolean>(() => {
     try {
       const cached = localStorage.getItem(archivedRollsCacheKey());
@@ -317,30 +330,36 @@ export default function App() {
     detail: '',
   });
 
-  // Feedback Toast (bottom-center, closable, with sound/haptic)
+  // Feedback Toast (bottom-center, closable, with sound/haptic and optional undo action)
   const [toastMessage, setToastMessage] = useState<{
     text: string;
     type: 'success' | 'error' | 'info';
+    action?: { label: string; onClick: () => void };
   } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = (
     text: string,
     type: 'success' | 'error' | 'info' = 'success',
-    opts?: { silent?: boolean }
+    opts?: {
+      silent?: boolean;
+      action?: { label: string; onClick: () => void };
+      durationMs?: number;
+    }
   ) => {
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current);
       toastTimerRef.current = null;
     }
-    setToastMessage({ text, type });
+    setToastMessage({ text, type, action: opts?.action });
     if (!opts?.silent) {
       playFeedback(type === 'error' ? 'error' : type === 'info' ? 'info' : 'success');
     }
+    const timeout = opts?.durationMs ?? (opts?.action ? 8500 : type === 'error' ? 7000 : 4500);
     toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
       toastTimerRef.current = null;
-    }, type === 'error' ? 7000 : 4500);
+    }, timeout);
   };
 
   // True once the first server snapshot has arrived. Guards the scheduled D1
@@ -416,17 +435,23 @@ export default function App() {
               Number(r.remainingMeters) <= 0
           );
 
-          if (depletedRolls.length > 0) {
-            setArchivedRolls((prevArchived) => {
-              const map = new Map<string, FoilRoll>();
-              prevArchived.forEach((r) => map.set(r.id, r));
-              depletedRolls.forEach((r) => map.set(r.id, r));
-              const combined = Array.from(map.values());
-              try {
-                localStorage.setItem(archivedRollsCacheKey(), JSON.stringify(combined));
-              } catch {}
-              return combined;
+          const activeIdSet = new Set(activeRolls.map((r) => r.id));
+          setArchivedRolls((prevArchived) => {
+            const map = new Map<string, FoilRoll>();
+            prevArchived.forEach((r) => {
+              if (!activeIdSet.has(r.id)) {
+                map.set(r.id, r);
+              }
             });
+            depletedRolls.forEach((r) => map.set(r.id, r));
+            const combined = Array.from(map.values());
+            archivedRollsRef.current = combined;
+            try {
+              localStorage.setItem(archivedRollsCacheKey(), JSON.stringify(combined));
+            } catch {}
+            return combined;
+          });
+          if (depletedRolls.length > 0) {
             setArchiveLoaded(true);
           }
 
@@ -1060,7 +1085,10 @@ const updated = [newRoll, ...rolls];
 
   // Update existing foil roll
   const handleUpdateRoll = async (updatedRollInput: FoilRoll) => {
-    const previous = rollsRef.current.find((r) => r.id === updatedRollInput.id) ?? null;
+    const previous =
+      rollsRef.current.find((r) => r.id === updatedRollInput.id) ??
+      archivedRollsRef.current.find((r) => r.id === updatedRollInput.id) ??
+      null;
 
     // อัปเดตธง "ม้วนใหม่" จากค่าจริง — EditFoilModal ไม่ได้ตั้งค่า isUnused
     // จึงต้องคำนวณใหม่ ไม่งั้นธงค้างเก่า (ม้วนที่แก้ยอดจนใช้งานแล้วยังโชว์ "เต็ม")
@@ -1079,12 +1107,37 @@ const updated = [newRoll, ...rolls];
         : null);
     editRollExpectedStockRef.current = null;
 
-    commitRolls((prev) => prev.map((r) => (r.id === updatedRoll.id ? updatedRoll : r)));
+    const isNowActive =
+      updatedRoll.status !== 'depleted' &&
+      !updatedRoll.isZeroedOut &&
+      Number(updatedRoll.remainingMeters) > 0;
+
+    const applyRollPartition = (target: FoilRoll) => {
+      const targetActive =
+        target.status !== 'depleted' &&
+        !target.isZeroedOut &&
+        Number(target.remainingMeters) > 0;
+      if (targetActive) {
+        commitRolls((prev) => {
+          const exists = prev.some((r) => r.id === target.id);
+          return exists ? prev.map((r) => (r.id === target.id ? target : r)) : [target, ...prev];
+        });
+        updateArchivedRollsState((prev) => prev.filter((r) => r.id !== target.id));
+      } else {
+        commitRolls((prev) => prev.filter((r) => r.id !== target.id));
+        updateArchivedRollsState((prev) => {
+          const exists = prev.some((r) => r.id === target.id);
+          return exists ? prev.map((r) => (r.id === target.id ? target : r)) : [target, ...prev];
+        });
+      }
+    };
+
+    applyRollPartition(updatedRoll);
 
     // จับผลลัพธ์ที่ resolve ไว้ เพราะ trackCloudWrite คืนแค่ kind ไม่ใช่ค่า { stockProtected }
     let writeResult: { stockProtected: boolean } | null = null;
     const writePromise = saveFoilRollToFirestore(
-      updatedRoll,
+      isNowActive ? { ...updatedRoll, depletedAt: '' } : updatedRoll,
       expectedStock ? { expectedStock } : undefined
     ).then((res) => {
       writeResult = res;
@@ -1095,7 +1148,7 @@ const updated = [newRoll, ...rolls];
       console.warn('Queued roll edit was rejected later:', late.message);
       setSyncStatus('permission-denied');
       if (previous) {
-        commitRolls((prev) => prev.map((r) => (r.id === previous.id ? previous : r)));
+        applyRollPartition(previous);
       }
       showToast(`แก้ไขม้วน ${updatedRoll.lotNumber} #${updatedRoll.rollNumber} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
     });
@@ -1126,12 +1179,11 @@ const updated = [newRoll, ...rolls];
     }
 
     // Terminal rejection — restore the pre-edit values so local state matches what
-    // Cloud actually holds. commitRolls (not updateRollsState) so an edit made on
-    // another device during this write is not clobbered by the rollback.
+    // Cloud actually holds.
     console.warn('Update foil roll in Firestore rejected permanently:', outcome.message);
     setSyncStatus('permission-denied');
     if (previous) {
-      commitRolls((prev) => prev.map((r) => (r.id === previous.id ? previous : r)));
+      applyRollPartition(previous);
     }
     showToast(`แก้ไขไม่สำเร็จ — ${describeWriteFailure(outcome)}`, 'error');
   };
@@ -2144,57 +2196,87 @@ const updated = [newRoll, ...rolls];
     showToast('ลบรายการแซนวิชในเครื่องแล้ว (รอซิงค์ Cloud)', 'info');
   };
 
-  // Toggle zero out for low stock rolls (<= 50m)
+  // Toggle zero out for low stock rolls (<= 50m) & restore if clicked by mistake
   const handleToggleZeroOut = (rollId: string, zeroOut: boolean) => {
-    const targetRoll = rolls.find(r => r.id === rollId);
+    const targetRoll =
+      rollsRef.current.find((r) => r.id === rollId) ??
+      archivedRollsRef.current.find((r) => r.id === rollId) ??
+      rolls.find((r) => r.id === rollId) ??
+      archivedRolls.find((r) => r.id === rollId);
+
     if (!targetRoll) {
       showToast('ไม่พบม้วนฟอยล์ที่เลือก — รีเฟรชหน้าแล้วลองใหม่', 'error');
       return;
     }
-    let updatedTargetRoll: FoilRoll | null = null;
-    const updatedRolls = rolls.map((r) => {
-      if (r.id === rollId) {
-        if (zeroOut) {
-          const rollObj: FoilRoll = {
-            ...r,
-            isZeroedOut: true,
-            manualZeroedOriginalMeters: r.remainingMeters,
-            remainingMeters: 0,
-            status: 'depleted' as const,
-            depletedAt: new Date().toISOString(),
-          };
-          updatedTargetRoll = rollObj;
-          return rollObj;
-        } else {
-          const restored = r.manualZeroedOriginalMeters ?? 0;
-          const rollObj: FoilRoll = {
-            ...r,
-            isZeroedOut: false,
-            remainingMeters: restored,
-            status: restored > 0 ? ('active' as const) : ('depleted' as const),
-            depletedAt: restored > 0 ? undefined : r.depletedAt,
-          };
-          updatedTargetRoll = rollObj;
-          return rollObj;
-        }
-      }
-      return r;
-    });
 
-    updateRollsState(updatedRolls);
-    const rollLabel = `${targetRoll.lotNumber || ''} #${targetRoll.rollNumber || ''}`;
+    let updatedTargetRoll: FoilRoll;
+    let restoredMeters = 0;
 
-    if (!updatedTargetRoll) {
-      return;
+    if (zeroOut) {
+      const originalMeters =
+        targetRoll.isZeroedOut &&
+        typeof targetRoll.manualZeroedOriginalMeters === 'number' &&
+        targetRoll.manualZeroedOriginalMeters > 0
+          ? targetRoll.manualZeroedOriginalMeters
+          : targetRoll.remainingMeters;
+      updatedTargetRoll = {
+        ...targetRoll,
+        isZeroedOut: true,
+        manualZeroedOriginalMeters: originalMeters,
+        remainingMeters: 0,
+        status: 'depleted' as const,
+        depletedAt: new Date().toISOString(),
+      };
+    } else {
+      restoredMeters = getRestorableZeroedMeters(targetRoll, recordsRef.current);
+      updatedTargetRoll = {
+        ...targetRoll,
+        isZeroedOut: false,
+        manualZeroedOriginalMeters: 0,
+        remainingMeters: restoredMeters,
+        status: restoredMeters > 0 ? ('active' as const) : ('depleted' as const),
+        depletedAt: restoredMeters > 0 ? '' : targetRoll.depletedAt,
+      };
     }
+
+    const applyRollPlacement = (rollItem: FoilRoll) => {
+      const isActiveItem =
+        rollItem.status !== 'depleted' &&
+        !rollItem.isZeroedOut &&
+        Number(rollItem.remainingMeters) > 0;
+      if (isActiveItem) {
+        commitRolls((prev) => {
+          const exists = prev.some((r) => r.id === rollItem.id);
+          return exists ? prev.map((r) => (r.id === rollItem.id ? rollItem : r)) : [rollItem, ...prev];
+        });
+        updateArchivedRollsState((prev) => prev.filter((r) => r.id !== rollItem.id));
+      } else {
+        commitRolls((prev) => prev.filter((r) => r.id !== rollItem.id));
+        updateArchivedRollsState((prev) => {
+          const exists = prev.some((r) => r.id === rollItem.id);
+          return exists ? prev.map((r) => (r.id === rollItem.id ? rollItem : r)) : [rollItem, ...prev];
+        });
+      }
+      setDetailRoll((prevDetail) => (prevDetail && prevDetail.id === rollItem.id ? rollItem : prevDetail));
+    };
+
+    applyRollPlacement(updatedTargetRoll);
+
+    const rollLabel = `${targetRoll.lotNumber || ''} #${targetRoll.rollNumber || ''}`.trim();
+    const undoAction = zeroOut
+      ? {
+          label: `คืนค่า (${formatMeters(updatedTargetRoll.manualZeroedOriginalMeters ?? 0)} ม.)`,
+          onClick: () => handleToggleZeroOut(rollId, false),
+        }
+      : undefined;
 
     void trackCloudWrite(saveFoilRollToFirestore(updatedTargetRoll), undefined, (late) => {
       console.warn('Queued zero-out update rejected later:', late.message);
       setSyncStatus('permission-denied');
-      commitRolls((prev) => prev.map((r) => (r.id === targetRoll.id ? targetRoll : r)));
+      applyRollPlacement(targetRoll);
       showToast(`${zeroOut ? 'ตัดยอด' : 'คืนค่ายอด'}สล็อต ${rollLabel} ซิงค์ขึ้น Cloud ไม่สำเร็จ — ${describeWriteFailure(late)}`, 'error');
     }).then((outcome) => {
-      const action = zeroOut ? 'ตัดยอด' : 'คืนค่ายอด';
+      const actionText = zeroOut ? 'ตัดยอด' : 'คืนค่ายอด';
 
       if (outcome.kind === 'committed') {
         setSyncStatus('connected');
@@ -2202,24 +2284,30 @@ const updated = [newRoll, ...rolls];
         showToast(
           zeroOut
             ? `ตัดยอดคงเหลือสล็อต ${rollLabel} เป็น 0 เมตรเรียบร้อย [ซิงค์ Cloud]`
-            : `คืนค่ายอดคงเหลือเดิม ${targetRoll.manualZeroedOriginalMeters ?? 0} เมตร เรียบร้อยแล้ว [ซิงค์ Cloud]`,
-          'info'
+            : `คืนค่ายอดคงเหลือสล็อต ${rollLabel} กลับมาที่ ${formatMeters(restoredMeters)} เมตร เรียบร้อยแล้ว [ซิงค์ Cloud]`,
+          zeroOut ? 'info' : 'success',
+          undoAction ? { action: undoAction, durationMs: 9000 } : undefined
         );
         return;
       }
 
       if (outcome.kind === 'queued') {
         setSyncStatus('offline');
-        showToast(`${action}สล็อต ${rollLabel} ในเครื่องแล้ว — รอสัญญาณเน็ตเพื่อซิงค์ขึ้น Cloud`, 'info');
+        showToast(
+          zeroOut
+            ? `${actionText}สล็อต ${rollLabel} เป็น 0 ในเครื่องแล้ว — รอซิงค์ขึ้น Cloud`
+            : `คืนค่ายอดสล็อต ${rollLabel} เป็น ${formatMeters(restoredMeters)} ม. ในเครื่องแล้ว — รอซิงค์ขึ้น Cloud`,
+          'info',
+          undoAction ? { action: undoAction, durationMs: 9000 } : undefined
+        );
         return;
       }
 
-      // Terminal rejection: restore the pre-zero-out values. Restoring the meters is
-      // the safe direction — it puts stock back that Cloud still counts as available.
+      // Terminal rejection: restore the pre-zero-out values.
       console.warn('Zero-out update rejected permanently:', outcome.message);
       setSyncStatus('permission-denied');
-      commitRolls((prev) => prev.map((r) => (r.id === targetRoll.id ? targetRoll : r)));
-      showToast(`${action}ไม่สำเร็จ — ${describeWriteFailure(outcome)}`, 'error');
+      applyRollPlacement(targetRoll);
+      showToast(`${actionText}ไม่สำเร็จ — ${describeWriteFailure(outcome)}`, 'error');
     });
   };
 
@@ -3045,10 +3133,10 @@ const updated = [newRoll, ...rolls];
           role="status"
           aria-live="polite"
           aria-atomic="true"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] w-[min(92vw,28rem)] animate-in fade-in slide-in-from-bottom-4 duration-200"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] w-[min(94vw,32rem)] animate-in fade-in slide-in-from-bottom-4 duration-200"
         >
           <div
-            className={`px-4 py-3 rounded-2xl shadow-2xl border text-sm font-medium flex items-start gap-2.5 ${
+            className={`px-4 py-3 rounded-2xl shadow-2xl border text-sm font-medium flex items-center gap-2.5 ${
               toastMessage.type === 'success'
                 ? 'bg-emerald-600 text-white border-emerald-500'
                 : toastMessage.type === 'error'
@@ -3057,13 +3145,35 @@ const updated = [newRoll, ...rolls];
             }`}
           >
             {toastMessage.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 text-white shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-5 h-5 text-white shrink-0" />
             ) : toastMessage.type === 'error' ? (
-              <AlertTriangle className="w-5 h-5 text-white shrink-0 mt-0.5" />
+              <AlertTriangle className="w-5 h-5 text-white shrink-0" />
             ) : (
-              <AlertCircle className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-slate-500 shrink-0" />
             )}
-            <span className="flex-1 leading-snug pt-0.5">{toastMessage.text}</span>
+            <span className="flex-1 leading-snug">{toastMessage.text}</span>
+            {toastMessage.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  const act = toastMessage.action;
+                  if (toastTimerRef.current) {
+                    clearTimeout(toastTimerRef.current);
+                    toastTimerRef.current = null;
+                  }
+                  setToastMessage(null);
+                  act?.onClick();
+                }}
+                className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-xs ${
+                  toastMessage.type === 'info'
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    : 'bg-white text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{toastMessage.action.label}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -3551,7 +3661,7 @@ const updated = [newRoll, ...rolls];
       {/* Comprehensive Roll Usage History Modal */}
       {detailRoll && (
         <RollUsageHistoryModal
-          roll={rolls.find((r) => r.id === detailRoll.id) || detailRoll}
+          roll={[...rolls, ...archivedRolls].find((r) => r.id === detailRoll.id) || detailRoll}
           records={records}
           onClose={() => setDetailRoll(null)}
           onOpenCutForThisRoll={handleOpenCutForRoll}
@@ -3559,6 +3669,7 @@ const updated = [newRoll, ...rolls];
           onEditCutRecord={(rec) => requireEditorPermission(() => setEditingCutRecord(rec))}
           onFixRoll={handleFixRoll}
           onRealignChain={handleRealignChain}
+          onToggleZeroOut={(rollId, zeroOut) => requireEditorPermission(() => handleToggleZeroOut(rollId, zeroOut))}
           canEdit={userMode === 'editor'}
           onOpenFullAudit={(rollId) => handleOpenSOAudit(rollId)}
         />
@@ -3568,7 +3679,8 @@ const updated = [newRoll, ...rolls];
       {editingRoll && (
         <EditFoilModal
           isOpen={Boolean(editingRoll)}
-          roll={rolls.find((r) => r.id === editingRoll.id) || editingRoll}
+          roll={[...rolls, ...archivedRolls].find((r) => r.id === editingRoll.id) || editingRoll}
+          records={records}
           onClose={() => setEditingRoll(null)}
           onSave={handleUpdateRoll}
         />

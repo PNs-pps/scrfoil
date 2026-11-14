@@ -46,6 +46,7 @@ interface SOBugInspectorModalProps {
     rollId: string,
     recordIds: string[]
   ) => Promise<{ updatedRecords?: StockCutRecord[] } | void>;
+  onSeparateCrossSpec?: (rollId: string) => Promise<void> | void;
   onDeleteRecord?: (recordId: string) => Promise<void>;
   canEdit: boolean;
 }
@@ -61,6 +62,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
   onFixRoll,
   onFixMultipleRolls,
   onRealignChain,
+  onSeparateCrossSpec,
   onDeleteRecord,
   canEdit,
 }) => {
@@ -68,6 +70,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
   const [activeFilter, setActiveFilter] = useState<FilterTab>('issues_only');
   const [expandedRollId, setExpandedRollId] = useState<string | null>(initialRollId || null);
   const [fixingRollId, setFixingRollId] = useState<string | null>(null);
+  const [isSeparatingRollId, setIsSeparatingRollId] = useState<string | null>(null);
   const [isBulkFixing, setIsBulkFixing] = useState(false);
   const [showBulkConsent, setShowBulkConsent] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -484,9 +487,21 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                             <span className="px-2 py-0.5 bg-slate-200 text-slate-700 font-bold text-[11px] rounded-md">
                               ตัดเป็น 0 แล้ว (ยกเว้นการปรับยอด)
                             </span>
+                          ) : (res.contaminatedRecords?.length ?? 0) > 0 ? (
+                            <span className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-300 font-bold text-[11px] rounded-md">
+                              ปนข้ามหน้ากว้าง/ลาย ({res.contaminatedRecords!.length} ใบ) 🔒
+                            </span>
+                          ) : res.zeroLockBlocked ? (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] rounded-md">
+                              ล็อกห้ามปรับเป็น 0 อัตโนมัติ 🔒
+                            </span>
                           ) : res.canAutoAdjust ? (
                             <span className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-300 font-bold text-[11px] rounded-md">
                               ยอดไม่ตรง ({res.diff > 0 ? '+' : ''}{formatMeters(res.diff)} ม.)
+                            </span>
+                          ) : Math.abs(res.diff) > 0.05 ? (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] rounded-md">
+                              ยอดไม่ตรง ({res.diff > 0 ? '+' : ''}{formatMeters(res.diff)} ม.) · ล็อกอัตโนมัติ
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] rounded-md font-medium">
@@ -583,6 +598,35 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                 </span>
                               )}
 
+                              {iss.type === 'SPEC_MISMATCH_CONTAMINATION' && canEdit && onSeparateCrossSpec && (
+                                <div className="pt-1.5 flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={isSeparatingRollId === res.rollId}
+                                    onClick={async () => {
+                                      setIsSeparatingRollId(res.rollId);
+                                      try {
+                                        await onSeparateCrossSpec(res.rollId);
+                                      } finally {
+                                        setIsSeparatingRollId(null);
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 rounded-md bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-50"
+                                  >
+                                    {isSeparatingRollId === res.rollId ? (
+                                      <RefreshCw className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Wrench className="w-3 h-3" />
+                                    )}
+                                    <span>
+                                      {isSeparatingRollId === res.rollId
+                                        ? 'กำลังแยกใบตัดกลับม้วนที่ถูกต้อง...'
+                                        : 'แยกใบตัดข้ามหน้ากว้าง/ลายกลับม้วนที่ถูกต้อง'}
+                                    </span>
+                                  </button>
+                                </div>
+                              )}
+
                               {iss.type === 'DUPLICATE_SO_EXACT' && onDeleteRecord && iss.duplicateRecordIds && iss.duplicateRecordIds.length > 0 && (
                                 <div className="pt-1.5 flex items-center gap-2">
                                   <button
@@ -660,28 +704,38 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                       </div>
 
                       {/* กล่องเดียว: คำเตือน + ปุ่มปรับความต่อเนื่อง (ไม่ซ้ำซ้อน) */}
-                      {hasChainJump && canEdit && onRealignChain && (
+                      {hasChainJump && canEdit && onRealignChain && (() => {
+                        const hasContam = (res.contaminatedRecords?.length ?? 0) > 0;
+                        const realignLockedReason = hasContam
+                          ? '🔒 ล็อกการปรับความต่อเนื่อง: พบใบตัดต่างหน้ากว้าง/ลายปนอยู่ กรุณากดแยกใบตัดออกก่อน'
+                          : res.zeroLockBlocked
+                            ? res.zeroLockReason || '🔒 ล็อกการปรับความต่อเนื่อง: ป้องกันม้วนเหลือเศษถูกตัดเป็น 0 หรือติดลบ'
+                            : null;
+
+                        return (
                         <div className="mb-3 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between flex-wrap gap-3">
                           <div className="flex items-start gap-2.5 text-xs text-amber-950 flex-1 min-w-[200px]">
                             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                             <div>
                               <div className="font-bold text-amber-900">
-                                ยอดก่อนตัด/หลังตัดไม่ต่อเนื่อง — ปรับตามลำดับการตัดจริงของม้วน
+                                {realignLockedReason || 'ยอดก่อนตัด/หลังตัดไม่ต่อเนื่อง — ปรับตามลำดับการตัดจริงของม้วน'}
                               </div>
                               <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                                เริ่มต้นจากม้วนเต็ม {formatMeters(res.totalMeters)} ม. แล้วไล่หักตามลำดับการตัดจริงของแต่ละใบ
-                                ให้ยอดหลังตัดของใบก่อน = ยอดก่อนตัดของใบถัดไป
+                                {realignLockedReason
+                                  ? 'ระบบล็อกปุ่มปรับความต่อเนื่องอัตโนมัติไว้ชั่วคราวเพื่อปกป้องข้อมูลม้วนที่ยังเหลือเศษ'
+                                  : `เริ่มต้นจากม้วนเต็ม ${formatMeters(res.totalMeters)} ม. แล้วไล่หักตามลำดับการตัดจริงของแต่ละใบ ให้ยอดหลังตัดของใบก่อน = ยอดก่อนตัดของใบถัดไป`}
                               </p>
                             </div>
                           </div>
                           <button
                             type="button"
                             onClick={() => {
+                              if (realignLockedReason) return;
                               setRealignConfirmTarget(res);
                               setRealignConsentChecked(false);
                             }}
-                            disabled={isRealigning === res.rollId}
-                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap disabled:opacity-50"
+                            disabled={isRealigning === res.rollId || Boolean(realignLockedReason)}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                             <span>
@@ -691,7 +745,8 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                             </span>
                           </button>
                         </div>
-                      )}
+                        );
+                      })()}
 
                       {res.timeline.length === 0 ? (
                         <div className="p-4 text-center text-xs text-slate-400 bg-white rounded-lg border border-slate-200">
@@ -785,13 +840,19 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                     <td className="p-2.5 text-right font-mono text-[11px]">
                                       <span className="text-slate-500">{formatMeters(rec.remainingBefore ?? 0)}</span>
                                       <span className="text-slate-300 mx-1">&rarr;</span>
-                                      <span className="font-bold text-emerald-700">{formatMeters(rec.remainingAfter ?? 0)} ม.</span>
-                                      {Number(rec.remainingAfter) <= 0 && (
+                                      <span className={`font-bold ${Number(rec.remainingAfter) < -0.01 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                        {formatMeters(rec.remainingAfter ?? 0)} ม.
+                                      </span>
+                                      {Number(rec.remainingAfter) < -0.01 ? (
+                                        <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
+                                          <span>⚠️ ยอดติดลบผิดปกติ</span>
+                                        </div>
+                                      ) : Number(rec.remainingAfter) <= 0 ? (
                                         <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
                                           <span>🏁 หมดม้วน</span>
                                           <span className="font-mono text-slate-500 font-normal">({formatThaiDate(rec.usageDate || rec.recordedDate)})</span>
                                         </div>
-                                      )}
+                                      ) : null}
                                     </td>
                                     <td className="p-2.5">
                                       {rec.cutStatus === 'reserved' ? (
@@ -954,9 +1015,20 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
               </button>
               <button
                 type="button"
-                disabled={!realignConsentChecked || isRealigning === realignConfirmTarget.rollId}
+                disabled={
+                  !realignConsentChecked ||
+                  isRealigning === realignConfirmTarget.rollId ||
+                  Boolean(realignConfirmTarget.zeroLockBlocked) ||
+                  (realignConfirmTarget.contaminatedRecords?.length ?? 0) > 0
+                }
                 onClick={async () => {
                   if (!onRealignChain || !realignConfirmTarget) return;
+                  if (
+                    realignConfirmTarget.zeroLockBlocked ||
+                    (realignConfirmTarget.contaminatedRecords?.length ?? 0) > 0
+                  ) {
+                    return;
+                  }
                   setIsRealigning(realignConfirmTarget.rollId);
                   try {
                     const recordIds = realignConfirmTarget.timeline.map((s) => s.record.id);
@@ -969,7 +1041,10 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                   }
                 }}
                 className={`px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-xs ${
-                  !realignConsentChecked || isRealigning === realignConfirmTarget.rollId
+                  !realignConsentChecked ||
+                  isRealigning === realignConfirmTarget.rollId ||
+                  Boolean(realignConfirmTarget.zeroLockBlocked) ||
+                  (realignConfirmTarget.contaminatedRecords?.length ?? 0) > 0
                     ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                     : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer'
                 }`}

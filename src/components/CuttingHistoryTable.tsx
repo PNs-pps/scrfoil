@@ -93,6 +93,8 @@ interface CuttingHistoryTableProps {
   onConfirmProduction?: (recordId: string, soNumber: string) => Promise<void> | void;
   onReallocateRoll?: (record: StockCutRecord) => void;
   onCancelProduction?: (record: StockCutRecord) => void;
+  onFixRoll?: (rollId: string, expectedRemaining: number, sumUsed?: number, sumNg?: number) => Promise<void> | void;
+  onSeparateCrossSpec?: (rollId: string) => Promise<void> | void;
   initialCategory?: HistoryCategory;
   userMode?: UserMode;
   onRequestUnlock?: (action?: () => void) => void;
@@ -114,6 +116,8 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
   onConfirmProduction,
   onReallocateRoll,
   onCancelProduction,
+  onFixRoll,
+  onSeparateCrossSpec,
   initialCategory = 'all',
   userMode = 'visitor',
   onRequestUnlock,
@@ -1658,6 +1662,8 @@ export const CuttingHistoryTable: React.FC<CuttingHistoryTableProps> = ({
           onConfirmProduction={onConfirmProduction}
           onReallocateRoll={onReallocateRoll}
           onCancelProduction={onCancelProduction}
+          onFixRoll={onFixRoll}
+          onSeparateCrossSpec={onSeparateCrossSpec}
         />
       )}
 
