@@ -38,6 +38,13 @@ import {
   SlidersHorizontal,
   MoreVertical
 } from 'lucide-react';
+import { FoilSpecAlertModal } from './FoilSpecAlertModal';
+import { normalizePatternForMatch } from '../utils/rollIdentity';
+import {
+  buildSpecKey,
+  SpecStockSummary,
+  summarizeStockByWidthPattern,
+} from '../utils/specStockSummary';
 
 interface FoilRollTableProps {
   rolls: FoilRoll[];
@@ -576,6 +583,57 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
   const [collapsedSubGroups, setCollapsedSubGroups] = useState<Record<string, boolean>>({});
   const [actionMenuRoll, setActionMenuRoll] = useState<FoilRoll | null>(null);
   const [deleteConfirmRoll, setDeleteConfirmRoll] = useState<FoilRoll | null>(null);
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+
+  const specSummaries = useMemo(
+    () => summarizeStockByWidthPattern(rolls, records),
+    [rolls, records]
+  );
+
+  const specSummaryMap = useMemo(() => {
+    const map = new Map<string, SpecStockSummary>();
+    specSummaries.forEach((s) => map.set(s.key, s));
+    return map;
+  }, [specSummaries]);
+
+  const zeroFullAlertCount = useMemo(
+    () => specSummaries.filter((s) => s.fullRollCount === 0).length,
+    [specSummaries]
+  );
+
+  const oneFullAlertCount = useMemo(
+    () => specSummaries.filter((s) => s.fullRollCount === 1).length,
+    [specSummaries]
+  );
+
+  const activeBannerSpecKey = useMemo(() => {
+    const wNum = Number(advWidth.trim());
+    const pTerm = advPattern.trim();
+    if (Number.isFinite(wNum) && wNum > 0 && pTerm) {
+      return buildSpecKey(wNum, pTerm);
+    }
+    return null;
+  }, [advWidth, advPattern]);
+
+  const handleSelectSpecFromBanner = (width: number, pattern: string) => {
+    const normP = normalizePattern(pattern);
+    setAdvWidth(String(width));
+    setAdvPattern(normP);
+    setAdvLot('');
+    setAdvRoll('');
+    setSearchQuery('');
+    setStatusFilter('all');
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [`width-${width}`]: false,
+      [`pattern-${normP}`]: false,
+    }));
+    setCollapsedSubGroups((prev) => ({
+      ...prev,
+      [`width-${width}-p-${normP}`]: false,
+      [`pattern-${normP}-w-${width}`]: false,
+    }));
+  };
 
   const inUseCount = useMemo(
     () =>
@@ -1250,7 +1308,7 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           {roll.ngMeters > 0 ? `${formatMeters(roll.ngMeters)} ม.` : '-'}
         </td>
 
-        {/* Slide / Menu Action trigger */}
+        {/* Slide / Menu Action */}
         <td className="px-3 py-3.5 text-center">
           <button
             type="button"
@@ -1781,106 +1839,156 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           </div>
         )}
 
-        {/* Row 2: Group By Categorization & Status Tabs (ลบฟิลด์หน้ากว้างและท้องออกตามคำขอ) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-          {/* Group By Categorization Selector */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
-            <span className="px-2 py-1 text-slate-500 font-semibold flex items-center gap-1">
-              <FolderTree className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">จัดหมวดหมู่:</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setGroupBy('width')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                groupBy === 'width'
-                  ? 'bg-white text-slate-900 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ตามหน้ากว้าง
-            </button>
-            <button
-              type="button"
-              onClick={() => setGroupBy('pattern')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                groupBy === 'pattern'
-                  ? 'bg-white text-slate-900 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ตามท้องฟอยล์
-            </button>
-            <button
-              type="button"
-              onClick={() => setGroupBy('none')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                groupBy === 'none'
-                  ? 'bg-white text-slate-900 font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ไม่แยกกลุ่ม
-            </button>
+        {/* Row 2: Group By + Status Tabs (Left) & ปุ่มไอคอนหมดสต๊อก/ปัก Pin + ล้างตัวกรอง (Right) */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2.5 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+            {/* Group By Categorization Selector */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
+              <span className="px-2 py-1 text-slate-500 font-semibold flex items-center gap-1">
+                <FolderTree className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">จัดหมวดหมู่:</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setGroupBy('width')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  groupBy === 'width'
+                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ตามหน้ากว้าง
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroupBy('pattern')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  groupBy === 'pattern'
+                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ตามท้องฟอยล์
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroupBy('none')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  groupBy === 'none'
+                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ไม่แยกกลุ่ม
+              </button>
+            </div>
+
+            {/* สถานะม้วน — แถวเดียว ไม่ใช้อิโมจิ · ค่าเริ่มต้น = ใช้งาน */}
+            <div className="flex flex-nowrap items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 overflow-x-auto max-w-full">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('all')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  statusFilter === 'all' ? 'bg-white text-slate-900 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="ม้วนทั้งหมด"
+              >
+                ทั้งหมด ({sourceRolls.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('in_use')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  statusFilter === 'in_use' ? 'bg-white text-indigo-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="ม้วนที่มีการตัดใช้งานแล้ว"
+              >
+                ใช้งาน ({inUseCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('unused')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  statusFilter === 'unused' ? 'bg-white text-emerald-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="ม้วนเต็มที่ยังไม่เคยตัด"
+              >
+                ม้วนเต็ม ({unusedCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('reverse_only')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 ${
+                  statusFilter === 'reverse_only' ? 'bg-amber-400 text-slate-950 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="ฟอยล์เก่า / มีปัญหา ที่ใช้หน้าหลักไม่ได้แล้ว (ใช้ได้เฉพาะอีกด้าน)"
+              >
+                <span>เก่า/มีปัญหา ({reverseOnlyCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter('depleted');
+                  if (!archiveLoaded && onLoadArchive) {
+                    onLoadArchive();
+                  }
+                }}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  statusFilter === 'depleted' ? 'bg-white text-rose-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="ม้วนหมดแล้ว (ดูได้ทุกบัญชี)"
+              >
+                หมดแล้ว ({archivedRolls.length || rolls.filter((r) => r.remainingMeters <= 0).length})
+              </button>
+            </div>
           </div>
 
-          {/* สถานะม้วน — แถวเดียว ไม่ใช้อิโมจิ · ค่าเริ่มต้น = ใช้งาน */}
-          <div className="flex flex-nowrap items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 overflow-x-auto max-w-full">
+          {/* Right slot: ปุ่ม แจ้งเตือนสต๊อก สีตามธีม ไม่มีไอคอน แยกเลขไฮไลท์สีเหลือง/แดง (ซ่อนเลขเมื่อเป็น 0) + ล้างตัวกรอง */}
+          <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={() => setStatusFilter('all')}
-              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                statusFilter === 'all' ? 'bg-white text-slate-900 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="ม้วนทั้งหมด"
+              onClick={() => setIsAlertModalOpen(true)}
+              className="btn-tactile inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 shadow-2xs text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0 min-h-[36px]"
+              title={`แจ้งเตือนสต๊อก: ลูกเต็มเหลือ 1 (${oneFullAlertCount} สเปก) · ลูกเต็มเหลือ 0 (${zeroFullAlertCount} สเปก)`}
             >
-              ทั้งหมด ({sourceRolls.length})
+              <span>แจ้งเตือนสต๊อก</span>
+              {oneFullAlertCount > 0 && (
+                <span
+                  className="px-1.5 py-0.5 rounded-md font-mono tabular-nums text-[11px] font-bold leading-none bg-amber-400 text-slate-950"
+                  aria-label={`ลูกเต็มเหลือ 1 จำนวน ${oneFullAlertCount}`}
+                >
+                  {oneFullAlertCount}
+                </span>
+              )}
+              {zeroFullAlertCount > 0 && (
+                <span
+                  className="px-1.5 py-0.5 rounded-md font-mono tabular-nums text-[11px] font-bold leading-none bg-rose-600 text-white"
+                  aria-label={`ลูกเต็มเหลือ 0 จำนวน ${zeroFullAlertCount}`}
+                >
+                  {zeroFullAlertCount}
+                </span>
+              )}
             </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('in_use')}
-              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                statusFilter === 'in_use' ? 'bg-white text-indigo-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="ม้วนที่มีการตัดใช้งานแล้ว"
-            >
-              ใช้งาน ({inUseCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('unused')}
-              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                statusFilter === 'unused' ? 'bg-white text-emerald-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="ม้วนเต็มที่ยังไม่เคยตัด"
-            >
-              ม้วนเต็ม ({unusedCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatusFilter('reverse_only')}
-              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 ${
-                statusFilter === 'reverse_only' ? 'bg-amber-400 text-slate-950 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="ฟอยล์เก่า / มีปัญหา ที่ใช้หน้าหลักไม่ได้แล้ว (ใช้ได้เฉพาะอีกด้าน)"
-            >
-              <span>เก่า/มีปัญหา ({reverseOnlyCount})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter('depleted');
-                if (!archiveLoaded && onLoadArchive) {
-                  onLoadArchive();
-                }
-              }}
-              className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                statusFilter === 'depleted' ? 'bg-white text-rose-700 font-bold shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="ม้วนหมดแล้ว (ดูได้ทุกบัญชี)"
-            >
-              หมดแล้ว ({archivedRolls.length || rolls.filter((r) => r.remainingMeters <= 0).length})
-            </button>
+
+            {(searchQuery || statusFilter !== 'all' || activeAdvCount > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setAdvLot('');
+                  setAdvRoll('');
+                  setAdvPattern('');
+                  setAdvWidth('');
+                  setOnlyReverseSide(false);
+                  setFilterHighlightYellow(false);
+                  setFilterHighlightRed(false);
+                  setStatusFilter('all');
+                }}
+                className="text-xs text-rose-600 hover:underline cursor-pointer font-medium whitespace-nowrap"
+              >
+                ล้างตัวกรองทั้งหมด
+              </button>
+            )}
           </div>
 
           {statusFilter === 'depleted' && (
@@ -1936,22 +2044,6 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
               )}
             </div>
           )}
-
-          {(searchQuery || statusFilter !== 'all' || activeAdvCount > 0) && (
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setAdvLot('');
-                setAdvRoll('');
-                setAdvPattern('');
-                setAdvWidth('');
-                setStatusFilter('all');
-              }}
-              className="text-xs text-rose-600 hover:underline ml-auto cursor-pointer font-medium"
-            >
-              ล้างตัวกรองทั้งหมด
-            </button>
-          )}
         </div>
 
         {/* ตำแหน่งล่างสุดของช่องค้นหา: ปุ่มเปิดทั้งหมด / ปิดทั้งหมด เพิ่มสีเพื่อให้ง่ายต่อการเห็น */}
@@ -1985,19 +2077,28 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
           </div>
         )}
 
-        {/* คำอธิบายสี — บรรทัดเดียว เลื่อนดูได้ถ้าจอแคบ */}
+        {/* คำอธิบายสี — กระชับบรรทัดเดียว */}
         <div className="flex flex-nowrap items-center gap-1.5 pt-2.5 border-t border-slate-100 text-[11px] overflow-x-auto">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold shrink-0 whitespace-nowrap">
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-semibold shrink-0 whitespace-nowrap"
+            title="พร้อมใช้ (เหลือมากกว่า 200 ม.)"
+          >
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-            เขียว = พร้อมใช้ (เหลือมากกว่า 200 ม.)
+            <span>พร้อมใช้ (&gt;200)</span>
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-50 text-yellow-900 border border-yellow-300 font-semibold shrink-0 whitespace-nowrap">
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-50 text-yellow-900 border border-yellow-300 font-semibold shrink-0 whitespace-nowrap"
+            title="เหลือน้อย (ไม่เกิน 200 ม. ควรเตรียมสั่ง)"
+          >
             <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" />
-            เหลือง = เหลือน้อย (ไม่เกิน 200 ม. ควรเตรียมสั่ง)
+            <span>เหลือน้อย (&lt;200)</span>
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-900 border border-rose-300 font-semibold shrink-0 whitespace-nowrap">
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-900 border border-rose-300 font-semibold shrink-0 whitespace-nowrap"
+            title="ใกล้หมด (ไม่เกิน 50 ม. / ติ๊กตัดเป็น 0 ได้)"
+          >
             <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0" />
-            แดง = ใกล้หมด (ไม่เกิน 50 ม. / ติ๊กตัดเป็น 0 ได้)
+            <span>ใกล้หมด (&lt;50)</span>
           </span>
         </div>
       </div>
@@ -2060,10 +2161,23 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         /* Categorized / Grouped View */
         <div className="space-y-4">
           {groupedData.map((group) => {
-            const isCollapsed = searchQuery.trim() ? false : (collapsedGroups[group.key] ?? true);
+            const isCollapsed = searchQuery.trim()
+              ? false
+              : (collapsedGroups[group.key] ?? true);
             const percentRemaining = group.totalFull > 0 
               ? Math.round((group.totalRemaining / group.totalFull) * 100) 
               : 0;
+            const groupSummaries = group.width
+              ? specSummaries.filter((s) => s.width === group.width)
+              : group.pattern
+              ? specSummaries.filter(
+                  (s) =>
+                    normalizePatternForMatch(s.pattern) ===
+                    normalizePatternForMatch(group.pattern)
+                )
+              : [];
+            const zeroFullInGroup = groupSummaries.filter((s) => s.fullRollCount === 0).length;
+            const oneFullInGroup = groupSummaries.filter((s) => s.fullRollCount === 1).length;
 
             return (
               <div 
@@ -2100,31 +2214,47 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     {group.pattern ? (
                       <span className={`w-3.5 h-3.5 rounded-full shrink-0 ${getPatternStyle(group.pattern).dotClass}`} />
                     ) : (
-                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-900 text-amber-400 whitespace-nowrap shrink-0">
                         {group.badge}
                       </span>
                     )}
 
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-slate-900 text-sm sm:text-base whitespace-nowrap">
                           {group.title}
                         </h3>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 font-mono font-medium">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 font-mono font-medium whitespace-nowrap shrink-0">
                           {group.rolls.length} ม้วน
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 font-mono">
+                      <p className="text-xs text-slate-500 font-mono whitespace-nowrap">
                         {group.activeCount} ม้วนพร้อมใช้ • {group.depletedCount} ม้วนหมดแล้ว
                       </p>
                     </div>
                   </div>
 
-                  {/* Group Summary Metrics */}
-                  <div className="flex items-center gap-4 sm:gap-6 self-end sm:self-auto font-mono text-xs">
-                    <div className="text-right">
+                  {/* Group Summary Metrics + จุดไฮไลท์สีแดง/เหลืองอัตโนมัติ (เฉพาะจุดสี ไม่แสดงข้อความซ้ำ) */}
+                  <div className="flex items-center gap-3 sm:gap-5 self-end sm:self-auto font-mono text-xs shrink-0">
+                    {zeroFullInGroup > 0 ? (
+                      <span
+                        className="w-3 h-3 rounded-full bg-rose-500 border border-rose-600 shadow-2xs shrink-0"
+                        title={`ม้วนฟอยล์ลูกเต็มเหลือ 0 จำนวน ${zeroFullInGroup} ท้อง${
+                          oneFullInGroup > 0 ? ` · เหลือ 1 จำนวน ${oneFullInGroup} ท้อง` : ''
+                        }`}
+                        aria-label={`ลูกเต็มเหลือ 0 จำนวน ${zeroFullInGroup} ท้อง`}
+                      />
+                    ) : oneFullInGroup > 0 ? (
+                      <span
+                        className="w-3 h-3 rounded-full bg-amber-400 border border-amber-500 shadow-2xs shrink-0"
+                        title={`ม้วนฟอยล์ลูกเต็มเหลือ 1 จำนวน ${oneFullInGroup} ท้อง`}
+                        aria-label={`ลูกเต็มเหลือ 1 จำนวน ${oneFullInGroup} ท้อง`}
+                      />
+                    ) : null}
+
+                    <div className="text-right whitespace-nowrap">
                       <span className="text-slate-400 block text-[11px]">คงเหลือรวม</span>
-                      <span className="text-sm font-bold text-emerald-700">
+                      <span className="text-sm font-bold text-emerald-700 tabular-nums">
                         {formatMeters(group.totalRemaining)}{' '}
                         <span className="text-xs font-normal text-slate-500">ม.</span>
                       </span>
@@ -2156,8 +2286,17 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                     <div className="divide-y divide-slate-200">
                       {group.subGroups.map((sub) => {
                         const subKey = `${group.key}-${sub.key}`;
-                        const isSubCollapsed = searchQuery.trim() ? false : (collapsedSubGroups[subKey] ?? true);
+                        const isSubCollapsed = searchQuery.trim()
+                          ? false
+                          : (collapsedSubGroups[subKey] ?? true);
                         const pStyle = sub.pattern ? getPatternStyle(sub.pattern) : null;
+                        const subWidth = group.width ?? sub.width ?? 0;
+                        const subPattern = sub.pattern ?? group.pattern ?? '';
+                        const subSpecKey =
+                          subWidth > 0 && subPattern ? buildSpecKey(subWidth, subPattern) : '';
+                        const subSummary = subSpecKey ? specSummaryMap.get(subSpecKey) : undefined;
+                        const isSubZeroFull = Boolean(subSummary && subSummary.fullRollCount === 0);
+                        const isSubOneFull = Boolean(subSummary && subSummary.fullRollCount === 1);
 
                         return (
                           <div key={sub.key} className="bg-slate-50/40">
@@ -2205,7 +2344,20 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-3 font-mono text-xs">
+                              <div className="flex items-center gap-3 font-mono text-xs shrink-0">
+                                {isSubZeroFull ? (
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full bg-rose-500 border border-rose-600 shrink-0"
+                                    title="ม้วนฟอยล์เต็มลูกเหลือ 0 (มีแต่เศษ)"
+                                    aria-label="ลูกเต็มเหลือ 0"
+                                  />
+                                ) : isSubOneFull ? (
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-500 shrink-0"
+                                    title="ม้วนฟอยล์เต็มลูกเหลือ 1 ลูก"
+                                    aria-label="ลูกเต็มเหลือ 1"
+                                  />
+                                ) : null}
                                 <span className="text-slate-500 text-[11px]">
                                   {sub.activeCount} พร้อมใช้ • {sub.depletedCount} หมด
                                 </span>
@@ -2644,6 +2796,17 @@ export const FoilRollTable: React.FC<FoilRollTableProps> = ({
         </div>
       )}
 
+
+      {/* Pop-up Modal 3: แจ้งเตือนสต๊อก (ฟอยล์ลูกเต็มเหลือ 0 แดง / เหลือ 1 เหลือง) */}
+      <FoilSpecAlertModal
+        isOpen={isAlertModalOpen}
+        onClose={() => setIsAlertModalOpen(false)}
+        summaries={specSummaries}
+        rolls={rolls}
+        records={records}
+        activeSpecKey={activeBannerSpecKey}
+        onSelectSpec={handleSelectSpecFromBanner}
+      />
 
     </div>
   );
