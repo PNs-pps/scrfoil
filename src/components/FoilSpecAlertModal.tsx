@@ -205,26 +205,47 @@ export const FoilSpecAlertModal: React.FC<FoilSpecAlertModalProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 sm:gap-4 shrink-0 pl-7 sm:pl-0 font-mono tabular-nums text-xs">
-            <span className="whitespace-nowrap text-slate-700">
-              ลูกเต็ม{' '}
-              <strong
-                className={
-                  wGroup.zeroFullRollCount > 0 && tone !== 'yellow'
-                    ? 'text-rose-700'
-                    : wGroup.oneFullRollCount > 0
-                    ? 'text-amber-800'
-                    : 'text-emerald-700'
-                }
+          <div className="flex items-start sm:items-center justify-between sm:justify-end gap-2 sm:gap-4 w-full sm:w-auto shrink-0 pl-7 sm:pl-0 font-mono tabular-nums text-xs">
+            <span className="text-slate-700 leading-snug">
+              <span className="whitespace-nowrap">
+                ลูกเต็ม{' '}
+                <strong
+                  className={
+                    wGroup.zeroFullRollCount > 0 && tone !== 'yellow'
+                      ? 'text-rose-700'
+                      : wGroup.oneFullRollCount > 0
+                      ? 'text-amber-800'
+                      : 'text-emerald-700'
+                  }
+                >
+                  {wGroup.fullRollCount}
+                </strong>{' '}
+                / เศษ <strong>{wGroup.partialRollCount}</strong>
+              </span>
+              {wGroup.reverseOnlyCount > 0 && (
+                <span className="ml-1.5 font-sans font-semibold text-amber-800 whitespace-nowrap">
+                  (ลูกเก่า/มีปัญหา <strong className="font-mono">{wGroup.reverseOnlyCount}</strong>)
+                </span>
+              )}
+            </span>
+            <div className="text-right whitespace-nowrap shrink-0 ml-auto sm:ml-0">
+              <div
+                className="font-bold text-sm text-slate-900"
+                title="ยอดเมตรของท้องนั้นที่ใช้ได้ (ไม่รวมลูกเก่า/มีปัญหา)"
               >
-                {wGroup.fullRollCount}
-              </strong>{' '}
-              / เศษ <strong>{wGroup.partialRollCount}</strong>
-            </span>
-            <span className="font-bold text-sm text-slate-900 whitespace-nowrap">
-              {formatMeters(wGroup.totalRemainingMeters)}{' '}
-              <span className="font-sans font-normal text-xs text-slate-500">ม.</span>
-            </span>
+                {formatMeters(wGroup.usableRemainingMeters)}{' '}
+                <span className="font-sans font-normal text-xs text-slate-500">ม.</span>
+              </div>
+              {wGroup.reverseOnlyMeters > 0 && (
+                <div
+                  className="text-[11px] font-semibold text-amber-800 tabular-nums"
+                  title="ยอดเมตรของลูกเก่า/มีปัญหา"
+                >
+                  ({formatMeters(wGroup.reverseOnlyMeters)}{' '}
+                  <span className="font-sans font-normal">ม.</span>)
+                </div>
+              )}
+            </div>
           </div>
         </button>
 
@@ -297,21 +318,34 @@ export const FoilSpecAlertModal: React.FC<FoilSpecAlertModalProps> = ({
                       )}
 
                       {spec.reverseOnlyCount > 0 && (
-                        <span className="text-[11px] text-amber-800 font-medium whitespace-nowrap">
-                          · ใช้อีกด้าน {spec.reverseOnlyCount}
+                        <span className="text-[11px] text-amber-800 font-semibold whitespace-nowrap">
+                          · ลูกเก่า/มีปัญหา {spec.reverseOnlyCount} ลูก
                         </span>
                       )}
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between lg:justify-end gap-3 pl-5 lg:pl-0 shrink-0">
-                      <div className="flex flex-wrap items-center gap-3 text-xs font-mono tabular-nums">
-                        <span className="whitespace-nowrap">
-                          <span className="font-sans text-slate-500 mr-1">รวมทั้งหมด:</span>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-mono tabular-nums">
+                        <span
+                          className="whitespace-nowrap"
+                          title="ยอดเมตรของท้องนั้นที่ใช้ได้ (ไม่รวมลูกเก่า/มีปัญหา)"
+                        >
+                          <span className="font-sans text-slate-500 mr-1">ใช้ได้:</span>
                           <strong className="text-slate-900 text-sm">
-                            {formatMeters(spec.totalRemainingMeters)}
+                            {formatMeters(spec.usableRemainingMeters)}
                           </strong>{' '}
                           <span className="font-sans text-slate-500">ม.</span>
                         </span>
+
+                        {spec.reverseOnlyMeters > 0 && (
+                          <span
+                            className="whitespace-nowrap font-mono text-[11px] font-semibold text-amber-800"
+                            title="ยอดเมตรของลูกเก่า/มีปัญหา"
+                          >
+                            ({formatMeters(spec.reverseOnlyMeters)}{' '}
+                            <span className="font-sans font-normal">ม.</span>)
+                          </span>
+                        )}
 
                         {spec.reservedMeters > 0 && (
                           <span className="whitespace-nowrap text-amber-800">
@@ -366,7 +400,7 @@ export const FoilSpecAlertModal: React.FC<FoilSpecAlertModalProps> = ({
                                 }`}
                               >
                                 {r.isReverseSideOnly
-                                  ? 'ใช้อีกด้าน'
+                                  ? 'ลูกเก่า/มีปัญหา (ใช้อีกด้าน)'
                                   : isFull
                                   ? 'ม้วนเต็ม'
                                   : 'เศษม้วน / ใช้งาน'}

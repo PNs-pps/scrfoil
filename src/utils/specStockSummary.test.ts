@@ -129,6 +129,9 @@ describe('summarizeStockByWidthPattern', () => {
     expect(s.fullRollCount).toBe(1);
     expect(s.partialRollCount).toBe(1);
     expect(s.reverseOnlyCount).toBe(1);
+    expect(s.partialRollsMeters).toBe(300);
+    expect(s.reverseOnlyMeters).toBe(500);
+    expect(s.usableRemainingMeters).toBe(1300);
     expect(s.totalRemainingMeters).toBe(1800);
   });
 

@@ -16,8 +16,10 @@ export interface SpecStockSummary {
   reverseOnlyCount: number;
   lowMeterRollCount: number;
   totalRemainingMeters: number;
+  usableRemainingMeters: number;
   fullRollsMeters: number;
   partialRollsMeters: number;
+  reverseOnlyMeters: number;
   reservedMeters: number;
   netAvailableMeters: number;
   alertLevel: SpecAlertLevel;
@@ -114,6 +116,7 @@ export function summarizeStockByWidthPattern(
     let totalRemainingMeters = 0;
     let fullRollsMeters = 0;
     let partialRollsMeters = 0;
+    let reverseOnlyMeters = 0;
     let reservedMeters = 0;
 
     for (const roll of bucket.rolls) {
@@ -130,7 +133,7 @@ export function summarizeStockByWidthPattern(
 
       if (roll.isReverseSideOnly) {
         reverseOnlyCount += 1;
-        partialRollsMeters = round2(partialRollsMeters + rem);
+        reverseOnlyMeters = round2(reverseOnlyMeters + rem);
       } else if (isRollUnused(roll) && rollRes.length === 0) {
         fullRollCount += 1;
         fullRollsMeters = round2(fullRollsMeters + rem);
@@ -144,6 +147,7 @@ export function summarizeStockByWidthPattern(
       }
     }
 
+    const usableRemainingMeters = round2(fullRollsMeters + partialRollsMeters);
     const netAvailableMeters = Math.max(0, round2(totalRemainingMeters - reservedMeters));
     const alertLevel: SpecAlertLevel =
       fullRollCount === 0 ? 'critical' : fullRollCount === 1 ? 'warning' : 'normal';
@@ -158,8 +162,10 @@ export function summarizeStockByWidthPattern(
       reverseOnlyCount,
       lowMeterRollCount,
       totalRemainingMeters,
+      usableRemainingMeters,
       fullRollsMeters,
       partialRollsMeters,
+      reverseOnlyMeters,
       reservedMeters,
       netAvailableMeters,
       alertLevel,
@@ -200,7 +206,9 @@ export interface WidthStockGroup {
   fullRollCount: number;
   partialRollCount: number;
   reverseOnlyCount: number;
+  reverseOnlyMeters: number;
   totalRemainingMeters: number;
+  usableRemainingMeters: number;
   reservedMeters: number;
   netAvailableMeters: number;
   zeroFullRollCount: number;
@@ -223,7 +231,9 @@ export function groupSummariesByWidth(summaries: SpecStockSummary[]): WidthStock
     let fullRollCount = 0;
     let partialRollCount = 0;
     let reverseOnlyCount = 0;
+    let reverseOnlyMeters = 0;
     let totalRemainingMeters = 0;
+    let usableRemainingMeters = 0;
     let reservedMeters = 0;
     let zeroFullRollCount = 0;
     let oneFullRollCount = 0;
@@ -232,7 +242,9 @@ export function groupSummariesByWidth(summaries: SpecStockSummary[]): WidthStock
       fullRollCount += p.fullRollCount;
       partialRollCount += p.partialRollCount;
       reverseOnlyCount += p.reverseOnlyCount;
+      reverseOnlyMeters = round2(reverseOnlyMeters + p.reverseOnlyMeters);
       totalRemainingMeters = round2(totalRemainingMeters + p.totalRemainingMeters);
+      usableRemainingMeters = round2(usableRemainingMeters + p.usableRemainingMeters);
       reservedMeters = round2(reservedMeters + p.reservedMeters);
       if (p.fullRollCount === 0) zeroFullRollCount += 1;
       else if (p.fullRollCount === 1) oneFullRollCount += 1;
@@ -244,7 +256,9 @@ export function groupSummariesByWidth(summaries: SpecStockSummary[]): WidthStock
       fullRollCount,
       partialRollCount,
       reverseOnlyCount,
+      reverseOnlyMeters,
       totalRemainingMeters,
+      usableRemainingMeters,
       reservedMeters,
       netAvailableMeters: Math.max(0, round2(totalRemainingMeters - reservedMeters)),
       zeroFullRollCount,
