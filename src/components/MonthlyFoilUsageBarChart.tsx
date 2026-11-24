@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 import { StockCutRecord, FoilRoll } from '../types';
 import { 
   BarChart, 
@@ -10,6 +10,7 @@ import {
   ResponsiveContainer, 
   Legend 
 } from 'recharts';
+import { Bar3DShape, getFoilPattern3DPalette } from './Chart3DBar';
 import { 
   BarChart3, 
   Calendar, 
@@ -69,6 +70,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
   lastDoubleBackupTime,
   showToast,
 }) => {
+  const chartUid = useId().replace(/:/g, '');
   const currentYear = new Date().getFullYear();
 
   // Extract available years from records
@@ -404,8 +406,8 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
                 <div key={entry.dataKey} className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: entry.color }}
+                      className="w-2.5 h-2.5 rounded-full border border-white/40 shrink-0"
+                      style={{ backgroundColor: entry.dataKey === 'ขาว' ? '#ffffff' : entry.color }}
                     />
                     <span className="text-slate-300 font-medium">{pStyle.label}</span>
                   </div>
@@ -452,7 +454,7 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
               แผนภูมิแท่งเปรียบเทียบการใช้ฟอยล์แยกตามประเภทในแต่ละเดือน
             </h3>
             <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-              Recharts Bar Chart
+              3D Gradient Chart
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500">
@@ -855,7 +857,9 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
-              margin={{ top: 15, right: 15, left: -10, bottom: 25 }}
+              margin={{ top: 20, right: 24, left: -10, bottom: 25 }}
+              barGap={chartType === 'grouped' ? 3 : 4}
+              barCategoryGap={chartType === 'grouped' ? '16%' : '22%'}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis
@@ -870,28 +874,37 @@ export const MonthlyFoilUsageBarChart: React.FC<MonthlyFoilUsageBarChartProps> =
                 tickLine={false}
                 tickFormatter={(val) => `${val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val}`}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(148, 163, 184, 0.12)' }} />
               <Legend
                 verticalAlign="top"
                 align="right"
                 iconType="circle"
                 wrapperStyle={{ paddingBottom: 12, fontSize: 12 }}
+                formatter={(val) => <span className="text-xs font-bold text-slate-700 mr-1.5">{val}</span>}
               />
 
-              {/* Render Bars for each selected pattern */}
+              {/* Render 3D Gradient Bars for each selected pattern */}
               {selectedPatterns.map((pat) => {
                 const isWhite = pat === 'ขาว' || pat === 'ท้องขาว';
-                const hexColor = isWhite ? '#f1f5f9' : getPatternHexColor(pat);
+                const legendHex = isWhite ? '#cbd5e1' : getPatternHexColor(pat);
+                const pal = getFoilPattern3DPalette(pat);
                 return (
                   <Bar
                     key={pat}
                     dataKey={pat}
                     name={getCanonicalPatternStyle(pat).label}
-                    fill={hexColor}
-                    stroke={isWhite ? '#475569' : undefined}
-                    strokeWidth={isWhite ? 1.5 : 0}
+                    fill={legendHex}
                     stackId={chartType === 'stacked' ? 'monthly_stack' : undefined}
-                    radius={chartType === 'stacked' ? [0, 0, 0, 0] : [4, 4, 0, 0]}
+                    animationDuration={600}
+                    shape={(barProps: any) => (
+                      <Bar3DShape
+                        {...barProps}
+                        chartId={`${chartUid}-foil`}
+                        seriesKey={pat}
+                        stackKeys={chartType === 'stacked' ? selectedPatterns : undefined}
+                        palette={pal}
+                      />
+                    )}
                   />
                 );
               })}

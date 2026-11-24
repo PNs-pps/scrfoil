@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatMeters, todayLocalISO } from '../utils/formatters';
 import { getPatternStyle } from '../utils/patternStyles';
+import { validateStrictSONumber } from '../utils/soFormatter';
 
 interface EditSOCutModalProps {
   isOpen: boolean;
@@ -45,6 +46,8 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
   const [isWhiteSide, setIsWhiteSide] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSoWarningMark, setShowSoWarningMark] = useState(false);
+  const [openSoWarningTip, setOpenSoWarningTip] = useState<'input' | 'footer' | null>(null);
 
   useEffect(() => {
     if (isOpen && record) {
@@ -60,6 +63,8 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
       setIsSilverSide(Boolean(record.isSilverSide));
       setIsWhiteSide(Boolean(record.isWhiteSide));
       setError(null);
+      setShowSoWarningMark(false);
+      setOpenSoWarningTip(null);
     }
   }, [isOpen, record]);
 
@@ -138,9 +143,13 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
     }
 
     const trimmedSo = soNumber.trim();
-    if (cutType === 'so' && !trimmedSo) {
-      setError('กรุณากรอกรหัสใบสั่งตัด SO');
-      return;
+    if (cutType === 'so') {
+      const soCheck = validateStrictSONumber(trimmedSo);
+      if (!soCheck.isValid) {
+        setShowSoWarningMark(true);
+        setOpenSoWarningTip(null);
+        return;
+      }
     }
 
     if (numUsed <= 0 && numNg <= 0) {
@@ -260,19 +269,64 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
             <div className="space-y-3 p-3.5 bg-amber-50/50 border border-amber-200 rounded-xl">
               <div>
                 <label className="block text-slate-700 font-bold mb-1">
-                  รหัสคำสั่งซื้อ SO <span className="text-rose-500">*</span>
+                  รหัสคำสั่งซื้อ SO / ED <span className="text-rose-500">*</span>
                 </label>
-                <div className="relative">
-                  <FileText className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    value={soNumber}
-                    onChange={(e) => setSoNumber(e.target.value)}
-                    placeholder="เช่น so6909297"
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg font-mono text-sm font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                    required
-                  />
-                </div>
+                {(() => {
+                  const soCheck = validateStrictSONumber(soNumber);
+                  const showMark = showSoWarningMark && !soCheck.isValid;
+                  return (
+                    <>
+                      <div className="relative">
+                        <FileText className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={soNumber}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSoNumber(val);
+                            if (validateStrictSONumber(val).isValid) {
+                              setShowSoWarningMark(false);
+                              setOpenSoWarningTip(null);
+                            }
+                          }}
+                          placeholder="เช่น so6909297 หรือ ed6909297"
+                          className={`w-full pl-9 ${showMark ? 'pr-10' : 'pr-3'} py-2 bg-white border rounded-lg font-mono text-sm font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500 ${
+                            showMark ? 'border-rose-500 ring-2 ring-rose-200' : 'border-slate-300'
+                          }`}
+                          required
+                        />
+                        {showMark && (
+                          <button
+                            type="button"
+                            onClick={() => setOpenSoWarningTip((prev) => (prev === 'input' ? null : 'input'))}
+                            aria-label="ดูคำอธิบายรหัสใบงานไม่ครบ"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-black text-xs flex items-center justify-center shadow-xs cursor-pointer"
+                          >
+                            !
+                          </button>
+                        )}
+                      </div>
+                      {showMark && openSoWarningTip === 'input' && (
+                        <div className="mt-1.5 p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-[11px] leading-relaxed shadow-sm flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-rose-950">{soCheck.error}</p>
+                            <p className="text-rose-700 mt-0.5">
+                              ต้องมีอักษรภาษาอังกฤษ 2 ตัว (เช่น <span className="font-mono font-bold">so</span> หรือ <span className="font-mono font-bold">ed</span> ใบงานซ่อมสินค้า) + ตัวเลข 7 ตัว ({soCheck.letterCount}/2 อักษร · {soCheck.digitCount}/7 เลข)
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setOpenSoWarningTip(null)}
+                            className="text-rose-500 hover:text-rose-800 p-0.5 cursor-pointer shrink-0"
+                            aria-label="ปิดคำอธิบาย"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Production Round Section */}
@@ -546,23 +600,63 @@ export const EditSOCutModal: React.FC<EditSOCutModalProps> = ({
             >
               ยกเลิก
             </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || isOverRemaining}
-              className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>กำลังบันทึก...</span>
-                </>
-              ) : (
-                <>
-                  <Check className="w-4 h-4" />
-                  <span>บันทึกการแก้ไข</span>
-                </>
-              )}
-            </button>
+            {(() => {
+              const soCheck = validateStrictSONumber(soNumber);
+              const showFooterMark = cutType === 'so' && showSoWarningMark && !soCheck.isValid;
+              return (
+                <div className="relative flex items-center gap-2">
+                  {showFooterMark && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setOpenSoWarningTip((prev) => (prev === 'footer' ? null : 'footer'))}
+                        aria-label="ดูคำอธิบายรหัสใบงานไม่ครบ"
+                        className="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-black text-sm flex items-center justify-center shadow-sm ring-2 ring-rose-200 cursor-pointer shrink-0"
+                      >
+                        !
+                      </button>
+                      {openSoWarningTip === 'footer' && (
+                        <div className="absolute bottom-full right-0 mb-2 w-72 sm:w-80 p-3 rounded-xl bg-white border border-rose-300 text-rose-900 text-[11px] leading-relaxed shadow-xl z-20">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-bold text-rose-950">{soCheck.error}</p>
+                              <p className="text-rose-700 mt-1">
+                                ต้องมีอักษรภาษาอังกฤษ 2 ตัว (เช่น <span className="font-mono font-bold">so</span> หรือ <span className="font-mono font-bold">ed</span> ใบงานซ่อมสินค้า) + ตัวเลข 7 ตัว ({soCheck.letterCount}/2 อักษร · {soCheck.digitCount}/7 เลข)
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setOpenSoWarningTip(null)}
+                              className="text-rose-500 hover:text-rose-800 p-0.5 cursor-pointer shrink-0"
+                              aria-label="ปิดคำอธิบาย"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || isOverRemaining}
+                    className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>กำลังบันทึก...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>บันทึกการแก้ไข</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         </form>
       </div>

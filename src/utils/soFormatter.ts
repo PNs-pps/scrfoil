@@ -24,6 +24,62 @@ export function getRealtimeSOExample(orderSuffix = '___'): string {
   return `so${yy}${mm}${orderSuffix}`;
 }
 
+export interface StrictSOValidation {
+  isValid: boolean;
+  normalized: string;
+  letterCount: number;
+  digitCount: number;
+  error?: string;
+}
+
+/**
+ * ตรวจสอบรหัส SO สำหรับการตัดสต๊อกอย่างเข้มงวด:
+ * ต้องขึ้นต้นด้วยอักษรภาษาอังกฤษ 2 ตัว และตามด้วยตัวเลข 7 ตัวเท่านั้น (รวม 9 ตัว เช่น so6911001)
+ */
+export function validateStrictSONumber(so: string): StrictSOValidation {
+  const clean = (so || '').trim();
+  const letterCount = clean.match(/[A-Za-z]/g)?.length ?? 0;
+  const digitCount = clean.match(/\d/g)?.length ?? 0;
+
+  if (/^[A-Za-z]{2}\d{7}$/.test(clean)) {
+    return {
+      isValid: true,
+      normalized: clean,
+      letterCount: 2,
+      digitCount: 7,
+    };
+  }
+
+  let error = 'รหัสใบงานต้องมีอักษรภาษาอังกฤษ 2 ตัว และตัวเลข 7 ตัว (เช่น so6911001 หรือ ed6911001)';
+  if (!clean) {
+    error = 'กรุณากรอกรหัสใบงานให้ครบ (อักษรภาษาอังกฤษ 2 ตัว เช่น so หรือ ed และตัวเลข 7 ตัว)';
+  } else if (/[^A-Za-z0-9]/.test(clean)) {
+    error = 'รหัสใบงานต้องมีเฉพาะอักษรภาษาอังกฤษ 2 ตัว และตัวเลข 7 ตัวเท่านั้น (ห้ามเว้นวรรค อักษรไทย หรือเครื่องหมาย)';
+  } else if (!/^[A-Za-z]{2}/.test(clean)) {
+    error = `ต้องขึ้นต้นด้วยอักษรภาษาอังกฤษ 2 ตัว เช่น so หรือ ed (ตอนนี้มีอักษร ${letterCount}/2 ตัว)`;
+  } else if (/^[A-Za-z]{3,}/.test(clean)) {
+    error = `อักษรภาษาอังกฤษต้องมี 2 ตัวเท่านั้น เช่น so หรือ ed (ตอนนี้มี ${letterCount} ตัว)`;
+  } else if (!/^[A-Za-z]{2}\d*$/.test(clean)) {
+    error = 'หลังอักษรภาษาอังกฤษ 2 ตัว ต้องเป็นตัวเลข 7 ตัวทั้งหมด';
+  } else if (digitCount < 7) {
+    error = `ตัวเลขยังไม่ครบ 7 ตัว (ตอนนี้ ${digitCount}/7 ตัว · ขาดอีก ${7 - digitCount} ตัว)`;
+  } else if (digitCount > 7) {
+    error = `ตัวเลขเกิน 7 ตัว (ตอนนี้ ${digitCount}/7 ตัว)`;
+  }
+
+  return {
+    isValid: false,
+    normalized: clean,
+    letterCount,
+    digitCount,
+    error,
+  };
+}
+
+export function isValidStrictSONumber(so: string): boolean {
+  return validateStrictSONumber(so).isValid;
+}
+
 export function parseSONumber(so: string): {
   isValid: boolean;
   components?: SOComponents;
@@ -31,19 +87,19 @@ export function parseSONumber(so: string): {
 } {
   const clean = so.trim().toLowerCase();
   
-  if (!clean.startsWith('so')) {
+  if (!clean.startsWith('so') && !clean.startsWith('ed')) {
     return {
       isValid: false,
-      error: 'รหัสต้องขึ้นต้นด้วย "so" (เช่น so6909500)'
+      error: 'รหัสต้องขึ้นต้นด้วย "so" หรือ "ed" (เช่น so6909500 หรือ ed6909500)'
     };
   }
 
   const remainder = clean.slice(2);
-  // Remainder should have at least xx (2 digits) + yy (2 digits) + zzz (at least 1-4 digits)
-  if (remainder.length < 5) {
+  // Remainder must be exactly xx (2 digits) + yy (2 digits) + zzz (3 digits) = 7 digits
+  if (remainder.length !== 7 || !/^\d{7}$/.test(remainder)) {
     return {
       isValid: false,
-      error: 'รูปแบบต้องประกอบด้วย so + ปี พ.ศ.(2หลัก) + เดือน(2หลัก) + เลขคำสั่งซื้อ (เช่น so6909500)'
+      error: 'รูปแบบต้องประกอบด้วย so/ed (2 ตัวอักษร) + ตัวเลข 7 ตัว (เช่น so6909500)'
     };
   }
 
@@ -60,8 +116,8 @@ export function parseSONumber(so: string): {
     return { isValid: false, error: 'เดือน (yy) ต้องเป็นตัวเลข 01 - 12' };
   }
 
-  if (!/^\d+$/.test(orderNo)) {
-    return { isValid: false, error: 'เลขคำสั่งซื้อ (zzz) ต้องเป็นตัวเลข' };
+  if (!/^\d{3}$/.test(orderNo)) {
+    return { isValid: false, error: 'เลขคำสั่งซื้อ (zzz) ต้องเป็นตัวเลข 3 หลัก' };
   }
 
   return {

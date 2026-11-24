@@ -17,6 +17,7 @@ import {
 import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
 import { isRecordSpecCompatibleWithRoll, normalizeLotRollPart } from '../utils/rollIdentity';
+import { validateStrictSONumber } from '../utils/soFormatter';
 
 interface ParsedCutRow {
   index: number;
@@ -30,7 +31,7 @@ interface ParsedCutRow {
   recordedBy: string;
   notes: string;
   matchedRoll?: FoilRoll;
-  status: 'valid' | 'roll_not_found' | 'ambiguous_roll' | 'insufficient_meters' | 'invalid_meters';
+  status: 'valid' | 'invalid_so' | 'roll_not_found' | 'ambiguous_roll' | 'insufficient_meters' | 'invalid_meters';
   statusMessage: string;
 }
 
@@ -101,7 +102,7 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
       const cols = line.split(/[,;\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
       if (cols.length < 3) return; // skip empty or incomplete lines
 
-      const soNumber = cols[0] || `SO-${Date.now().toString().slice(-4)}`;
+      const soNumber = (cols[0] || '').trim();
       const lotNumber = cols[1] || '';
       const rollNumber = cols[2] || '';
       // Ensure positive values mathematically
@@ -115,6 +116,15 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
 
       const optionalWidth = cols[8] ? Number(cols[8]) : undefined;
       const optionalPattern = cols[9] || undefined;
+
+      const soLower = soNumber.toLowerCase();
+      const isNonSo =
+        soLower.includes('สาขา') ||
+        soLower.includes('ยืม') ||
+        soLower.includes('ซ่อม') ||
+        soLower.includes('ทดสอบ') ||
+        soLower.includes('ตัวอย่าง');
+      const soValidation = !isNonSo ? validateStrictSONumber(soNumber) : null;
 
       // Find all rolls sharing lotNumber + rollNumber
       const lotKey = normalizeLotRollPart(lotNumber);
@@ -144,7 +154,13 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
       let status: ParsedCutRow['status'] = 'valid';
       let statusMessage = 'พร้อมตัดสต๊อก';
 
-      if (usedMeters <= 0 && ngMeters <= 0) {
+      if (!soNumber) {
+        status = 'invalid_so';
+        statusMessage = 'ไม่พบรหัส SO (ต้องมีอักษรอังกฤษ 2 ตัว และเลข 7 ตัว)';
+      } else if (soValidation && !soValidation.isValid) {
+        status = 'invalid_so';
+        statusMessage = soValidation.error || 'รหัส SO ไม่ครบ (ต้องมีอักษร 2 ตัว + เลข 7 ตัว)';
+      } else if (usedMeters <= 0 && ngMeters <= 0) {
         status = 'invalid_meters';
         statusMessage = 'จำนวนเมตรที่ใช้ต้องมากกว่า 0';
       } else if (lotRollMatches.length === 0) {
@@ -255,9 +271,13 @@ export const SOBatchImportModal: React.FC<SOBatchImportModalProps> = ({
       const remainingAfter = Math.max(0, round2(currentRem - row.totalDeducted));
       remainingTracker.set(roll.id, remainingAfter);
 
-      const isNonSo = row.soNumber.toLowerCase().includes('สาขา') || 
-                      row.soNumber.toLowerCase().includes('ยืม') || 
-                      row.soNumber.toLowerCase().includes('ซ่อม');
+      const soLower = row.soNumber.toLowerCase();
+      const isNonSo =
+        soLower.includes('สาขา') ||
+        soLower.includes('ยืม') ||
+        soLower.includes('ซ่อม') ||
+        soLower.includes('ทดสอบ') ||
+        soLower.includes('ตัวอย่าง');
 
       cutsToExecute.push({
         foilId: roll.id,

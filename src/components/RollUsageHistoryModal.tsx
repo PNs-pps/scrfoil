@@ -31,9 +31,15 @@ import {
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { getRestorableZeroedMeters } from '../utils/rollZeroRestore';
 import { isRecordSpecCompatibleWithRoll } from '../utils/rollIdentity';
-import { subscribeToRollCutHistory } from '../lib/firebase';
+import {
+  detectTimelineAnomalies,
+  MergedCutHistoryRow,
+  mergeRollCutHistory,
+} from '../utils/rollHistoryMerge';
+import { cleanupStaleCutHistoryInFirestore, subscribeToRollCutHistory } from '../lib/firebase';
 import { auditRollSOHistory } from '../utils/soHistoryAudit';
 import { FoilStatusTube } from './FoilStatusTube';
+import { RollIdentityBadges } from './RollIdentityBadges';
 
 interface RollUsageHistoryModalProps {
   roll: FoilRoll | null;
@@ -69,118 +75,40 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
 }) => {
   const panelRef = useModalA11y(Boolean(roll), onClose, 'ประวัติการใช้งานม้วนฟอยล์');
 
-  // Initialize with in-memory or embedded data first for instant render (excluding cross-spec contaminated records)
-  const [historyItems, setHistoryItems] = useState<CutHistoryItem[]>(() => {
-    if (!roll) return [];
-    const rollCuts = records.filter((r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r));
-    if (rollCuts.length > 0) {
-      return rollCuts.map((r) => ({
-        id: r.id,
-        soNumber: r.soNumber,
-        cutMeters: r.usedMeters,
-        usedMeters: r.usedMeters,
-        ngMeters: r.ngMeters,
-        totalDeducted: r.totalDeducted,
-        remainingBefore: r.remainingBefore ?? 0,
-        remainingAfter: r.remainingAfter,
-        cutDate: r.usageDate || r.recordedDate,
-        usageDate: r.usageDate,
-        recordedDate: r.recordedDate,
-        recordedBy: r.recordedBy,
-        notes: r.notes,
-        createdAt: r.createdAt || r.recordedDate,
-        cutType: r.cutType || 'so',
-        nonSoReason: r.nonSoReason,
-        productionRound: r.productionRound,
-        roundNumber: r.roundNumber,
-        cutStatus: r.cutStatus || 'completed',
-        rollId: roll.id,
-        lotNumber: roll.lotNumber,
-        rollNumber: roll.rollNumber,
-      }));
-    }
-    return [];
-  });
-
+  const [subItemsSnapshot, setSubItemsSnapshot] = useState<CutHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [indexWarning, setIndexWarning] = useState<string | null>(null);
   const [isFixingThisRoll, setIsFixingThisRoll] = useState(false);
   const [isSeparatingThisRoll, setIsSeparatingThisRoll] = useState(false);
+  const [isCleaningStale, setIsCleaningStale] = useState(false);
+  const [cleanupNotice, setCleanupNotice] = useState<string | null>(null);
   const [showConfirmFix, setShowConfirmFix] = useState(false);
+  const [realignedOverrides, setRealignedOverrides] = useState<StockCutRecord[] | null>(null);
 
-  // รวมประวัติจาก stock_cut_records (App state) + cut_history (Firestore)
-  // สำคัญ: หลังปรับความต่อเนื่อง ต้องให้ root (App) ทับยอดก่อนตัด/หลังตัด
-  // ไม่งั้น snapshot เก่าของ cut_history จะทับค่าใหม่ ทำให้ "กดแล้วประวัติไม่เปลี่ยน"
-  const buildMergedHistory = (
-    rollId: string,
-    rootRecords: StockCutRecord[],
-    subItems: CutHistoryItem[] | null | undefined
-  ): CutHistoryItem[] => {
-    const map = new Map<string, CutHistoryItem>();
-
-    // 1) sub-collection ก่อน (ฐาน) — กันรายการที่สเปกขัดแย้งกับม้วนนี้ออก
-    (subItems || []).forEach((item) => {
-      if (!roll || isRecordSpecCompatibleWithRoll(roll, item)) {
-        map.set(item.id, item);
-      }
-    });
-
-    // 2) root records ทับทีหลัง — ยอด remainingBefore/After จาก App หลัง realign เป็นหลัก
-    rootRecords
-      .filter((r) => r.foilId === rollId && (!roll || isRecordSpecCompatibleWithRoll(roll, r)))
-      .forEach((r) => {
-        const prev = map.get(r.id);
-        map.set(r.id, {
-          id: r.id,
-          soNumber: r.soNumber,
-          cutMeters: r.usedMeters,
-          usedMeters: r.usedMeters,
-          ngMeters: r.ngMeters,
-          totalDeducted: r.totalDeducted,
-          remainingBefore:
-            r.remainingBefore != null ? r.remainingBefore : prev?.remainingBefore ?? 0,
-          remainingAfter:
-            r.remainingAfter != null ? r.remainingAfter : prev?.remainingAfter ?? 0,
-          cutDate: r.usageDate || r.recordedDate,
-          usageDate: r.usageDate,
-          recordedDate: r.recordedDate,
-          recordedBy: r.recordedBy,
-          notes: r.notes,
-          createdAt: r.createdAt || r.recordedDate,
-          cutType: r.cutType || 'so',
-          nonSoReason: r.nonSoReason,
-          productionRound: r.productionRound,
-          roundNumber: r.roundNumber,
-          cutStatus: r.cutStatus || prev?.cutStatus || 'completed',
-          rollId,
-          lotNumber: roll?.lotNumber || r.lotNumber,
-          rollNumber: roll?.rollNumber || r.rollNumber,
-          width: roll?.width ?? r.width,
-          pattern: roll?.pattern || r.pattern,
-        });
-      });
-
-    return Array.from(map.values()).sort((a, b) => {
-      const timeA = new Date(a.usageDate || a.recordedDate || a.createdAt || 0).getTime();
-      const timeB = new Date(b.usageDate || b.recordedDate || b.createdAt || 0).getTime();
-      if (timeA !== timeB) return timeB - timeA;
-      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
-    });
-  };
-
-  // เก็บ snapshot ล่าสุดของ sub-collection ไว้ merge กับ records ที่เปลี่ยนหลัง realign
-  const subItemsRef = React.useRef<CutHistoryItem[]>([]);
+  const effectiveRootRecords = useMemo(() => {
+    if (!realignedOverrides || realignedOverrides.length === 0) return records;
+    const map = new Map(records.map((r) => [r.id, r]));
+    realignedOverrides.forEach((r) => map.set(r.id, r));
+    return Array.from(map.values());
+  }, [records, realignedOverrides]);
 
   useEffect(() => {
-    if (!roll?.id) return;
+    if (!roll?.id) {
+      setSubItemsSnapshot([]);
+      setRealignedOverrides(null);
+      setCleanupNotice(null);
+      return;
+    }
+    setSubItemsSnapshot([]);
+    setRealignedOverrides(null);
+    setCleanupNotice(null);
     setIsLoading(true);
 
     const unsubscribe = subscribeToRollCutHistory(
       roll.id,
       (subItems) => {
         setIsLoading(false);
-        subItemsRef.current = subItems || [];
-        setHistoryItems(buildMergedHistory(roll.id, records, subItemsRef.current));
+        setSubItemsSnapshot(subItems || []);
       },
       (err: any) => {
         setIsLoading(false);
@@ -193,22 +121,54 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     return () => {
       unsubscribe();
     };
-    // เฉพาะ roll.id — records เปลี่ยนแยก merge ด้านล่าง
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roll?.id]);
 
-  // เมื่อ records ใน App เปลี่ยน (หลัง realign / ลบ / ตัดใหม่) รี-merge ทันที
-  useEffect(() => {
-    if (!roll?.id) return;
-    setHistoryItems(buildMergedHistory(roll.id, records, subItemsRef.current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, roll?.id]);
+  const mergeResult = useMemo(
+    () => mergeRollCutHistory(roll, effectiveRootRecords, subItemsSnapshot),
+    [roll, effectiveRootRecords, subItemsSnapshot]
+  );
+
+  const historyItems: MergedCutHistoryRow[] = mergeResult.items;
+
+  const timelineAnomaly = useMemo(
+    () => detectTimelineAnomalies(historyItems, roll),
+    [historyItems, roll]
+  );
+
+  const staleIdsToClean = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...mergeResult.staleSubItemIds,
+          ...mergeResult.crossSpecSubItemIds,
+          ...mergeResult.cancelledSubItemIds,
+        ])
+      ),
+    [mergeResult]
+  );
+
+  const handleCleanupStaleSubcollection = async () => {
+    if (!roll?.id || staleIdsToClean.length === 0) return;
+    setIsCleaningStale(true);
+    try {
+      const { removedIds } = await cleanupStaleCutHistoryInFirestore(roll.id, staleIdsToClean);
+      setCleanupNotice(
+        removedIds.length > 0
+          ? `ล้างประวัติเก่า/ข้ามม้วนที่ค้างบน Cloud ออกแล้ว ${removedIds.length} รายการ ✅`
+          : 'ไม่พบประวัติค้างในฐานข้อมูลแล้ว'
+      );
+    } catch (err: any) {
+      setCleanupNotice(`ล้างประวัติค้างไม่สำเร็จ: ${err?.message || err}`);
+    } finally {
+      setIsCleaningStale(false);
+    }
+  };
 
   // Run SO History Audit specifically for this roll
   const audit = useMemo(() => {
     if (!roll) return null;
-    return auditRollSOHistory(roll, records);
-  }, [roll, records]);
+    return auditRollSOHistory(roll, effectiveRootRecords);
+  }, [roll, effectiveRootRecords]);
 
   // แยกรายการที่ตัดจริง vs รายการจองรอตัด
   const actualHistoryItems = historyItems.filter((r) => r.cutStatus !== 'reserved' && r.cutStatus !== 'cancelled');
@@ -336,7 +296,10 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `ประวัติการตัด_ล็อต_${roll.lotNumber}_เบอร์_${roll.rollNumber}.csv`);
+    link.setAttribute(
+      'download',
+      `ประวัติการตัด_${roll.width}mm_${roll.pattern}_ล็อต_${roll.lotNumber}_เบอร์_${roll.rollNumber}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -369,14 +332,18 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold">
+                <span className="text-[11px] sm:text-xs px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-bold shrink-0">
                   ประวัติการใช้งานฟอยล์รายลูก
                 </span>
-                <span className="text-xs text-slate-400 font-mono truncate">
-                  ล็อต {roll.lotNumber} | เบอร์ #{roll.rollNumber}
-                </span>
+                <RollIdentityBadges
+                  variant="header"
+                  width={roll.width}
+                  pattern={roll.pattern}
+                  lotNumber={roll.lotNumber}
+                  rollNumber={roll.rollNumber}
+                />
               </div>
-              <h2 className="text-sm sm:text-lg font-bold text-white leading-tight mt-0.5 truncate">
+              <h2 className="text-sm sm:text-lg font-bold text-white leading-tight mt-1 truncate">
                 ประวัติใบสั่งซื้อ / ใบงานที่ใช้ตัดม้วนนี้
               </h2>
             </div>
@@ -399,26 +366,16 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               
               {/* Basic Roll Specs */}
-              <div className="space-y-1">
+              <div className="space-y-2">
+                <RollIdentityBadges
+                  variant="card"
+                  width={roll.width}
+                  pattern={roll.pattern}
+                  lotNumber={roll.lotNumber}
+                  rollNumber={roll.rollNumber}
+                  showWidthDesc={true}
+                />
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 bg-black text-white px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
-                    <span className="text-xs font-black uppercase text-amber-400 tracking-wider">LOT.</span>
-                    <span className="lot-number-display text-base sm:text-lg font-black text-white leading-none">
-                      {roll.lotNumber}
-                    </span>
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 bg-black text-amber-300 px-2.5 py-1 rounded-lg border border-slate-800 shadow-2xs">
-                    <span className="text-xs font-black uppercase text-amber-400 tracking-wider">NO.</span>
-                    <span className="lot-number-display text-base sm:text-lg font-black leading-none">
-                      #{roll.rollNumber}
-                    </span>
-                  </span>
-                  <span className="px-2 py-0.5 bg-white text-slate-700 border border-slate-200 text-xs rounded-md font-medium">
-                    ลาย {roll.pattern}
-                  </span>
-                  <span className="px-2 py-0.5 bg-white text-slate-700 border border-slate-200 text-xs rounded-md font-mono">
-                    กว้าง {roll.width} มม.
-                  </span>
                   {roll.isReverseSideOnly && (
                     <span className="px-2.5 py-1 bg-amber-500 text-slate-950 border border-amber-600 text-xs rounded-lg font-bold inline-flex items-center gap-1 shadow-2xs">
                       <span>ใช้ได้เฉพาะอีกด้าน (หน้าหลักเสีย)</span>
@@ -712,23 +669,9 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                           audit.timeline.map((s) => s.record.id)
                         );
                         // ใช้ updatedRecords จาก realign ทันที (ไม่รอ React re-render / snapshot)
-                        const fresh =
-                          result && typeof result === 'object' && result.updatedRecords && result.updatedRecords.length > 0
-                            ? result.updatedRecords
-                            : records;
-                        // รวมกับ records อื่นของม้วนนี้ที่ไม่อยู่ใน realign
-                        const byId = new Map(
-                          records
-                            .filter((r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r))
-                            .map((r) => [r.id, r])
-                        );
-                        if (result && typeof result === 'object' && result.updatedRecords) {
-                          result.updatedRecords.forEach((r) => byId.set(r.id, r));
+                        if (result && typeof result === 'object' && result.updatedRecords && result.updatedRecords.length > 0) {
+                          setRealignedOverrides(result.updatedRecords);
                         }
-                        const mergedRoot = Array.from(byId.values());
-                        setHistoryItems(
-                          buildMergedHistory(roll.id, mergedRoot.length ? mergedRoot : fresh, subItemsRef.current)
-                        );
                       } finally {
                         setIsFixingThisRoll(false);
                       }
@@ -798,6 +741,66 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                   <span>ม้วนนี้ถูกกดตัดเป็น 0 แล้ว (isZeroedOut) — ระบบยกเว้นการปรับยอดอัตโนมัติ เพื่อคงค่าเดิมตามที่ผู้ใช้งานระบุ</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Timeline Integrity & Stale Cache Guard Banner */}
+          {(mergeResult.rejectedSubCount > 0 || timelineAnomaly.hasMixedOrCorruptTimeline || cleanupNotice) && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                timelineAnomaly.hasMixedOrCorruptTimeline
+                  ? 'bg-rose-50 border-rose-300 text-rose-950'
+                  : 'bg-sky-50 border-sky-200 text-sky-950'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck
+                    className={`w-4 h-4 shrink-0 mt-0.5 ${
+                      timelineAnomaly.hasMixedOrCorruptTimeline ? 'text-rose-600' : 'text-sky-600'
+                    }`}
+                  />
+                  <div className="space-y-1">
+                    <div className="font-bold">
+                      {timelineAnomaly.hasMixedOrCorruptTimeline
+                        ? '⚠️ ตรวจพบความผิดปกติของโซ่ประวัติในม้วนนี้ (แยกแสดงป้าย หน้ากว้าง · ลาย · ล็อต · เบอร์ ทุกแถวแล้ว)'
+                        : '🛡️ กรองแยกรายการประวัติค้าง/ต่างม้วนออกให้แล้ว'}
+                    </div>
+                    {mergeResult.rejectedSubCount > 0 && (
+                      <p className="text-[11px] opacity-90">
+                        ซ่อนรายการค้างเก่าใน sub-collection ที่ไม่ได้เป็นของม้วนนี้แล้ว ({mergeResult.rejectedSubCount} รายการ
+                        {mergeResult.crossSpecSubItemIds.length > 0 ? ` · ต่างหน้ากว้าง/ลาย ${mergeResult.crossSpecSubItemIds.length}` : ''}
+                        {mergeResult.staleSubItemIds.length > 0 ? ` · ย้าย/ต่างม้วน ${mergeResult.staleSubItemIds.length}` : ''}
+                        {mergeResult.cancelledSubItemIds.length > 0 ? ` · ยกเลิกแล้ว ${mergeResult.cancelledSubItemIds.length}` : ''})
+                      </p>
+                    )}
+                    {timelineAnomaly.summaryMessages.map((msg, i) => (
+                      <p key={i} className="text-[11px] opacity-90 leading-snug">
+                        • {msg}
+                      </p>
+                    ))}
+                    {cleanupNotice && (
+                      <p className="text-[11px] font-bold text-emerald-800">{cleanupNotice}</p>
+                    )}
+                  </div>
+                </div>
+
+                {canEdit && mergeResult.rejectedSubCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={isCleaningStale}
+                    onClick={handleCleanupStaleSubcollection}
+                    className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] inline-flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50 shrink-0"
+                  >
+                    {isCleaningStale ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                    )}
+                    <span>ล้างประวัติเก่าที่ปน/ค้างบน Cloud ({mergeResult.rejectedSubCount})</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -889,6 +892,7 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                       <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 text-[11px]">
                         <th className="py-2.5 px-3">ลำดับ</th>
                         <th className="py-2.5 px-3 sticky left-0 z-20 bg-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">รหัส SO / ใบงาน (ตรึงซ้าย)</th>
+                        <th className="py-2.5 px-3">ป้ายกำกับ (กว้าง · ลาย · ล็อต · เบอร์)</th>
                         <th className="py-2.5 px-3 text-right">ตัดลงแผ่น</th>
                         <th className="py-2.5 px-3 text-right">NG</th>
                         <th className="py-2.5 px-3 text-right">รวมตัดออก</th>
@@ -901,13 +905,13 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {historyItems.map((item, idx) => {
-                        const targetRecord = records.find((r) => r.id === item.id) || {
+                        const targetRecord = effectiveRootRecords.find((r) => r.id === item.id) || {
                           id: item.id,
                           foilId: roll.id,
-                          lotNumber: roll.lotNumber,
-                          rollNumber: roll.rollNumber,
-                          width: roll.width,
-                          pattern: roll.pattern,
+                          lotNumber: item.rawLotNumber || roll.lotNumber,
+                          rollNumber: item.rawRollNumber || roll.rollNumber,
+                          width: item.rawWidth ?? roll.width,
+                          pattern: item.rawPattern || roll.pattern,
                           soNumber: item.soNumber,
                           cutType: item.cutType,
                           nonSoReason: item.nonSoReason,
@@ -933,14 +937,20 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                           className={`transition-colors ${
                             item.cutStatus === 'reserved'
                               ? 'bg-amber-50/70 hover:bg-amber-100/60 border-l-4 border-l-amber-400'
-                              : 'hover:bg-slate-50/80'
+                              : item.hasNegativeBalance || item.hasLotRollConflict
+                                ? 'bg-rose-50/60 hover:bg-rose-100/50 border-l-4 border-l-rose-500'
+                                : 'hover:bg-slate-50/80'
                           }`}
                         >
                           <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px]">
                             {idx + 1}
                           </td>
                           <td className={`py-2.5 px-3 font-mono font-bold text-slate-900 sticky left-0 z-10 ${
-                            item.cutStatus === 'reserved' ? 'bg-amber-50/90' : 'bg-white group-hover:bg-slate-50'
+                            item.cutStatus === 'reserved'
+                              ? 'bg-amber-50/90'
+                              : item.hasNegativeBalance || item.hasLotRollConflict
+                                ? 'bg-rose-50/95'
+                                : 'bg-white group-hover:bg-slate-50'
                           } shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}>
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span>{item.soNumber || '-'}</span>
@@ -981,6 +991,17 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                                 </span>
                               )}
                             </div>
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <RollIdentityBadges
+                              variant="row"
+                              width={item.rawWidth ?? item.width}
+                              pattern={item.rawPattern ?? item.pattern}
+                              lotNumber={item.rawLotNumber ?? item.lotNumber}
+                              rollNumber={item.rawRollNumber ?? item.rollNumber}
+                              isSpecVerified={item.isSpecVerified}
+                              hasLotRollConflict={item.hasLotRollConflict}
+                            />
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">
                             {formatMeters(item.cutMeters ?? item.usedMeters ?? 0)} ม.
@@ -1033,17 +1054,25 @@ export const RollUsageHistoryModal: React.FC<RollUsageHistoryModalProps> = ({
                               </div>
                             ) : (
                               <>
-                                <span className="text-slate-400">{formatMeters(item.remainingBefore ?? 0)}</span>
+                                <span className={Number(item.remainingBefore) < -0.01 ? 'text-rose-700 font-bold' : 'text-slate-400'}>
+                                  {formatMeters(item.remainingBefore ?? 0)}
+                                </span>
                                 <span className="text-slate-300 mx-1">&rarr;</span>
-                                <span className="font-bold text-emerald-700">{formatMeters(item.remainingAfter ?? 0)} ม.</span>
-                                {Number(item.remainingAfter) <= 0 && (
+                                <span className={`font-bold ${Number(item.remainingAfter) < -0.01 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                  {formatMeters(item.remainingAfter ?? 0)} ม.
+                                </span>
+                                {item.hasNegativeBalance ? (
+                                  <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
+                                    <span>⚠️ ยอดติดลบ (ปนสายม้วนอื่น)</span>
+                                  </div>
+                                ) : Number(item.remainingAfter) <= 0 ? (
                                   <div className="text-[10px] text-rose-700 font-bold font-sans mt-0.5 flex items-center justify-end gap-1">
                                     <span>🏁 หมดม้วน</span>
                                     <span className="font-mono text-slate-500 font-normal">
                                       ({formatThaiDate(item.cutDate || item.usageDate || item.recordedDate)})
                                     </span>
                                   </div>
-                                )}
+                                ) : null}
                               </>
                             )}
                           </td>

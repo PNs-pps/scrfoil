@@ -326,7 +326,11 @@ export const PuSandwichColorBreakdown: React.FC<PuSandwichColorBreakdownProps> =
                       className="w-7 h-7 rounded-lg border border-black/20 flex items-center justify-center shrink-0 shadow-2xs"
                       style={{ backgroundColor: group.colorMeta.dotColor }}
                     >
-                      <span className="text-[11px] font-bold text-slate-700/80">
+                      <span
+                        className={`text-[11px] font-bold ${
+                          group.colorMeta.isDarkSwatch ? 'text-white' : 'text-slate-800'
+                        }`}
+                      >
                         {group.baseColor.slice(0, 1)}
                       </span>
                     </div>

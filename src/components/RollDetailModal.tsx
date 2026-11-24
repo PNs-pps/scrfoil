@@ -4,7 +4,9 @@ import { FoilRoll, StockCutRecord } from '../types';
 import { X, ArrowLeft, Layers, Scissors, Calendar, User, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { formatMeters, isRollDepleted, getRollDepletionDate, formatThaiDate } from '../utils/formatters';
 import { reservedMetersOfRoll } from '../utils/rollAggregates';
+import { isRecordSpecCompatibleWithRoll, normalizeLotRollPart } from '../utils/rollIdentity';
 import { FoilStatusTube } from './FoilStatusTube';
+import { RollIdentityBadges } from './RollIdentityBadges';
 
 interface RollDetailModalProps {
   roll: FoilRoll | null;
@@ -23,7 +25,9 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
 
   if (!roll) return null;
 
-  const rollRecords = records.filter(r => r.foilId === roll.id);
+  const rollRecords = records.filter(
+    (r) => r.foilId === roll.id && isRecordSpecCompatibleWithRoll(roll, r)
+  );
   const reservedMeters = reservedMetersOfRoll(records, roll.id);
   const percentLeft = roll.totalMeters > 0 ? Math.round((roll.remainingMeters / roll.totalMeters) * 100) : 0;
   const isDepleted = isRollDepleted(roll);
@@ -49,23 +53,29 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>ย้อนกลับ</span>
             </button>
-            <div className="min-w-0">
+            <div className="min-w-0 space-y-1">
               <h2 className="text-sm sm:text-base font-bold text-white leading-tight truncate">
-                ประวัติการตัด: ล็อต {roll.lotNumber} #{roll.rollNumber}
+                ประวัติการตัดม้วนฟอยล์
               </h2>
-              <p className="text-[11px] text-slate-300 truncate flex items-center gap-2">
-                <span>ลาย {roll.pattern} | หน้ากว้าง {roll.width} มม.</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <RollIdentityBadges
+                  variant="header"
+                  width={roll.width}
+                  pattern={roll.pattern}
+                  lotNumber={roll.lotNumber}
+                  rollNumber={roll.rollNumber}
+                />
                 {roll.isReverseSideOnly && (
-                  <span className="text-[10px] font-bold text-amber-950 bg-amber-400 px-1.5 py-0.2 rounded shadow-2xs">
+                  <span className="text-[10px] font-bold text-amber-950 bg-amber-400 px-1.5 py-0.5 rounded shadow-2xs">
                     ใช้ได้เฉพาะอีกด้าน
                   </span>
                 )}
                 {isDepleted && (
-                  <span className="text-[10px] font-bold text-amber-300 bg-slate-800 px-1.5 py-0.2 rounded border border-slate-700">
+                  <span className="text-[10px] font-bold text-amber-300 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
                     หมดสต๊อก: {formatThaiDate(depletionDate)}
                   </span>
                 )}
-              </p>
+              </div>
             </div>
           </div>
           <button
@@ -95,6 +105,16 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
 
           {/* Roll Stats Card */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="pb-2.5 border-b border-slate-200">
+              <RollIdentityBadges
+                variant="card"
+                showWidthDesc={true}
+                width={roll.width}
+                pattern={roll.pattern}
+                lotNumber={roll.lotNumber}
+                rollNumber={roll.rollNumber}
+              />
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
               <div>
                 <span className="text-[11px] text-slate-500 block">เมตรลูกเต็ม</span>
@@ -182,6 +202,7 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
                   <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
                     <tr>
                       <th className="p-2.5">รหัส SO</th>
+                      <th className="p-2.5">ป้ายกำกับ (กว้าง · ลาย · ล็อต · เบอร์)</th>
                       <th className="p-2.5 text-right">ตัดใช้</th>
                       <th className="p-2.5 text-right">NG</th>
                       <th className="p-2.5 text-right">คงเหลือ</th>
@@ -190,10 +211,28 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {rollRecords.map((r) => (
+                    {rollRecords.map((r) => {
+                      const lotMismatch =
+                        normalizeLotRollPart(r.lotNumber) !== '' &&
+                        normalizeLotRollPart(r.lotNumber) !== normalizeLotRollPart(roll.lotNumber);
+                      const rollMismatch =
+                        normalizeLotRollPart(r.rollNumber) !== '' &&
+                        normalizeLotRollPart(r.rollNumber) !== normalizeLotRollPart(roll.rollNumber);
+                      return (
                       <tr key={r.id} className="hover:bg-slate-50">
                         <td className="p-2.5 font-mono font-bold text-amber-800">
                           {r.soNumber}
+                        </td>
+                        <td className="p-2.5">
+                          <RollIdentityBadges
+                            variant="row"
+                            width={r.width ?? roll.width}
+                            pattern={r.pattern ?? roll.pattern}
+                            lotNumber={r.lotNumber ?? roll.lotNumber}
+                            rollNumber={r.rollNumber ?? roll.rollNumber}
+                            isSpecVerified={Boolean(r.width && r.pattern)}
+                            hasLotRollConflict={lotMismatch || rollMismatch}
+                          />
                         </td>
                         <td className="p-2.5 text-right font-mono font-semibold text-slate-900">
                           {formatMeters(r.usedMeters)} ม.
@@ -219,7 +258,8 @@ export const RollDetailModal: React.FC<RollDetailModalProps> = ({
                           {r.recordedBy}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

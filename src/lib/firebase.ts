@@ -1141,12 +1141,16 @@ export async function fetchCutRecordsForRollFromServer(
         // Never steal a cut that already belongs to a different foilId
         if (rec.foilId && rec.foilId !== rollId) return;
 
-        // Require width & pattern compatibility whenever specs are present
-        if (hasTargetWidth && rec.width !== undefined && rec.width !== null && Number(rec.width) > 0) {
-          if (Number(rec.width) !== targetWidth) return;
+        // Require explicit width + pattern compatibility whenever roll specs are known
+        if (
+          !isRecordSpecCompatibleWithRoll(
+            { width: rollMeta.width, pattern: rollMeta.pattern },
+            rec,
+            { requireBothPresent: Boolean(hasTargetWidth && targetPattern) }
+          )
+        ) {
+          return;
         }
-        const recPattern = normalizePatternForMatch(rec.pattern);
-        if (targetPattern && recPattern && recPattern !== targetPattern) return;
 
         recordsMap.set(d.id, rec);
       });
@@ -1725,6 +1729,9 @@ export async function separateCrossSpecRecordsInFirestore(
     return moved;
   });
 
+  // Also purge stale/cross-spec/moved/cancelled entries lingering inside sourceRoll's cut_history subcollection
+  await cleanupStaleCutHistoryInFirestore(sourceRollId, movedRecords.map((r) => r.id));
+
   markLocalWrite([
     sourceRollId,
     ...uniqueTargetRollIds,
@@ -1737,6 +1744,102 @@ export async function separateCrossSpecRecordsInFirestore(
     movedRecords,
     targetRollIds: uniqueTargetRollIds,
   };
+}
+
+/**
+ * Cleans confirmed stale, cross-spec, wrong-roll, or cancelled documents inside
+ * `foil_rolls/{rollId}/cut_history` and `foil_rolls/{rollId}/cuts`.
+ * Never touches valid active cuts owned by this roll in `stock_cut_records`.
+ */
+export async function cleanupStaleCutHistoryInFirestore(
+  rollId: string,
+  extraStaleIds: string[] = []
+): Promise<{ removedIds: string[] }> {
+  if (!rollId) return { removedIds: [] };
+
+  const rollRef = doc(db, ROLLS_COLLECTION, rollId);
+  const [rollSnap, subSnap] = await Promise.all([
+    getDocFromServer(rollRef),
+    getDocsFromServer(collection(db, ROLLS_COLLECTION, rollId, 'cut_history')),
+  ]);
+
+  if (!rollSnap.exists()) return { removedIds: [] };
+  const serverRoll = rollSnap.data() as FoilRoll;
+
+  const extraSet = new Set(extraStaleIds.filter(Boolean));
+  const candidateIds = new Set<string>(extraSet);
+  const subDocs = subSnap.docs.map((d) => ({ id: d.id, data: d.data() as CutHistoryItem }));
+
+  subDocs.forEach(({ id, data }) => {
+    if (data.rollId && data.rollId !== rollId) {
+      candidateIds.add(id);
+      return;
+    }
+    if (
+      data.lotNumber &&
+      normalizeLotRollPart(data.lotNumber) !== normalizeLotRollPart(serverRoll.lotNumber)
+    ) {
+      candidateIds.add(id);
+      return;
+    }
+    if (
+      data.rollNumber &&
+      normalizeLotRollPart(data.rollNumber) !== normalizeLotRollPart(serverRoll.rollNumber)
+    ) {
+      candidateIds.add(id);
+      return;
+    }
+    if (hasExplicitSpecConflict(serverRoll, data)) {
+      candidateIds.add(id);
+      return;
+    }
+    if (data.cutStatus === 'cancelled') {
+      candidateIds.add(id);
+    }
+  });
+
+  // Cross-check every subcollection item against root stock_cut_records on server
+  const uncheckedIds = subDocs
+    .map((d) => d.id)
+    .filter((id) => !candidateIds.has(id));
+
+  for (let i = 0; i < uncheckedIds.length; i += 20) {
+    const chunk = uncheckedIds.slice(i, i + 20);
+    const rootSnaps = await Promise.all(
+      chunk.map((id) => getDocFromServer(doc(db, RECORDS_COLLECTION, id)).catch(() => null))
+    );
+    rootSnaps.forEach((snap, idx) => {
+      if (!snap || !snap.exists()) return;
+      const rootRec = snap.data() as StockCutRecord;
+      const recId = chunk[idx];
+      if (
+        (rootRec.foilId && rootRec.foilId !== rollId) ||
+        rootRec.cutStatus === 'cancelled' ||
+        hasExplicitSpecConflict(serverRoll, rootRec)
+      ) {
+        candidateIds.add(recId);
+      }
+    });
+  }
+
+  const toDelete = Array.from(candidateIds);
+  if (toDelete.length === 0) return { removedIds: [] };
+
+  const batch = writeBatch(db);
+  toDelete.forEach((id) => {
+    batch.delete(doc(db, ROLLS_COLLECTION, rollId, 'cut_history', id));
+    batch.delete(doc(db, ROLLS_COLLECTION, rollId, 'cuts', id));
+  });
+
+  const staleSet = new Set(toDelete);
+  const filteredRecent = (serverRoll.recentCuts || []).filter((c) => !staleSet.has(c.id));
+  if (filteredRecent.length !== (serverRoll.recentCuts || []).length) {
+    batch.set(rollRef, sanitizeForFirestore({ recentCuts: filteredRecent }), { merge: true });
+  }
+
+  await batch.commit();
+  markLocalWrite([rollId, ...toDelete]);
+  return { removedIds: toDelete };
 }
 
 /**
@@ -1962,11 +2065,16 @@ export function subscribeToRollCutHistory(
         createdAt: data.createdAt || '',
         cutType: data.cutType || 'so',
         nonSoReason: data.nonSoReason || '',
+        productionRound: data.productionRound || '',
+        roundNumber: data.roundNumber,
+        cutStatus: data.cutStatus || 'completed',
         rollId: data.rollId || rollId,
         lotNumber: data.lotNumber || '',
         rollNumber: data.rollNumber || '',
         width: data.width,
         pattern: data.pattern,
+        isSilverSide: Boolean(data.isSilverSide),
+        isWhiteSide: Boolean(data.isWhiteSide),
       } as CutHistoryItem;
     });
   };
@@ -3038,35 +3146,117 @@ export async function reallocateReservationRollInFirestore(
   newRoll: FoilRoll
 ): Promise<StockCutRecord> {
   const recordRef = doc(db, RECORDS_COLLECTION, recordId);
-  const result = await runTransaction(db, async (tx) => {
+  const newRollRef = doc(db, ROLLS_COLLECTION, newRoll.id);
+  const { updatedRecord, oldRollId } = await runTransaction(db, async (tx) => {
     const recordSnap = await tx.get(recordRef);
     if (!recordSnap.exists()) {
       throw new Error('ไม่พบรายการ SO นี้ในระบบ');
     }
     const oldRecord = recordSnap.data() as StockCutRecord;
-    const oldRollId = oldRecord.foilId;
+    const prevRollId = oldRecord.foilId;
+    const oldRollRef = doc(db, ROLLS_COLLECTION, prevRollId);
 
-    const updatedRecord: StockCutRecord = {
+    const [oldRollSnap, newRollSnap] = await Promise.all([
+      tx.get(oldRollRef),
+      tx.get(newRollRef),
+    ]);
+
+    const updatedRec: StockCutRecord = {
       ...oldRecord,
       foilId: newRoll.id,
       lotNumber: newRoll.lotNumber,
       rollNumber: newRoll.rollNumber,
       width: newRoll.width,
       pattern: newRoll.pattern,
-      reallocatedFromRollId: oldRollId,
+      reallocatedFromRollId: prevRollId,
       reallocatedAt: new Date().toISOString(),
     };
 
-    tx.set(recordRef, sanitizeForFirestore(updatedRecord), { merge: true });
-    // Remove from old roll subcollection if exists, add to new roll subcollection
-    tx.delete(doc(db, ROLLS_COLLECTION, oldRollId, 'cut_history', recordId));
-    tx.set(doc(db, ROLLS_COLLECTION, newRoll.id, 'cut_history', recordId), sanitizeForFirestore(updatedRecord));
+    const historyItem: CutHistoryItem = {
+      id: updatedRec.id,
+      soNumber: updatedRec.soNumber || '',
+      cutMeters: updatedRec.usedMeters,
+      usedMeters: updatedRec.usedMeters,
+      ngMeters: updatedRec.ngMeters,
+      totalDeducted: updatedRec.totalDeducted,
+      remainingBefore: updatedRec.remainingBefore,
+      remainingAfter: updatedRec.remainingAfter,
+      cutDate: updatedRec.usageDate || updatedRec.recordedDate || todayLocalISO(),
+      usageDate: updatedRec.usageDate || updatedRec.recordedDate || todayLocalISO(),
+      recordedDate: updatedRec.recordedDate || todayLocalISO(),
+      recordedBy: updatedRec.recordedBy || 'ช่างคุมเครื่อง',
+      notes: updatedRec.notes || '',
+      createdAt: updatedRec.createdAt || new Date().toISOString(),
+      cutType: updatedRec.cutType || 'so',
+      nonSoReason: updatedRec.nonSoReason || '',
+      productionRound: updatedRec.productionRound || '',
+      roundNumber: updatedRec.roundNumber,
+      cutStatus: updatedRec.cutStatus || 'reserved',
+      rollId: newRoll.id,
+      lotNumber: newRoll.lotNumber,
+      rollNumber: newRoll.rollNumber,
+      width: newRoll.width,
+      pattern: newRoll.pattern,
+      isSilverSide: updatedRec.isSilverSide,
+      isWhiteSide: updatedRec.isWhiteSide,
+    };
 
-    return updatedRecord;
+    tx.set(recordRef, sanitizeForFirestore(updatedRec), { merge: true });
+    // Remove from old roll subcollections if exists, add to new roll subcollections
+    if (prevRollId && prevRollId !== newRoll.id) {
+      tx.delete(doc(db, ROLLS_COLLECTION, prevRollId, 'cut_history', recordId));
+      tx.delete(doc(db, ROLLS_COLLECTION, prevRollId, 'cuts', recordId));
+      if (oldRollSnap.exists()) {
+        const oldRollData = oldRollSnap.data() as FoilRoll;
+        tx.set(
+          oldRollRef,
+          sanitizeForFirestore({
+            recentCuts: (oldRollData.recentCuts || []).filter((c) => c.id !== recordId),
+          }),
+          { merge: true }
+        );
+      }
+    }
+
+    tx.set(doc(db, ROLLS_COLLECTION, newRoll.id, 'cut_history', recordId), sanitizeForFirestore(historyItem));
+    tx.set(doc(db, ROLLS_COLLECTION, newRoll.id, 'cuts', recordId), sanitizeForFirestore(historyItem));
+
+    if (newRollSnap.exists()) {
+      const freshNewRoll = newRollSnap.data() as FoilRoll;
+      const existingRecent = freshNewRoll.recentCuts || [];
+      if (!existingRecent.some((c) => c.id === recordId)) {
+        tx.set(
+          newRollRef,
+          sanitizeForFirestore({
+            recentCuts: [
+              {
+                id: updatedRec.id,
+                soNumber: updatedRec.soNumber || '',
+                cutType: updatedRec.cutType || 'so',
+                productionRound: updatedRec.productionRound || '',
+                roundNumber: updatedRec.roundNumber,
+                usedMeters: updatedRec.usedMeters,
+                ngMeters: updatedRec.ngMeters,
+                totalDeducted: updatedRec.totalDeducted,
+                remainingAfter: updatedRec.remainingAfter ?? 0,
+                usageDate: updatedRec.usageDate,
+                recordedDate: updatedRec.recordedDate,
+                recordedBy: updatedRec.recordedBy,
+                notes: updatedRec.notes,
+              },
+              ...existingRecent,
+            ].slice(0, 50),
+          }),
+          { merge: true }
+        );
+      }
+    }
+
+    return { updatedRecord: updatedRec, oldRollId: prevRollId };
   });
 
-  markLocalWrite([recordId, newRoll.id]);
-  return result;
+  markLocalWrite([recordId, newRoll.id, ...(oldRollId ? [oldRollId] : [])]);
+  return updatedRecord;
 }
 
 /**

@@ -1,9 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 import { PuSandwichCutRecord } from '../types';
 import {
   groupPuSandwichByThaiColors,
-  PrimaryColorGroup,
-  KNOWN_BASE_THAI_COLORS,
 } from '../utils/thaiColorCategorizer';
 import { formatMeters } from '../utils/formatters';
 import {
@@ -15,8 +13,12 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
-  Cell,
 } from 'recharts';
+import {
+  Bar3DShape,
+  METRIC_3D_PALETTES,
+  ChartBar3DPalette,
+} from './Chart3DBar';
 import {
   BarChart3,
   Calendar,
@@ -58,6 +60,7 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
   records = [],
   className = '',
 }) => {
+  const chartUid = useId().replace(/:/g, '');
   const [viewMode, setViewMode] = useState<ChartViewMode>('color');
   const [metric, setMetric] = useState<ChartMetric>('meters');
   const [showTable, setShowTable] = useState<boolean>(false);
@@ -97,7 +100,9 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
       ng: g.totalNgMeters,
       ngKg: g.totalNgKg,
       count: g.count,
+      dotColor: g.colorMeta.dotColor || '#059669',
       barColor: g.colorMeta.barColor || '#059669',
+      chartPalette: g.colorMeta.chartPalette,
       subVariantsText: g.subVariants.map((s) => s.subColor).join(', '),
       percent: totalMeters > 0 ? ((g.totalLengthMeters / totalMeters) * 100).toFixed(1) : '0',
     }));
@@ -244,8 +249,8 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
       <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl border border-slate-700 text-xs font-mono max-w-xs space-y-1.5 animate-in fade-in-50">
         <div className="flex items-center gap-2 border-b border-slate-800 pb-1.5">
           <span
-            className="w-3 h-3 rounded-full border border-white/40 shrink-0"
-            style={{ backgroundColor: data.barColor }}
+            className="w-3 h-3 rounded-full border border-white/50 shrink-0"
+            style={{ backgroundColor: data.dotColor || data.barColor }}
           />
           <span className="font-bold text-sm text-white font-sans">{data.name}</span>
           <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-amber-300 ml-auto font-bold">
@@ -477,7 +482,7 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={colorChartData}
-                      margin={{ top: 10, right: 15, left: -10, bottom: 25 }}
+                      margin={{ top: 20, right: 24, left: -10, bottom: 25 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis
@@ -491,22 +496,25 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                         tick={{ fill: '#64748b', fontSize: 11 }}
                         tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))}
                       />
-                      <Tooltip content={<CustomColorTooltip />} />
+                      <Tooltip content={<CustomColorTooltip />} cursor={{ fill: 'rgba(148, 163, 184, 0.12)' }} />
                       <Bar
                         dataKey={metric}
                         name={metricLabel}
-                        radius={[6, 6, 0, 0]}
                         animationDuration={600}
-                      >
-                        {colorChartData.map((entry) => (
-                          <Cell
-                            key={entry.baseColor}
-                            fill={metric === 'ng' ? '#e11d48' : entry.barColor}
-                            stroke={entry.baseColor === 'ขาว' ? '#94a3b8' : 'none'}
-                            strokeWidth={entry.baseColor === 'ขาว' ? 1.5 : 0}
+                        shape={(barProps: any) => (
+                          <Bar3DShape
+                            {...barProps}
+                            chartId={`${chartUid}-color`}
+                            seriesKey={metric}
+                            getPalette={(payload) =>
+                              metric === 'ng'
+                                ? METRIC_3D_PALETTES.rose
+                                : ((payload?.chartPalette as ChartBar3DPalette | undefined) ||
+                                    METRIC_3D_PALETTES.emerald)
+                            }
                           />
-                        ))}
-                      </Bar>
+                        )}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -528,7 +536,7 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={monthlyChartData}
-                      margin={{ top: 10, right: 15, left: -10, bottom: 10 }}
+                      margin={{ top: 20, right: 24, left: -10, bottom: 10 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="monthName" tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }} />
@@ -536,7 +544,7 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                         tick={{ fill: '#64748b', fontSize: 11 }}
                         tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))}
                       />
-                      <Tooltip content={<CustomMonthlyTooltip />} />
+                      <Tooltip content={<CustomMonthlyTooltip />} cursor={{ fill: 'rgba(148, 163, 184, 0.12)' }} />
                       <Legend
                         verticalAlign="top"
                         height={36}
@@ -544,20 +552,116 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                       />
                       {metric === 'meters' && (
                         <>
-                          <Bar dataKey="externalMeters" name="เหล็กนอก (ม.)" stackId="a" fill="#059669" radius={[0, 0, 0, 0]} />
-                          <Bar dataKey="blueScopeMeters" name="Blue Scope (ม.)" stackId="a" fill="#0284c7" radius={[0, 0, 0, 0]} />
-                          <Bar dataKey="otherMeters" name="อื่นๆ (ม.)" stackId="a" fill="#64748b" radius={[4, 4, 0, 0]} />
+                          <Bar
+                            dataKey="externalMeters"
+                            name="เหล็กนอก (ม.)"
+                            stackId="a"
+                            fill="#059669"
+                            shape={(barProps: any) => (
+                              <Bar3DShape
+                                {...barProps}
+                                chartId={`${chartUid}-m`}
+                                seriesKey="externalMeters"
+                                stackKeys={['externalMeters', 'blueScopeMeters', 'otherMeters']}
+                                palette={METRIC_3D_PALETTES.emerald}
+                              />
+                            )}
+                          />
+                          <Bar
+                            dataKey="blueScopeMeters"
+                            name="Blue Scope (ม.)"
+                            stackId="a"
+                            fill="#0284c7"
+                            shape={(barProps: any) => (
+                              <Bar3DShape
+                                {...barProps}
+                                chartId={`${chartUid}-m`}
+                                seriesKey="blueScopeMeters"
+                                stackKeys={['externalMeters', 'blueScopeMeters', 'otherMeters']}
+                                palette={METRIC_3D_PALETTES.sky}
+                              />
+                            )}
+                          />
+                          <Bar
+                            dataKey="otherMeters"
+                            name="อื่นๆ (ม.)"
+                            stackId="a"
+                            fill="#64748b"
+                            shape={(barProps: any) => (
+                              <Bar3DShape
+                                {...barProps}
+                                chartId={`${chartUid}-m`}
+                                seriesKey="otherMeters"
+                                stackKeys={['externalMeters', 'blueScopeMeters', 'otherMeters']}
+                                palette={METRIC_3D_PALETTES.slate}
+                              />
+                            )}
+                          />
                         </>
                       )}
                       {metric === 'weight' && (
                         <>
-                          <Bar dataKey="externalWeight" name="เหล็กนอก (กก.)" stackId="a" fill="#059669" radius={[0, 0, 0, 0]} />
-                          <Bar dataKey="blueScopeWeight" name="Blue Scope (กก.)" stackId="a" fill="#0284c7" radius={[0, 0, 0, 0]} />
-                          <Bar dataKey="otherWeight" name="อื่นๆ (กก.)" stackId="a" fill="#64748b" radius={[4, 4, 0, 0]} />
+                          <Bar
+                            dataKey="externalWeight"
+                            name="เหล็กนอก (กก.)"
+                            stackId="a"
+                            fill="#059669"
+                            shape={(barProps: any) => (
+                              <Bar3DShape
+                                {...barProps}
+                                chartId={`${chartUid}-w`}
+                                seriesKey="externalWeight"
+                                stackKeys={['externalWeight', 'blueScopeWeight', 'otherWeight']}
+                                palette={METRIC_3D_PALETTES.emerald}
+                              />
+                            )}
+                          />
+                          <Bar
+                            dataKey="blueScopeWeight"
+                            name="Blue Scope (กก.)"
+                            stackId="a"
+                            fill="#0284c7"
+                            shape={(barProps: any) => (
+                              <Bar3DShape
+                                {...barProps}
+                                chartId={`${chartUid}-w`}
+                                seriesKey="blueScopeWeight"
+                                stackKeys={['externalWeight', 'blueScopeWeight', 'otherWeight']}
+                                palette={METRIC_3D_PALETTES.sky}
+                              />
+                            )}
+                          />
+                          <Bar
+                            dataKey="otherWeight"
+                            name="อื่นๆ (กก.)"
+                            stackId="a"
+                            fill="#64748b"
+                            shape={(barProps: any) => (
+                              <Bar3DShape
+                                {...barProps}
+                                chartId={`${chartUid}-w`}
+                                seriesKey="otherWeight"
+                                stackKeys={['externalWeight', 'blueScopeWeight', 'otherWeight']}
+                                palette={METRIC_3D_PALETTES.slate}
+                              />
+                            )}
+                          />
                         </>
                       )}
                       {metric === 'ng' && (
-                        <Bar dataKey="ngMeters" name="NG เสียหาย (ม.)" fill="#e11d48" radius={[6, 6, 0, 0]} />
+                        <Bar
+                          dataKey="ngMeters"
+                          name="NG เสียหาย (ม.)"
+                          fill="#e11d48"
+                          shape={(barProps: any) => (
+                            <Bar3DShape
+                              {...barProps}
+                              chartId={`${chartUid}-mng`}
+                              seriesKey="ngMeters"
+                              palette={METRIC_3D_PALETTES.rose}
+                            />
+                          )}
+                        />
                       )}
                     </BarChart>
                   </ResponsiveContainer>
@@ -580,7 +684,7 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={thicknessChartData}
-                      margin={{ top: 10, right: 15, left: -10, bottom: 10 }}
+                      margin={{ top: 20, right: 24, left: -10, bottom: 10 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="thickness" tick={{ fill: '#475569', fontSize: 11, fontWeight: 700 }} />
@@ -591,13 +695,21 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                       <Tooltip
                         formatter={(val: any) => [`${formatMeters(val)} ${metricUnit}`, metricLabel]}
                         labelFormatter={(lbl) => `ความหนา: ${lbl}`}
+                        cursor={{ fill: 'rgba(148, 163, 184, 0.12)' }}
                         contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', color: '#fff' }}
                       />
                       <Bar
                         dataKey={metric}
                         name={metricLabel}
                         fill={metric === 'ng' ? '#e11d48' : '#0d9488'}
-                        radius={[6, 6, 0, 0]}
+                        shape={(barProps: any) => (
+                          <Bar3DShape
+                            {...barProps}
+                            chartId={`${chartUid}-thick`}
+                            seriesKey={metric}
+                            palette={metric === 'ng' ? METRIC_3D_PALETTES.rose : METRIC_3D_PALETTES.teal}
+                          />
+                        )}
                       />
                     </BarChart>
                   </ResponsiveContainer>
@@ -629,8 +741,8 @@ export const PuSandwichChart: React.FC<PuSandwichChartProps> = ({
                           <tr key={row.baseColor} className="hover:bg-slate-50/70">
                             <td className="py-2 px-3 font-sans font-bold flex items-center gap-2">
                               <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: row.barColor }}
+                                className="w-2.5 h-2.5 rounded-full border border-slate-400/60 shrink-0"
+                                style={{ backgroundColor: row.dotColor || row.barColor }}
                               />
                               <span>{row.name}</span>
                             </td>

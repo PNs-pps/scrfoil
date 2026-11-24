@@ -3,7 +3,12 @@ import { confirmAction } from '../utils/confirmAction';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { todayLocalISO } from '../utils/formatters';
 import { PuSandwichCutRecord, SteelOriginType } from '../types';
-import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits } from '../utils/soFormatter';
+import {
+  getCurrentThaiYearBE2Digits,
+  getCurrentMonth2Digits,
+  validateStrictSONumber,
+  isValidStrictSONumber,
+} from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator, exportPuSandwichRecordsToCSV } from '../utils/storage';
 import { isStaffEmail, getStaffEmails } from '../utils/auth';
 import { normalizeSubColor } from '../utils/thaiColorCategorizer';
@@ -104,9 +109,11 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   const createRowId = (index: number): string =>
     `sandwich-row-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`;
 
+  const defaultSoPrefix = `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`;
+
   const createEmptyRow = (index: number): SandwichRow => ({
     id: createRowId(index),
-    soNumber: `so${getCurrentThaiYearBE2Digits()}${getCurrentMonth2Digits()}`,
+    soNumber: defaultSoPrefix,
     soLengthMeters: '',
     lengthMeters: '',
     ngKg: '',
@@ -118,9 +125,19 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   /** แถวกำลังถูกโต้ตอบ (numpad / Enter flow) — ค่าเริ่มต้นคือแถวแรก */
   const [activeRowId, setActiveRowId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [showSoWarningMarks, setShowSoWarningMarks] = useState(false);
+  const [openSoWarningTipId, setOpenSoWarningTipId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** หน้าต่างยืนยันก่อนบันทึกตัดแซนวิช */
   const [showConfirmSummary, setShowConfirmSummary] = useState(false);
+
+  const hasInvalidSoRow = rows.some((r) => !isValidStrictSONumber(r.soNumber));
+  useEffect(() => {
+    if (!hasInvalidSoRow) {
+      setShowSoWarningMarks(false);
+      setOpenSoWarningTipId(null);
+    }
+  }, [hasInvalidSoRow]);
 
   // Tablet Numpad State
   const [showTabletNumpad, setShowTabletNumpad] = useState<boolean>(() => {
@@ -192,6 +209,8 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setError(null);
+    setShowSoWarningMarks(false);
+    setOpenSoWarningTipId(null);
     setCustomKgPerMeter('');
     setShowCustomFactor(false);
     setShowConfirmSummary(false);
@@ -623,17 +642,21 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     }
 
     // 2) ทีละแถวตามลำดับ หยุดที่ error แรก
+    const hasInvalidSo = rows.some((r) => !isValidStrictSONumber(r.soNumber));
+    if (hasInvalidSo) {
+      setShowSoWarningMarks(true);
+      setOpenSoWarningTipId(null);
+      return false;
+    }
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const c = computeRowCalc(row);
       const rowLabel = `แถวที่ ${i + 1}: `;
 
-      if (!row.soNumber.trim()) {
-        setError(`${rowLabel}กรุณาระบุรหัส SO`);
-        return false;
-      }
       if (c.numSoLength <= 0) {
         setError(`${rowLabel}กรุณาระบุความยาวตามใบงาน SO (เมตร) มากกว่า 0`);
+        soLengthInputRefs.current[row.id]?.focus();
         return false;
       }
     }
@@ -685,6 +708,11 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
     if (!isStaff) {
       setShowConfirmSummary(false);
       setError(`บัญชีปัจจุบัน (${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'}) ไม่มีสิทธิ์บันทึกตัดแซนวิช — เฉพาะอีเมลเจ้าหน้าที่ (${getStaffEmails().join(', ')})`);
+      return;
+    }
+
+    if (!validateSandwichForm()) {
+      setShowConfirmSummary(false);
       return;
     }
 
@@ -1394,29 +1422,78 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                             <Hash className="w-3.5 h-3.5 text-emerald-600" />
                             รหัสใบสั่งตัด (SO Number) <span className="text-rose-500">*</span>
                           </label>
-                          <input
-                            ref={(el) => {
-                              soNumberInputRefs.current[row.id] = el;
-                            }}
-                            type="text"
-                            value={row.soNumber}
-                            onChange={(e) => handleUpdateRow(row.id, { soNumber: e.target.value.toLowerCase() })}
-                            onFocus={() => activateRow(row.id, 'soNumber')}
-                            onClick={() => activateRow(row.id, 'soNumber')}
-                            onKeyDown={(e) => handleRowKeyDown(e, row, 'soNumber')}
-                            placeholder="เช่น so6909001"
-                            className={`w-full px-3 py-2 bg-white border rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
-                              showTabletNumpad && activeNumpadTargetId === 'soNumber' && activeRowId === row.id
-                                ? 'border-amber-500 ring-2 ring-amber-300 bg-amber-50/20'
-                                : 'border-slate-300'
-                            }`}
-                            required
-                          />
-                          {idx === 0 && (
-                            <span className="text-[11px] text-slate-400 mt-1 block">
-                              รูปแบบ: so + ปี พ.ศ. + เดือน + ลำดับ
-                            </span>
-                          )}
+                          {(() => {
+                            const soCheck = validateStrictSONumber(row.soNumber);
+                            const showMark = showSoWarningMarks && !soCheck.isValid;
+                            return (
+                              <>
+                                <div className="relative">
+                                  <input
+                                    ref={(el) => {
+                                      soNumberInputRefs.current[row.id] = el;
+                                    }}
+                                    type="text"
+                                    value={row.soNumber}
+                                    onChange={(e) => {
+                                      const nextVal = e.target.value.toLowerCase();
+                                      handleUpdateRow(row.id, { soNumber: nextVal });
+                                      if (
+                                        showSoWarningMarks &&
+                                        rows.every((r) =>
+                                          r.id === row.id
+                                            ? isValidStrictSONumber(nextVal)
+                                            : isValidStrictSONumber(r.soNumber)
+                                        )
+                                      ) {
+                                        setShowSoWarningMarks(false);
+                                        setOpenSoWarningTipId(null);
+                                      }
+                                    }}
+                                    onFocus={() => activateRow(row.id, 'soNumber')}
+                                    onClick={() => activateRow(row.id, 'soNumber')}
+                                    onKeyDown={(e) => handleRowKeyDown(e, row, 'soNumber')}
+                                    placeholder={`เช่น ${defaultSoPrefix}001 หรือ ed${defaultSoPrefix.slice(2)}001`}
+                                    className={`w-full px-3 ${showMark ? 'pr-10' : ''} py-2 bg-white border rounded-xl text-sm font-mono font-bold text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all ${
+                                      showTabletNumpad && activeNumpadTargetId === 'soNumber' && activeRowId === row.id
+                                        ? 'border-amber-500 ring-2 ring-amber-300 bg-amber-50/20'
+                                        : showMark
+                                          ? 'border-rose-500 ring-2 ring-rose-200 bg-rose-50/20'
+                                          : 'border-slate-300'
+                                    }`}
+                                    required
+                                  />
+                                  {showMark && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenSoWarningTipId((prev) => (prev === row.id ? null : row.id))}
+                                      aria-label="ดูคำอธิบายรหัสใบงานไม่ครบ"
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-black text-xs flex items-center justify-center shadow-xs cursor-pointer transition-transform active:scale-95"
+                                    >
+                                      !
+                                    </button>
+                                  )}
+                                </div>
+                                {showMark && openSoWarningTipId === row.id && (
+                                  <div className="mt-1.5 p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-[11px] leading-relaxed shadow-sm flex items-start justify-between gap-2 animate-in fade-in duration-150">
+                                    <div>
+                                      <p className="font-bold text-rose-950">{soCheck.error}</p>
+                                      <p className="text-rose-700 mt-0.5">
+                                        ต้องมีอักษรภาษาอังกฤษ 2 ตัว (เช่น <span className="font-mono font-bold">so</span> หรือ <span className="font-mono font-bold">ed</span> ใบงานซ่อมสินค้า) + ตัวเลข 7 ตัว ({soCheck.letterCount}/2 อักษร · {soCheck.digitCount}/7 เลข)
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenSoWarningTipId(null)}
+                                      className="text-rose-500 hover:text-rose-800 p-0.5 cursor-pointer shrink-0"
+                                      aria-label="ปิดคำอธิบาย"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
 
                         <div>
@@ -1702,33 +1779,82 @@ export const PuSandwichModal: React.FC<PuSandwichModalProps> = ({
                 >
                   ยกเลิก
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !isStaff}
-                  className={`px-6 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer ${
-                    !isStaff
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
-                      : 'bg-linear-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white hover:shadow-lg disabled:opacity-50'
-                  }`}
-                >
-                  {!isStaff ? (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      <span>ไม่มีสิทธิ์บันทึก (เฉพาะเจ้าหน้าที่)</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      {isSubmitting
-                        ? 'กำลังบันทึก...'
-                        : editingRecord
-                          ? 'ตรวจสอบก่อนบันทึกแก้ไข'
-                          : rows.length > 1
-                            ? `ตรวจสอบก่อนบันทึก ${rows.length} แถว`
-                            : 'ตรวจสอบก่อนตัด SO แซนวิช'}
-                    </>
-                  )}
-                </button>
+                {(() => {
+                  const hasInvalidSoRow = rows.some((r) => !isValidStrictSONumber(r.soNumber));
+                  const showFooterMark = showSoWarningMarks && hasInvalidSoRow;
+                  return (
+                    <div className="relative flex items-center gap-2">
+                      {showFooterMark && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setOpenSoWarningTipId((prev) => (prev === 'footer' ? null : 'footer'))}
+                            aria-label="ดูคำอธิบายรหัสใบงานไม่ครบ"
+                            className="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-black text-sm flex items-center justify-center shadow-sm ring-2 ring-rose-200 cursor-pointer shrink-0 transition-transform active:scale-95"
+                          >
+                            !
+                          </button>
+                          {openSoWarningTipId === 'footer' && (
+                            <div className="absolute bottom-full right-0 mb-2 w-72 sm:w-80 p-3 rounded-xl bg-white border border-rose-300 text-rose-900 text-[11px] leading-relaxed shadow-xl z-20 animate-in fade-in duration-150">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="space-y-1">
+                                  <p className="font-bold text-rose-950">ยังบันทึกไม่ได้: กรอกรหัสใบงานไม่ครบ</p>
+                                  {rows.map((r, idx) => {
+                                    const check = validateStrictSONumber(r.soNumber);
+                                    if (check.isValid) return null;
+                                    return (
+                                      <p key={r.id} className="text-rose-800">
+                                        • แถวที่ {idx + 1} (<span className="font-mono font-bold">{r.soNumber.trim() || '-'}</span>): {check.error}
+                                      </p>
+                                    );
+                                  })}
+                                  <p className="text-slate-600 pt-1 border-t border-rose-100">
+                                    ต้องเป็นอักษรอังกฤษ 2 ตัว (เช่น <span className="font-mono font-bold">so</span> หรือ <span className="font-mono font-bold">ed</span> ใบงานซ่อมสินค้า) + เลข 7 ตัว
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenSoWarningTipId(null)}
+                                  className="text-rose-500 hover:text-rose-800 p-0.5 cursor-pointer shrink-0"
+                                  aria-label="ปิดคำอธิบาย"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={isSubmitting || !isStaff}
+                        className={`px-6 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer ${
+                          !isStaff
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                            : 'bg-linear-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white hover:shadow-lg disabled:opacity-50'
+                        }`}
+                      >
+                        {!isStaff ? (
+                          <>
+                            <Lock className="w-4 h-4" />
+                            <span>ไม่มีสิทธิ์บันทึก (เฉพาะเจ้าหน้าที่)</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-4 h-4" />
+                            {isSubmitting
+                              ? 'กำลังบันทึก...'
+                              : editingRecord
+                                ? 'ตรวจสอบก่อนบันทึกแก้ไข'
+                                : rows.length > 1
+                                  ? `ตรวจสอบก่อนบันทึก ${rows.length} แถว`
+                                  : 'ตรวจสอบก่อนตัด SO แซนวิช'}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             </form>
           ) : (

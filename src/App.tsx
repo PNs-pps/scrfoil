@@ -316,6 +316,29 @@ export default function App() {
     }
   };
 
+  const handleOpenRollHistory = (roll: FoilRoll) => {
+    setDetailRoll(roll);
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      void fetchCutRecordsForRollFromServer(roll.id, {
+        lotNumber: roll.lotNumber,
+        rollNumber: roll.rollNumber,
+        width: roll.width,
+        pattern: roll.pattern,
+      })
+        .then((serverRecs) => {
+          if (!serverRecs || serverRecs.length === 0) return;
+          commitRecords((prev) => {
+            const map = new Map(prev.map((r) => [r.id, r]));
+            serverRecs.forEach((r) => map.set(r.id, r));
+            return Array.from(map.values()).sort((a, b) =>
+              (b.createdAt || '').localeCompare(a.createdAt || '')
+            );
+          });
+        })
+        .catch(() => {});
+    }
+  };
+
   const runIntegrityCheck = (isManual: boolean = false) => {
     setIsRunningIntegrityCheck(true);
     // auto: ข้ามม้วนที่ตั้งใจตัดเป็น 0; manual: แสดงทั้งหมดเพื่อตรวจสอบ
@@ -3615,7 +3638,7 @@ export default function App() {
             }}
             onOpenCutModal={(rollId) => requireEditorPermission(() => handleOpenCutForRoll(rollId))}
             onOpenAddModal={() => requireEditorPermission(() => setIsAddModalOpen(true))}
-            onViewRollHistory={(roll) => setDetailRoll(roll)}
+            onViewRollHistory={(roll) => handleOpenRollHistory(roll)}
             onDeleteRoll={(rollId) => requireEditorPermission(() => handleDeleteRoll(rollId))}
             onExportRolls={() => exportRollsToCSV(rolls)}
             onToggleZeroOut={(rollId, zeroOut) => requireEditorPermission(() => handleToggleZeroOut(rollId, zeroOut))}
@@ -3949,10 +3972,10 @@ export default function App() {
         sandwichRecords={puSandwichRecords}
         initialScope={monthlySummaryScope}
         onOpenRollHistory={(rollId) => {
-          const target = rolls.find((r) => r.id === rollId);
+          const target = [...rolls, ...archivedRolls].find((r) => r.id === rollId);
           if (target) {
             setIsMonthlySummaryOpen(false);
-            setDetailRoll(target);
+            handleOpenRollHistory(target);
           }
         }}
       />

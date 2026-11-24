@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FoilRoll, StockCutRecord, FoilWidth, WIDTH_SPECIFICATIONS } from '../types';
-import { getCurrentThaiYearBE2Digits, getCurrentMonth2Digits, normalizePattern } from '../utils/soFormatter';
+import {
+  getCurrentThaiYearBE2Digits,
+  getCurrentMonth2Digits,
+  normalizePattern,
+  validateStrictSONumber,
+  isValidStrictSONumber,
+} from '../utils/soFormatter';
 import { getRecentOperators, saveRecentOperator } from '../utils/storage';
 import { formatMeters, round2, todayLocalISO } from '../utils/formatters';
 import { playSuccessFeedback, playErrorFeedback } from '../utils/feedback';
@@ -32,6 +38,7 @@ import {
 } from 'lucide-react';
 import { TouchNumpad, TouchNumpadTarget, SoToolbarConfig } from './TouchNumpad';
 import { FoilStatusTube } from './FoilStatusTube';
+import { RollIdentityBadges } from './RollIdentityBadges';
 import { loadPendingCuts } from '../utils/pendingCutQueue';
 
 interface CutOrderItem {
@@ -100,6 +107,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const [recordedDate, setRecordedDate] = useState<string>(today);
   const [recordedBy, setRecordedBy] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [showSoWarningMarks, setShowSoWarningMarks] = useState<boolean>(false);
+  const [openSoWarningTipId, setOpenSoWarningTipId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [duplicatePromptModal, setDuplicatePromptModal] = useState<DuplicateAlertInfo[] | null>(null);
   /** ขั้นตอนยืนยันก่อนบันทึกจริง */
@@ -317,6 +326,8 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       const initialOrder = createEmptyOrder(1, initMode);
       setOrders([initialOrder]);
       setError(null);
+      setShowSoWarningMarks(false);
+      setOpenSoWarningTipId(null);
       setShowConfirmSummary(false);
       setCutResult(null);
       isSubmittingRef.current = false;
@@ -519,6 +530,39 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
   const remainingAfter = Math.max(0, round2(remainingBefore - totalDeductedAll));
   const isOverCut = totalDeductedAll > remainingBefore;
 
+  // ตัดแถวว่างท้ายสุดที่เกิดจากกด Enter อัตโนมัติ (เฉพาะแถวที่ยังไม่ได้แก้ SO และไม่มีเมตร/หมายเหตุ)
+  const effectiveOrdersForSubmit = useMemo(() => {
+    if (orders.length > 1) {
+      const lastIdx = orders.length - 1;
+      const last = orders[lastIdx];
+      const lastCalc = orderCalculations[lastIdx];
+      const lastSo = last.soNumber.trim();
+      const isUntouchedTrailing =
+        lastCalc &&
+        lastCalc.numUsed <= 0 &&
+        lastCalc.numNg <= 0 &&
+        (!last.notes || !last.notes.trim()) &&
+        (last.cutType !== 'so' || lastSo === '' || lastSo === defaultSoPrefix);
+      if (isUntouchedTrailing) {
+        return orders.slice(0, -1);
+      }
+    }
+    return orders;
+  }, [orders, orderCalculations, defaultSoPrefix]);
+
+  const hasIncompleteSoOrder = useMemo(() => {
+    return effectiveOrdersForSubmit.some(
+      (ord) => ord.cutType === 'so' && !isValidStrictSONumber(ord.soNumber)
+    );
+  }, [effectiveOrdersForSubmit]);
+
+  useEffect(() => {
+    if (!hasIncompleteSoOrder) {
+      setShowSoWarningMarks(false);
+      setOpenSoWarningTipId(null);
+    }
+  }, [hasIncompleteSoOrder]);
+
   // Detect if any order is an exact duplicate of a previously recorded cut on this roll
   // (Same SO Number and same used meters)
   const exactDuplicates = useMemo<DuplicateAlertInfo[]>(() => {
@@ -587,6 +631,21 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
         message: `บัญชี ${currentUserEmail || 'ยังไม่ได้เข้าสู่ระบบ'} ไม่มีสิทธิ์ตัดสต๊อกหรือบันทึกข้อมูลขึ้น Cloud (เฉพาะอีเมลเจ้าหน้าที่: ${getStaffEmails().join(', ')})`,
       });
       return;
+    }
+
+    for (let i = 0; i < orders.length; i++) {
+      const ord = orders[i];
+      if (ord.cutType === 'so') {
+        const soCheck = validateStrictSONumber(ord.soNumber);
+        if (!soCheck.isValid) {
+          setCutResult({
+            ok: false,
+            title: 'รหัส SO ไม่ครบถ้วน',
+            message: `ใบสั่งซื้อที่ ${i + 1}: ${soCheck.error}`,
+          });
+          return;
+        }
+      }
     }
 
     isSubmittingRef.current = true;
@@ -734,13 +793,20 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       return;
     }
 
-    // ตัดแถวว่างที่เกิดจากการกด Enter บนช่อง NG รายการสุดท้ายออกอัตโนมัติ (หากไม่ได้กรอกเมตร)
+    // ตัดแถวว่างที่เกิดจากการกด Enter บนช่อง NG รายการสุดท้ายออกอัตโนมัติ (เฉพาะแถวที่ยังไม่ได้แก้ SO และไม่มีเมตร)
     let candidateOrders = [...orders];
     if (candidateOrders.length > 1) {
       const lastIdx = candidateOrders.length - 1;
       const last = candidateOrders[lastIdx];
       const lastCalc = orderCalculations[lastIdx];
-      if (lastCalc && lastCalc.numUsed <= 0 && lastCalc.numNg <= 0 && (!last.notes || !last.notes.trim())) {
+      const lastSo = last.soNumber.trim();
+      if (
+        lastCalc &&
+        lastCalc.numUsed <= 0 &&
+        lastCalc.numNg <= 0 &&
+        (!last.notes || !last.notes.trim()) &&
+        (last.cutType !== 'so' || lastSo === '' || lastSo === defaultSoPrefix)
+      ) {
         candidateOrders = candidateOrders.slice(0, -1);
       }
     }
@@ -750,9 +816,14 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
       const ord = candidateOrders[i];
       const calc = orderCalculations[i];
 
-      if (ord.cutType === 'so' && !ord.soNumber.trim()) {
-        setError(`ใบสั่งซื้อที่ ${i + 1}: กรุณากรอกรหัส SO ให้ครบถ้วน`);
-        return;
+      if (ord.cutType === 'so') {
+        const soCheck = validateStrictSONumber(ord.soNumber);
+        if (!soCheck.isValid) {
+          setError(null);
+          setShowSoWarningMarks(true);
+          setOpenSoWarningTipId(null);
+          return;
+        }
       }
 
       if (calc.numUsed <= 0 && calc.numNg <= 0) {
@@ -1022,7 +1093,7 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                         value={r.id}
                         disabled={r.remainingMeters <= 0}
                       >
-                        ล็อต {r.lotNumber} · เบอร์ #{r.rollNumber} · เหลือ {formatMeters(r.remainingMeters)} ม.{r.isReverseSideOnly ? ' [ใช้เฉพาะอีกด้าน]' : ''}{r.remainingMeters <= 0 ? ' (หมด)' : ''}
+                        [หน้า {r.width} มม. · ลาย{r.pattern}] ล็อต {r.lotNumber} · เบอร์ #{r.rollNumber} · เหลือ {formatMeters(r.remainingMeters)} ม.{r.isReverseSideOnly ? ' [ใช้เฉพาะอีกด้าน]' : ''}{r.remainingMeters <= 0 ? ' (หมด)' : ''}
                       </option>
                     ))
                   )}
@@ -1030,35 +1101,23 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
               </div>
             </div>
 
-            {/* Selected Roll Highlight — จัดเรียงแนวตั้ง กันตัวหนังสือทับกันบนมือถือ */}
+            {/* Selected Roll Highlight — ป้ายกำกับแยก หน้ากว้าง · ลาย · ล็อต · เบอร์ ชัดเจน */}
             {currentRoll && (
               <div className="p-3 bg-amber-50 border-2 border-amber-400 rounded-xl space-y-2.5">
-                {/* แถว 1: ล็อต + เบอร์ + สถานะฟอยล์เก่า */}
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 bg-slate-900 text-amber-300 px-3 py-1.5 rounded-lg shadow-sm shrink-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-amber-200/90">ล็อต</span>
-                    <span className="lot-number-display text-base font-bold text-white leading-none">
-                      {currentRoll.lotNumber}
-                    </span>
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 bg-white border-2 border-amber-400 text-slate-900 px-3 py-1.5 rounded-lg shadow-sm shrink-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">เบอร์</span>
-                    <span className="lot-number-display text-base font-bold leading-none">
-                      #{currentRoll.rollNumber}
-                    </span>
-                  </span>
+                  <RollIdentityBadges
+                    variant="card"
+                    showWidthDesc={true}
+                    width={currentRoll.width}
+                    pattern={currentRoll.pattern}
+                    lotNumber={currentRoll.lotNumber}
+                    rollNumber={currentRoll.rollNumber}
+                  />
                   {currentRoll.isReverseSideOnly && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs shadow-xs border border-amber-600">
                       <span>ใช้ได้เฉพาะอีกด้าน (หน้าหลักเสีย)</span>
                     </span>
                   )}
-                </div>
-
-                {/* แถว 2: หน้ากว้าง + ลาย */}
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
-                  <span className="font-semibold">{currentRoll.width} มม.</span>
-                  <span className="text-slate-300">·</span>
-                  <span className="font-semibold">ลาย {currentRoll.pattern}</span>
                 </div>
 
                 {/* คำเตือนฟอยล์เก่า / สภาพม้วน */}
@@ -1226,45 +1285,83 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                           </span>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
-                          <div className="flex-1 min-w-[180px]">
-                            <input
-                              id={`input-so-${order.id}`}
-                              ref={(el) => { soInputRefs.current[order.id] = el; }}
-                              type="text"
-                              value={order.soNumber}
-                              onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value })}
-                              onFocus={() => {
-                                setActiveNumpadTargetId(`so-${order.id}`);
-                              }}
-                              onClick={() => {
-                                setActiveNumpadTargetId(`so-${order.id}`);
-                              }}
-                              onKeyDown={(e) => {
-                                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                                  e.preventDefault();
-                                  e.currentTarget.form?.requestSubmit();
-                                  return;
-                                }
-                                if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  const target = usedMetersInputRefs.current[order.id];
-                                  if (target) {
-                                    focusAndSelect(target);
-                                  }
-                                }
-                              }}
-                              placeholder={`เช่น ${defaultSoPrefix}500`}
-                              className={`w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-white border rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 placeholder:text-slate-400 placeholder:font-normal transition-all ${
-                                showTabletNumpad && activeNumpadTargetId === `so-${order.id}`
-                                  ? 'border-amber-500 ring-2 ring-amber-400/80 bg-amber-50/20'
-                                  : 'border-slate-300'
-                              }`}
-                            />
-                          </div>
+                          {(() => {
+                            const soCheck = validateStrictSONumber(order.soNumber);
+                            const showMark = showSoWarningMarks && !soCheck.isValid;
+                            return (
+                              <div className="flex-1 min-w-[180px]">
+                                <div className="relative">
+                                  <input
+                                    id={`input-so-${order.id}`}
+                                    ref={(el) => { soInputRefs.current[order.id] = el; }}
+                                    type="text"
+                                    value={order.soNumber}
+                                    onChange={(e) => handleUpdateOrder(order.id, { soNumber: e.target.value })}
+                                    onFocus={() => {
+                                      setActiveNumpadTargetId(`so-${order.id}`);
+                                    }}
+                                    onClick={() => {
+                                      setActiveNumpadTargetId(`so-${order.id}`);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        e.currentTarget.form?.requestSubmit();
+                                        return;
+                                      }
+                                      if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const target = usedMetersInputRefs.current[order.id];
+                                        if (target) {
+                                          focusAndSelect(target);
+                                        }
+                                      }
+                                    }}
+                                    placeholder={`เช่น ${defaultSoPrefix}500 หรือ ed${defaultSoPrefix.slice(2)}500`}
+                                    className={`w-full px-3 ${showMark ? 'pr-10' : ''} py-2 text-sm font-mono font-bold text-slate-900 bg-white border rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 placeholder:text-slate-400 placeholder:font-normal transition-all ${
+                                      showTabletNumpad && activeNumpadTargetId === `so-${order.id}`
+                                        ? 'border-amber-500 ring-2 ring-amber-400/80 bg-amber-50/20'
+                                        : showMark
+                                          ? 'border-rose-500 ring-2 ring-rose-200 bg-rose-50/20'
+                                          : 'border-slate-300'
+                                    }`}
+                                  />
+                                  {showMark && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenSoWarningTipId((prev) => (prev === order.id ? null : order.id))}
+                                      aria-label="ดูคำอธิบายรหัสใบงานไม่ครบ"
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-black text-xs flex items-center justify-center shadow-xs cursor-pointer transition-transform active:scale-95"
+                                    >
+                                      !
+                                    </button>
+                                  )}
+                                </div>
+                                {showMark && openSoWarningTipId === order.id && (
+                                  <div className="mt-1.5 p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-[11px] leading-relaxed shadow-sm flex items-start justify-between gap-2 animate-in fade-in duration-150">
+                                    <div>
+                                      <p className="font-bold text-rose-950">{soCheck.error}</p>
+                                      <p className="text-rose-700 mt-0.5">
+                                        ต้องมีอักษรภาษาอังกฤษ 2 ตัว (เช่น <span className="font-mono font-bold">so</span> หรือ <span className="font-mono font-bold">ed</span> ใบงานซ่อมสินค้า) + ตัวเลข 7 ตัว ({soCheck.letterCount}/2 อักษร · {soCheck.digitCount}/7 เลข)
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenSoWarningTipId(null)}
+                                      className="text-rose-500 hover:text-rose-800 p-0.5 cursor-pointer shrink-0"
+                                      aria-label="ปิดคำอธิบาย"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* กล่องติ๊กเลือกเช็คบ็อกซ์ท้องพิเศษข้างช่อง SO */}
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2 shrink-0 self-start">
                             <label className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border cursor-pointer select-none transition-all text-xs font-bold ${
                               order.isSilverSide 
                                 ? 'bg-slate-900 text-amber-300 border-slate-900 shadow-xs ring-1 ring-slate-800' 
@@ -1755,42 +1852,87 @@ export const CutStockModal: React.FC<CutStockModalProps> = ({
                 ยกเลิก
               </button>
 
-              <button
-                type="submit"
-                disabled={isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff}
-                className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
-                  isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
-                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
-                }`}
-              >
-                {!isStaff ? (
+              <div className="relative flex items-center gap-2">
+                {showSoWarningMarks && hasIncompleteSoOrder && (
                   <>
-                    <Lock className="w-4 h-4 stroke-[2.5]" />
-                    <span>ไม่มีสิทธิ์ตัดใบงาน (เฉพาะเจ้าหน้าที่)</span>
-                  </>
-                ) : isSubmitting || isRefreshingStock ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
-                    <span>
-                      {isRefreshingStock ? 'กำลังดึงยอดล่าสุดจากเซิร์ฟเวอร์...' : 'กำลังบันทึกลง Firebase...'}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    {productionMode === 'reservation' ? (
-                      <Clock className="w-4 h-4 stroke-[2.5]" />
-                    ) : (
-                      <Scissors className="w-4 h-4 stroke-[2.5]" />
+                    <button
+                      type="button"
+                      onClick={() => setOpenSoWarningTipId((prev) => (prev === 'footer' ? null : 'footer'))}
+                      aria-label="ดูคำอธิบายรหัสใบงานไม่ครบ"
+                      className="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-black text-sm flex items-center justify-center shadow-sm ring-2 ring-rose-200 cursor-pointer shrink-0 transition-transform active:scale-95"
+                    >
+                      !
+                    </button>
+                    {openSoWarningTipId === 'footer' && (
+                      <div className="absolute bottom-full right-0 mb-2 w-72 sm:w-80 p-3 rounded-xl bg-white border border-rose-300 text-rose-900 text-[11px] leading-relaxed shadow-xl z-20 animate-in fade-in duration-150">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1">
+                            <p className="font-bold text-rose-950">ยังตัดสต๊อกไม่ได้: กรอกรหัสใบงานไม่ครบ</p>
+                            {effectiveOrdersForSubmit.map((ord, idx) => {
+                              if (ord.cutType !== 'so') return null;
+                              const check = validateStrictSONumber(ord.soNumber);
+                              if (check.isValid) return null;
+                              return (
+                                <p key={ord.id} className="text-rose-800">
+                                  • ใบที่ {idx + 1} (<span className="font-mono font-bold">{ord.soNumber.trim() || '-'}</span>): {check.error}
+                                </p>
+                              );
+                            })}
+                            <p className="text-slate-600 pt-1 border-t border-rose-100">
+                              ต้องเป็นอักษรอังกฤษ 2 ตัว (เช่น <span className="font-mono font-bold">so</span> หรือ <span className="font-mono font-bold">ed</span> ใบงานซ่อมสินค้า) + เลข 7 ตัว
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setOpenSoWarningTipId(null)}
+                            className="text-rose-500 hover:text-rose-800 p-0.5 cursor-pointer shrink-0"
+                            aria-label="ปิดคำอธิบาย"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
                     )}
-                    <span>
-                      {productionMode === 'reservation'
-                        ? `บันทึกคิวจองรอตัด (${formatMeters(totalDeductedAll)} ม.)`
-                        : `ตรวจสอบก่อนตัดสต๊อก (${formatMeters(totalDeductedAll)} ม.)`}
-                    </span>
                   </>
                 )}
-              </button>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff}
+                  className={`px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-xs active:scale-[0.98] ${
+                    isSubmitting || isRefreshingStock || isOverCut || totalDeductedAll <= 0 || !isStaff
+                      ? 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300'
+                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                  }`}
+                >
+                  {!isStaff ? (
+                    <>
+                      <Lock className="w-4 h-4 stroke-[2.5]" />
+                      <span>ไม่มีสิทธิ์ตัดใบงาน (เฉพาะเจ้าหน้าที่)</span>
+                    </>
+                  ) : isSubmitting || isRefreshingStock ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                      <span>
+                        {isRefreshingStock ? 'กำลังดึงยอดล่าสุดจากเซิร์ฟเวอร์...' : 'กำลังบันทึกลง Firebase...'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      {productionMode === 'reservation' ? (
+                        <Clock className="w-4 h-4 stroke-[2.5]" />
+                      ) : (
+                        <Scissors className="w-4 h-4 stroke-[2.5]" />
+                      )}
+                      <span>
+                        {productionMode === 'reservation'
+                          ? `บันทึกคิวจองรอตัด (${formatMeters(totalDeductedAll)} ม.)`
+                          : `ตรวจสอบก่อนตัดสต๊อก (${formatMeters(totalDeductedAll)} ม.)`}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </form>

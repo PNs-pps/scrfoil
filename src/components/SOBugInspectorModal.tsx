@@ -30,7 +30,9 @@ import {
   SOBugIssue 
 } from '../utils/soHistoryAudit';
 import { formatMeters, formatThaiDate, getRollDepletionDate, isRollDepleted } from '../utils/formatters';
+import { normalizeLotRollPart } from '../utils/rollIdentity';
 import { KpiSlideRow } from './KpiSlideRow';
+import { RollIdentityBadges } from './RollIdentityBadges';
 
 interface SOBugInspectorModalProps {
   isOpen: boolean;
@@ -474,15 +476,13 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                       {/* Left specs & badges */}
                       <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono font-bold text-sm text-slate-900">
-                            ล็อต: {res.lotNumber}
-                          </span>
-                          <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-mono font-bold text-xs rounded-md">
-                            เบอร์ #{res.rollNumber}
-                          </span>
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs rounded-md font-medium">
-                            ลาย {res.pattern} · หน้า {res.width} มม.
-                          </span>
+                          <RollIdentityBadges
+                            variant="card"
+                            width={res.width}
+                            pattern={res.pattern}
+                            lotNumber={res.lotNumber}
+                            rollNumber={res.rollNumber}
+                          />
                           {res.isZeroedOut ? (
                             <span className="px-2 py-0.5 bg-slate-200 text-slate-700 font-bold text-[11px] rounded-md">
                               ตัดเป็น 0 แล้ว (ยกเว้นการปรับยอด)
@@ -759,6 +759,7 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                               <tr>
                                 <th className="p-2.5">ลำดับ</th>
                                 <th className="p-2.5">รหัส SO</th>
+                                <th className="p-2.5">ป้ายกำกับ (กว้าง · ลาย · ล็อต · เบอร์)</th>
                                 <th className="p-2.5">ประเภท / รอบ</th>
                                 <th className="p-2.5 text-right">ตัดลงแผ่น</th>
                                 <th className="p-2.5 text-right">NG</th>
@@ -776,6 +777,11 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                 : res.timeline
                               ).map((step) => {
                                 const rec = step.record;
+                                const lotRollConflict =
+                                  (normalizeLotRollPart(rec.lotNumber) !== '' &&
+                                    normalizeLotRollPart(rec.lotNumber) !== normalizeLotRollPart(res.lotNumber)) ||
+                                  (normalizeLotRollPart(rec.rollNumber) !== '' &&
+                                    normalizeLotRollPart(rec.rollNumber) !== normalizeLotRollPart(res.rollNumber));
                                 return (
                                   <tr 
                                     key={rec.id} 
@@ -803,6 +809,17 @@ export const SOBugInspectorModal: React.FC<SOBugInspectorModalProps> = ({
                                           </span>
                                         )}
                                       </div>
+                                    </td>
+                                    <td className="p-2.5">
+                                      <RollIdentityBadges
+                                        variant="row"
+                                        width={rec.width ?? res.width}
+                                        pattern={rec.pattern ?? res.pattern}
+                                        lotNumber={rec.lotNumber ?? res.lotNumber}
+                                        rollNumber={rec.rollNumber ?? res.rollNumber}
+                                        isSpecVerified={Boolean(rec.width && rec.pattern)}
+                                        hasLotRollConflict={lotRollConflict}
+                                      />
                                     </td>
                                     <td className="p-2.5">
                                       {rec.cutStatus === 'reserved' ? (

@@ -126,8 +126,11 @@ export const TouchNumpad: React.FC<TouchNumpadProps> = ({
   const handleQuickPrefix = (prefix: string) => {
     triggerHaptic();
     if (!activeTarget) return;
-    if (!currentValue.toUpperCase().startsWith(prefix.toUpperCase())) {
-      onValueChange(activeTarget.id, `${prefix}${currentValue}`);
+    const trimmed = currentValue.trim();
+    if (/^(so|ed)/i.test(trimmed)) {
+      onValueChange(activeTarget.id, `${prefix}${trimmed.slice(2)}`);
+    } else if (!trimmed.toUpperCase().startsWith(prefix.toUpperCase())) {
+      onValueChange(activeTarget.id, `${prefix}${trimmed}`);
     }
   };
 
@@ -391,10 +394,11 @@ export const TouchNumpad: React.FC<TouchNumpadProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => handleKeyPress('0')}
-            className="h-10 rounded-xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-amber-300 font-bold text-xs flex items-center justify-center border border-slate-700 cursor-pointer transition-all shadow-2xs"
+            onClick={() => handleQuickPrefix('ED')}
+            title="ใบงาน ED (ผลิตเพื่อซ่อมสินค้า)"
+            className="h-10 rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 text-slate-950 font-black text-xs flex items-center justify-center border border-sky-400 cursor-pointer transition-all shadow-2xs"
           >
-            0
+            + "ED"
           </button>
           <button
             type="button"

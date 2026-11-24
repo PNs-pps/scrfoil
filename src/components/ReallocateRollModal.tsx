@@ -3,6 +3,7 @@ import { FoilRoll, StockCutRecord } from '../types';
 import { formatMeters } from '../utils/formatters';
 import { calculateRollReservationMetrics } from '../utils/reservationHelpers';
 import { FoilStatusTube } from './FoilStatusTube';
+import { RollIdentityBadges } from './RollIdentityBadges';
 import { X, ArrowRight, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface ReallocateRollModalProps {
@@ -97,15 +98,14 @@ export const ReallocateRollModal: React.FC<ReallocateRollModalProps> = ({
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
               ม้วนฟอยล์ปัจจุบันที่ผูกไว้
             </span>
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="font-mono font-bold text-slate-900 text-sm">
-                  LOT {record.lotNumber} #{record.rollNumber}
-                </span>
-                <span className="text-xs text-slate-500 ml-2">
-                  (กว้าง {record.width} มม. · ลาย{record.pattern})
-                </span>
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <RollIdentityBadges
+                variant="card"
+                width={currentRoll?.width ?? record.width}
+                pattern={currentRoll?.pattern ?? record.pattern}
+                lotNumber={currentRoll?.lotNumber ?? record.lotNumber}
+                rollNumber={currentRoll?.rollNumber ?? record.rollNumber}
+              />
               <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-semibold">
                 ผูกยอดจอง {formatMeters(totalMetersNeeded)} ม.
               </span>
@@ -169,14 +169,13 @@ export const ReallocateRollModal: React.FC<ReallocateRollModalProps> = ({
                             onChange={() => setSelectedNewRollId(r.id)}
                             className="text-amber-600 focus:ring-amber-500"
                           />
-                          <div>
-                            <span className="font-mono font-bold text-slate-900 text-xs sm:text-sm">
-                              LOT {r.lotNumber} #{r.rollNumber}
-                            </span>
-                            <span className="text-[11px] text-slate-500 ml-1.5 font-sans">
-                              (กว้าง {r.width} · {r.pattern})
-                            </span>
-                          </div>
+                          <RollIdentityBadges
+                            variant="row"
+                            width={r.width}
+                            pattern={r.pattern}
+                            lotNumber={r.lotNumber}
+                            rollNumber={r.rollNumber}
+                          />
                         </div>
 
                         <div className="text-right">
@@ -206,7 +205,9 @@ export const ReallocateRollModal: React.FC<ReallocateRollModalProps> = ({
             <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs">
               <div className="flex items-center gap-1.5 font-bold text-emerald-900 mb-1">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>พร้อมย้ายยอดจอง {formatMeters(totalMetersNeeded)} ม. เข้าม้วน LOT {selectedNewRoll.lotNumber} #{selectedNewRoll.rollNumber}</span>
+                <span>
+                  พร้อมย้ายยอดจอง {formatMeters(totalMetersNeeded)} ม. เข้าม้วน หน้า {selectedNewRoll.width} มม. · ลาย{selectedNewRoll.pattern} · ล็อต {selectedNewRoll.lotNumber} · เบอร์ #{selectedNewRoll.rollNumber}
+                </span>
               </div>
               <p className="text-emerald-800 text-[11px]">
                 ระบบจะคืนยอดจองให้ม้วนเดิมอัตโนมัติ และหลอดสถานะจะคำนวณใหม่ทันที
